@@ -15,8 +15,8 @@ export const useAuthStore = defineStore('auth', {
         const res: any = await authApi.status()
         this.authEnabled = res.authEnabled ?? true
         if (!res.authEnabled) {
-          this.token = 'no-auth-required'
-          localStorage.setItem('dsa_token', this.token)
+          this.token = ''
+          localStorage.removeItem('dsa_token')
         }
       } catch {
         this.authEnabled = false

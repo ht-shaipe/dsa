@@ -39,7 +39,7 @@ impl BacktestTools {
              AVG(returnPct) as avg_return, \
              MAX(maxDrawdown) as max_drawdown, \
              SUM(CASE WHEN directionCorrect = 1 THEN 1 ELSE 0 END) as dir_correct \
-             FROM backtest_results WHERE status = 1 AND stockCode = '{}'", code)
+             FROM backtest_results WHERE status = 1 AND stock_code = '{}'", code)
         };
 
         match Helper::query_rows(&sql, vec![], &connector) {
@@ -55,9 +55,9 @@ impl BacktestTools {
                     let sharpe = if total > 2.0 {
                         let avg_r = avg_return / 100.0;
                         let std_dev_sql = if code.is_empty() {
-                            "SELECT STDDEV(returnPct) as std_dev FROM backtest_results WHERE status = 1".to_string()
+                            "SELECT STDDEV(return_pct) as std_dev FROM backtest_results WHERE status = 1".to_string()
                         } else {
-                            format!("SELECT STDDEV(returnPct) as std_dev FROM backtest_results WHERE status = 1 AND stockCode = '{}'", code)
+                            format!("SELECT STDDEV(return_pct) as std_dev FROM backtest_results WHERE status = 1 AND stock_code = '{}'", code)
                         };
                         let std_dev = Helper::query_rows(&std_dev_sql, vec![], &connector)
                             .ok()
@@ -93,13 +93,13 @@ impl BacktestTools {
         };
 
         let sql = if code.is_empty() {
-            format!("SELECT id, analysisId, stockCode, signalDate, decisionAction, \
+            format!("SELECT id, analysis_id, stock_code, signal_date, decision_action, \
                  simulatedEntry, simulatedExit, returnPct, maxDrawdown, directionCorrect, createTime \
-                 FROM backtest_results WHERE status = 1 ORDER BY createTime DESC LIMIT {}", limit)
+                 FROM backtest_results WHERE status = 1 ORDER BY create_time DESC LIMIT {}", limit)
         } else {
-            format!("SELECT id, analysisId, stockCode, signalDate, decisionAction, \
+            format!("SELECT id, analysis_id, stock_code, signal_date, decision_action, \
                  simulatedEntry, simulatedExit, returnPct, maxDrawdown, directionCorrect, createTime \
-                 FROM backtest_results WHERE status = 1 AND stockCode = '{}' ORDER BY createTime DESC LIMIT {}", code, limit)
+                 FROM backtest_results WHERE status = 1 AND stock_code = '{}' ORDER BY create_time DESC LIMIT {}", code, limit)
         };
 
         match Helper::query_rows(&sql, vec![], &connector) {
@@ -118,7 +118,7 @@ fn default_summary(code: &str) -> Value {
         "totalTrades": 0,
         "winRate": 0.0,
         "avgReturn": 0.0,
-        "maxDrawdown": 0.0,
+        "max_drawdown": 0.0,
         "sharpeRatio": 0.0,
     })
 }

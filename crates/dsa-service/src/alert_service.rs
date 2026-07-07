@@ -47,16 +47,16 @@ impl AlertService {
 
         let (sql, p) = if code.is_empty() {
             (
-                "SELECT id, stockCode, stockName, ruleType, conditionJson, \
-                 enabled, lastTriggeredAt, triggerCount, createTime, modifyTime \
-                 FROM alert_rules WHERE status >= 1 ORDER BY createTime DESC".to_string(),
+                "SELECT id, stock_code, stock_name, rule_type, condition_json, \
+                 enabled, last_triggered_at, trigger_count, create_time, modify_time \
+                 FROM alert_rules WHERE status >= 1 ORDER BY create_time DESC".to_string(),
                 vec![],
             )
         } else {
             (
-                "SELECT id, stockCode, stockName, ruleType, conditionJson, \
-                 enabled, lastTriggeredAt, triggerCount, createTime, modifyTime \
-                 FROM alert_rules WHERE status >= 1 AND stockCode = :code ORDER BY createTime DESC".to_string(),
+                "SELECT id, stock_code, stock_name, rule_type, condition_json, \
+                 enabled, last_triggered_at, trigger_count, create_time, modify_time \
+                 FROM alert_rules WHERE status >= 1 AND stock_code = :code ORDER BY create_time DESC".to_string(),
                 vec![("code".to_string(), Value::from(code.as_str()))],
             )
         };
@@ -65,7 +65,7 @@ impl AlertService {
             .map_err(|e| DsaError::Database(format!("查询告警规则失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 创建告警规则
@@ -87,7 +87,7 @@ impl AlertService {
         // 使用 alert_rules 表 (如果不存在则用 intelligence_source 表临时存储)
         // 实际应使用 alert_rules 表，此处简化用 SQL 直接操作
         let sql = "INSERT INTO alert_rules \
-             (stockCode, stockName, ruleType, conditionJson, enabled, triggerCount, status, createTime, modifyTime) \
+             (stock_code, stockName, ruleType, condition_json, enabled, trigger_count, status, create_time, modify_time) \
              VALUES (:code, :name, :type, :cond, 1, 0, 1, NOW(), NOW())";
 
         let result = Helper::execute(
@@ -102,7 +102,7 @@ impl AlertService {
         )
         .map_err(|e| DsaError::Database(format!("创建告警规则失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": result as i64, "code": code, "ruleType": rule_type}}))
+        Ok(value!({"id": result as i64, "code": code, "ruleType": rule_type}))
     }
 
     /// 更新告警规则
@@ -118,7 +118,7 @@ impl AlertService {
         let connector = utils::get_db_connector()?;
         let condition_json = utils::param_string(params, "condition");
 
-        let sql = "UPDATE alert_rules SET conditionJson = :cond, modifyTime = NOW() WHERE id = :id";
+        let sql = "UPDATE alert_rules SET condition_json = :cond, modify_time = NOW() WHERE id = :id";
         Helper::execute(
             sql,
             vec![
@@ -129,7 +129,7 @@ impl AlertService {
         )
         .map_err(|e| DsaError::Database(format!("更新告警规则失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": id}}))
+        Ok(value!({"id": id}))
     }
 
     /// 删除告警规则
@@ -143,11 +143,11 @@ impl AlertService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "UPDATE alert_rules SET status = 0, modifyTime = NOW() WHERE id = :id";
+        let sql = "UPDATE alert_rules SET status = 0, modify_time = NOW() WHERE id = :id";
         Helper::execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| DsaError::Database(format!("删除告警规则失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": id}}))
+        Ok(value!({"id": id}))
     }
 
     /// 启用规则
@@ -161,11 +161,11 @@ impl AlertService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "UPDATE alert_rules SET enabled = 1, modifyTime = NOW() WHERE id = :id";
+        let sql = "UPDATE alert_rules SET enabled = 1, modify_time = NOW() WHERE id = :id";
         Helper::execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| DsaError::Database(format!("启用规则失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": id, "enabled": true}}))
+        Ok(value!({"id": id, "enabled": true}))
     }
 
     /// 禁用规则
@@ -179,11 +179,11 @@ impl AlertService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "UPDATE alert_rules SET enabled = 0, modifyTime = NOW() WHERE id = :id";
+        let sql = "UPDATE alert_rules SET enabled = 0, modify_time = NOW() WHERE id = :id";
         Helper::execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| DsaError::Database(format!("禁用规则失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": id, "enabled": false}}))
+        Ok(value!({"id": id, "enabled": false}))
     }
 
     /// 测试规则 (干跑)
@@ -250,13 +250,10 @@ impl AlertService {
         }
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "triggered": triggered,
-                "currentPrice": current_price,
-                "changePct": change_pct,
-                "reasons": reasons,
-            }
+            "triggered": triggered,
+            "currentPrice": current_price,
+            "changePct": change_pct,
+            "reasons": reasons,
         }))
     }
 
@@ -268,15 +265,15 @@ impl AlertService {
             .and_then(|v| v.as_f64())
             .unwrap_or(50.0) as i64;
 
-        let sql = "SELECT id, ruleId, stockCode, triggerType, triggerValue, \
-             conditionSnapshot, notified, createTime \
+        let sql = "SELECT id, rule_id, stock_code, trigger_type, trigger_value, \
+             conditionSnapshot, notified, create_time \
              FROM alert_triggers WHERE status >= 1 \
-             ORDER BY createTime DESC LIMIT :limit";
+             ORDER BY create_time DESC LIMIT :limit";
         let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
             .map_err(|e| DsaError::Database(format!("查询触发历史失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 通知列表
@@ -288,15 +285,15 @@ impl AlertService {
             .and_then(|v| v.as_f64())
             .unwrap_or(50.0) as i64;
 
-        let sql = "SELECT id, ruleId, stockCode, triggerType, triggerValue, \
-             conditionSnapshot, createTime \
+        let sql = "SELECT id, rule_id, stock_code, trigger_type, trigger_value, \
+             conditionSnapshot, create_time \
              FROM alert_triggers WHERE status >= 1 AND notified = 1 \
-             ORDER BY createTime DESC LIMIT :limit";
+             ORDER BY create_time DESC LIMIT :limit";
         let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
             .map_err(|e| DsaError::Database(format!("查询通知列表失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 查询活跃冷却记录
@@ -307,15 +304,15 @@ impl AlertService {
             .and_then(|v| v.as_f64())
             .unwrap_or(50.0) as i64;
 
-        let sql = "SELECT id, ruleId, ruleKey, target, severity, lastTriggeredAt, \
+        let sql = "SELECT id, rule_id, rule_key, target, severity, last_triggered_at, \
              cooldownUntil, reason, state, updatedTime \
              FROM alert_cooldowns WHERE state = 'active' \
-             ORDER BY cooldownUntil ASC LIMIT :limit";
+             ORDER BY cooldown_until ASC LIMIT :limit";
         let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
             .map_err(|e| DsaError::Database(format!("查询冷却记录失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 创建冷却记录
@@ -338,7 +335,7 @@ impl AlertService {
 
         let connector = utils::get_db_connector()?;
         let sql = "INSERT INTO alert_cooldowns \
-             (ruleId, ruleKey, target, severity, lastTriggeredAt, cooldownUntil, reason, state, updatedTime) \
+             (ruleId, ruleKey, target, severity, last_triggered_at, cooldownUntil, reason, state, updatedTime) \
              VALUES (:rid, '', :target, :severity, NOW(), DATE_ADD(NOW(), INTERVAL :minutes MINUTE), :reason, 'active', NOW())";
 
         let result = Helper::execute(
@@ -354,7 +351,7 @@ impl AlertService {
         )
         .map_err(|e| DsaError::Database(format!("创建冷却记录失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": result as i64, "ruleId": rule_id, "cooldownMinutes": cooldown_minutes}}))
+        Ok(value!({"id": result as i64, "ruleId": rule_id, "cooldownMinutes": cooldown_minutes}))
     }
 
     /// 清除冷却记录 (设为expired)
@@ -373,8 +370,8 @@ impl AlertService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "UPDATE alert_cooldowns SET state = 'expired', updatedTime = NOW() \
-             WHERE ruleId = :rid AND target = :target AND state = 'active'";
+        let sql = "UPDATE alert_cooldowns SET state = 'expired', updated_time = NOW() \
+             WHERE rule_id = :rid AND target = :target AND state = 'active'";
         Helper::execute(
             sql,
             vec![
@@ -385,7 +382,7 @@ impl AlertService {
         )
         .map_err(|e| DsaError::Database(format!("清除冷却记录失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"ruleId": rule_id, "target": target, "state": "expired"}}))
+        Ok(value!({"ruleId": rule_id, "target": target, "state": "expired"}))
     }
 
     /// 通知投递日志
@@ -396,15 +393,15 @@ impl AlertService {
             .and_then(|v| v.as_f64())
             .unwrap_or(50.0) as i64;
 
-        let sql = "SELECT id, triggerId, channel, attempt, success, errorCode, \
-             retryable, latencyMs, diagnostics, createTime \
+        let sql = "SELECT id, trigger_id, channel, attempt, success, error_code, \
+             retryable, latencyMs, diagnostics, create_time \
              FROM alert_notifications \
-             ORDER BY createTime DESC LIMIT :limit";
+             ORDER BY create_time DESC LIMIT :limit";
         let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
             .map_err(|e| DsaError::Database(format!("查询通知投递日志失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 创建通知投递记录
@@ -439,7 +436,7 @@ impl AlertService {
 
         let connector = utils::get_db_connector()?;
         let sql = "INSERT INTO alert_notifications \
-             (triggerId, channel, attempt, success, errorCode, retryable, latencyMs, diagnostics, createTime) \
+             (triggerId, channel, attempt, success, errorCode, retryable, latencyMs, diagnostics, create_time) \
              VALUES (:tid, :channel, 1, :success, :ec, :retry, :lat, :diag, NOW())";
 
         let result = Helper::execute(
@@ -457,7 +454,7 @@ impl AlertService {
         )
         .map_err(|e| DsaError::Database(format!("创建通知投递记录失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": result as i64, "triggerId": trigger_id, "channel": channel}}))
+        Ok(value!({"id": result as i64, "triggerId": trigger_id, "channel": channel}))
     }
 
     /// 检查所有启用的告警规则
@@ -465,8 +462,8 @@ impl AlertService {
         let connector = utils::get_db_connector()?;
 
         // 查询所有启用的规则
-        let sql = "SELECT id, stockCode, stockName, ruleType, conditionJson, \
-             enabled, lastTriggeredAt, triggerCount \
+        let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json, \
+             enabled, last_triggered_at, trigger_count \
              FROM alert_rules WHERE enabled = 1 AND status >= 1";
         let rules = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询告警规则失败: {}", e)))?;
@@ -547,7 +544,7 @@ impl AlertService {
 
             // 插入触发记录
             let trigger_sql = "INSERT INTO alert_triggers \
-                 (ruleId, stockCode, triggerType, triggerValue, conditionSnapshot, notified, status, createTime) \
+                 (ruleId, stock_code, triggerType, triggerValue, conditionSnapshot, notified, status, create_time) \
                  VALUES (:rid, :code, 'price', :val, :cond, 1, 1, NOW())";
             let trigger_result = Helper::execute(
                 trigger_sql,
@@ -564,7 +561,7 @@ impl AlertService {
                 // 创建通知投递记录
                 let _ = Helper::execute(
                     "INSERT INTO alert_notifications \
-                     (triggerId, channel, attempt, success, errorCode, retryable, latencyMs, diagnostics, createTime) \
+                     (triggerId, channel, attempt, success, errorCode, retryable, latencyMs, diagnostics, create_time) \
                      VALUES (:tid, 'system', 1, 1, '', 0, 0, :diag, NOW())",
                     vec![
                         ("tid".to_string(), Value::from(trigger_id as i64)),
@@ -576,7 +573,7 @@ impl AlertService {
                 // 创建冷却记录
                 let _ = Helper::execute(
                     "INSERT INTO alert_cooldowns \
-                     (ruleId, ruleKey, target, severity, lastTriggeredAt, cooldownUntil, reason, state, updatedTime) \
+                     (ruleId, ruleKey, target, severity, last_triggered_at, cooldownUntil, reason, state, updatedTime) \
                      VALUES (:rid, '', :code, 'warning', NOW(), DATE_ADD(NOW(), INTERVAL 30 MINUTE), :reason, 'active', NOW())",
                     vec![
                         ("rid".to_string(), Value::from(rule_id)),
@@ -589,7 +586,7 @@ impl AlertService {
 
             // 更新规则触发计数
             let _ = Helper::execute(
-                "UPDATE alert_rules SET lastTriggeredAt = NOW(), triggerCount = triggerCount + 1, modifyTime = NOW() WHERE id = :id",
+                "UPDATE alert_rules SET last_triggered_at = NOW(), trigger_count = trigger_count + 1, modify_time = NOW() WHERE id = :id",
                 vec![("id".to_string(), Value::from(rule_id))],
                 &connector,
             );
@@ -598,11 +595,8 @@ impl AlertService {
         }
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "totalRules": rules.len() as i64,
-                "triggeredCount": triggered_count,
-            }
+            "totalRules": rules.len() as i64,
+            "triggeredCount": triggered_count,
         }))
     }
 
@@ -646,23 +640,20 @@ impl AlertService {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "light": light,
-                "indices": {
-                    "上证指数": {
-                        "changePercent": sh_change,
-                    },
-                    "深证成指": {
-                        "changePercent": sz_change,
-                    },
-                    "创业板指": {
-                        "changePercent": cy_change,
-                    },
+            "light": light,
+            "indices": {
+                "上证指数": {
+                    "changePercent": sh_change,
                 },
-                "upCount": up_count as i64,
-                "downCount": down_count as i64,
-            }
+                "深证成指": {
+                    "changePercent": sz_change,
+                },
+                "创业板指": {
+                    "changePercent": cy_change,
+                },
+            },
+            "upCount": up_count as i64,
+            "downCount": down_count as i64,
         }))
     }
 }

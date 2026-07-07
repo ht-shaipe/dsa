@@ -12,7 +12,7 @@
         <el-table-column prop="code" label="代码" width="100" />
         <el-table-column prop="name" label="规则名称" width="150" />
         <el-table-column prop="ruleType" label="类型" width="120">
-          <template #default="{ row }">{{ row.ruleType || row.rule_type || '-' }}</template>
+          <template #default="{ row }">{{ row.rule_type || row.rule_type || '-' }}</template>
         </el-table-column>
         <el-table-column label="条件" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">{{ JSON.stringify(row.condition || {}) }}</template>
@@ -46,17 +46,19 @@
       <el-col :span="12">
         <el-card shadow="hover">
           <template #header>触发历史</template>
-          <el-table :data="triggers" stripe style="width:100%" max-height="400">
-            <el-table-column prop="id" label="ID" width="60" />
-            <el-table-column prop="ruleId" label="规则ID" width="80">
-              <template #default="{ row }">{{ row.ruleId || row.rule_id }}</template>
-            </el-table-column>
-            <el-table-column prop="code" label="代码" width="100" />
-            <el-table-column prop="message" label="消息" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="triggeredAt" label="触发时间" width="180">
-              <template #default="{ row }">{{ row.triggeredAt || row.triggered_at || '-' }}</template>
-            </el-table-column>
-          </el-table>
+          <el-scrollbar max-height="400px">
+            <el-table :data="triggers" stripe style="width:100%">
+              <el-table-column prop="id" label="ID" width="60" />
+              <el-table-column prop="ruleId" label="规则ID" width="80">
+                <template #default="{ row }">{{ row.ruleId || row.rule_id }}</template>
+              </el-table-column>
+              <el-table-column prop="code" label="代码" width="100" />
+              <el-table-column prop="message" label="消息" min-width="200" show-overflow-tooltip />
+              <el-table-column prop="triggeredAt" label="触发时间" width="180">
+                <template #default="{ row }">{{ row.triggered_at || row.triggered_at || '-' }}</template>
+              </el-table-column>
+            </el-table>
+          </el-scrollbar>
         </el-card>
       </el-col>
       <el-col :span="12">
@@ -96,7 +98,7 @@
           <el-input v-model="ruleForm.name" placeholder="规则名称" />
         </el-form-item>
         <el-form-item label="规则类型">
-          <el-select v-model="ruleForm.ruleType" style="width:100%">
+          <el-select v-model="ruleForm.rule_type" style="width:100%">
             <el-option label="价格突破" value="price_breakout" />
             <el-option label="涨跌幅" value="change_percent" />
             <el-option label="成交量" value="volume" />
@@ -138,7 +140,7 @@ const editingRule = ref<Record<string, any> | null>(null)
 const ruleForm = ref({
   code: '',
   name: '',
-  ruleType: 'price_breakout',
+  rule_type: 'price_breakout',
   conditionStr: '{}',
 })
 const submitting = ref(false)
@@ -192,7 +194,7 @@ async function deleteRule(row: Record<string, any>) {
 
 function openCreateDialog() {
   editingRule.value = null
-  ruleForm.value = { code: '', name: '', ruleType: 'price_breakout', conditionStr: '{}' }
+  ruleForm.value = { code: '', name: '', rule_type: 'price_breakout', conditionStr: '{}' }
   testResult.value = null
   createDialogVisible.value = true
 }
@@ -202,7 +204,7 @@ function editRule(row: Record<string, any>) {
   ruleForm.value = {
     code: row.code || '',
     name: row.name || '',
-    ruleType: row.ruleType || row.rule_type || 'price_breakout',
+    rule_type: row.rule_type || row.rule_type || 'price_breakout',
     conditionStr: JSON.stringify(row.condition || {}, null, 2),
   }
   testResult.value = null
@@ -248,7 +250,7 @@ async function submitRule() {
     } else {
       await alertApi.ruleCreate({
         code: ruleForm.value.code,
-        ruleType: ruleForm.value.ruleType,
+        rule_type: ruleForm.value.rule_type,
         name: ruleForm.value.name,
         condition,
       })

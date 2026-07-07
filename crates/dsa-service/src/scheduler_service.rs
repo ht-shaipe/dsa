@@ -36,7 +36,7 @@ impl SchedulerService {
 
     async fn start(&self) -> DsaResult<Value> {
         if SCHEDULER_RUNNING.load(Ordering::SeqCst) {
-            return Ok(value!({"status": "ok", "message": "scheduler already running"}));
+            return Ok(value!({"message": "scheduler already running"}));
         }
 
         SCHEDULER_RUNNING.store(true, Ordering::SeqCst);
@@ -79,12 +79,12 @@ impl SchedulerService {
             }
         });
 
-        Ok(value!({"status": "ok", "message": "scheduler started"}))
+        Ok(value!({"message": "scheduler started"}))
     }
 
     async fn stop(&self) -> DsaResult<Value> {
         SCHEDULER_RUNNING.store(false, Ordering::SeqCst);
-        Ok(value!({"status": "ok", "message": "scheduler stopped"}))
+        Ok(value!({"message": "scheduler stopped"}))
     }
 
     async fn status(&self) -> DsaResult<Value> {
@@ -112,7 +112,6 @@ impl SchedulerService {
         };
 
         Ok(value!({
-            "status": "ok",
             "running": running,
             "nextRun": next_run,
             "scheduleTimes": conf.scheduler.times,
@@ -131,7 +130,7 @@ impl SchedulerService {
             }),
         ];
 
-        Ok(value!({"status": "ok", "data": jobs}))
+        Ok(Value::Array(jobs))
     }
 
     async fn trigger(&self, params: &Value) -> DsaResult<Value> {
@@ -188,9 +187,8 @@ impl SchedulerService {
         }
 
         Ok(value!({
-            "status": "ok",
             "message": format!("{} analysis completed", job_type),
-            "data": results,
+            "results": results,
         }))
     }
 

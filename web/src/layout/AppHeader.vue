@@ -9,7 +9,7 @@
         v-model="isDark"
         active-text="暗色"
         inactive-text="亮色"
-        @change="appStore.toggleTheme()"
+        @change="() => {}"
         style="--el-switch-on-color: #2c2c2c"
       />
       <el-dropdown @command="handleCommand">

@@ -36,12 +36,9 @@ impl MarketService {
         let cy = real.get_price("sz399006").await.ok();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "shanghai": sh.unwrap_or(Value::Null),
-                "shenzhen": sz.unwrap_or(Value::Null),
-                "chinext": cy.unwrap_or(Value::Null),
-            }
+            "shanghai": sh.unwrap_or(Value::Null),
+            "shenzhen": sz.unwrap_or(Value::Null),
+            "chinext": cy.unwrap_or(Value::Null),
         }))
     }
 
@@ -54,7 +51,7 @@ impl MarketService {
         let complex = Complex::get_hot_stock()
             .await
             .map_err(|e| DsaError::StockData(format!("获取热门板块失败: {}", e)))?;
-        Ok(value!({"status": "ok", "data": complex}))
+        Ok(complex)
     }
 
     async fn hot_stocks(&self) -> DsaResult<Value> {
@@ -65,7 +62,7 @@ impl MarketService {
             .map_err(|e| DsaError::StockData(format!("获取热门股票失败: {}", e)))?;
 
         let hot: Vec<Value> = spot.into_iter().take(20).collect();
-        Ok(value!({"status": "ok", "data": hot}))
+        Ok(Value::Array(hot))
     }
 
     async fn index(&self, params: &Value) -> DsaResult<Value> {
@@ -78,7 +75,7 @@ impl MarketService {
             .get_price(&code)
             .await
             .map_err(|e| DsaError::StockData(format!("获取指数失败: {}", e)))?;
-        Ok(value!({"status": "ok", "data": data}))
+        Ok(data)
     }
 
     async fn calendar(&self, params: &Value) -> DsaResult<Value> {
@@ -91,6 +88,6 @@ impl MarketService {
             .get_trade_calendar(&market)
             .await
             .map_err(|e| DsaError::StockData(format!("获取交易日历失败: {}", e)))?;
-        Ok(value!({"status": "ok", "data": data}))
+        Ok(data.into())
     }
 }

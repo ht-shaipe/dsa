@@ -19,10 +19,10 @@ pub struct PortfolioAccount {
     #[field(comment = "券商")]
     pub broker: String,
 
-    #[field(rename = "baseCurrency", default_value = "'CNY'")]
+    #[field(rename = "base_currency", default_value = "'CNY'")]
     pub base_currency: String,
 
-    #[field(rename = "initialCapital", comment = "初始资金")]
+    #[field(rename = "initial_capital", comment = "初始资金")]
     pub initial_capital: f64,
 
     #[field(comment = "备注")]
@@ -31,12 +31,12 @@ pub struct PortfolioAccount {
     #[field(default_value = "1")]
     pub status: i8,
 
-    #[field(rename = "creatorId", default_value = "0")]
+    #[field(rename = "creator_id", default_value = "0")]
     pub creator_id: i64,
 
-    #[field(rename = "createTime", default_value = "current_timestamp()")]
+    #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "modifyTime", default_value = "current_timestamp()")]
+    #[field(rename = "modify_time", default_value = "current_timestamp()")]
     pub modify_time: Option<chrono::NaiveDateTime>,
 }

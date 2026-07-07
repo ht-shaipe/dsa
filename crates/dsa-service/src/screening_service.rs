@@ -29,23 +29,23 @@ impl ScreeningService {
     }
 
     async fn status(&self) -> DsaResult<Value> {
-        Ok(value!({"status": "ok", "installed": true, "version": "0.1.0"}))
+        Ok(value!({"enabled": true, "installed": true, "version": "0.1.0"}))
     }
 
     async fn strategies(&self) -> DsaResult<Value> {
-        Ok(value!({"status": "ok", "data": [
+        Ok(value!([
             {"id": "dual_low", "name": "双低策略", "description": "低价+低市盈率筛选"},
             {"id": "breakout", "name": "突破策略", "description": "价格突破均线压力位"},
             {"id": "value", "name": "价值策略", "description": "低PB+高ROE筛选"},
             {"id": "momentum", "name": "动量策略", "description": "近期涨幅领先股票"},
-        ]}))
+        ]))
     }
 
     async fn hotspots(&self) -> DsaResult<Value> {
         let data = Complex::get_hot_stock()
             .await
             .map_err(|e| DsaError::StockData(format!("获取热点失败: {}", e)))?;
-        Ok(value!({"status": "ok", "data": data}))
+        Ok(data)
     }
 
     async fn hotspot_detail(&self, params: &Value) -> DsaResult<Value> {
@@ -77,13 +77,10 @@ impl ScreeningService {
         let total_stocks = matched.len() as i64;
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "topic": topic_val.clone(),
-                "description": format!("{}相关热门股票", topic_val),
-                "stocks": matched,
-                "totalStocks": total_stocks,
-            }
+            "topic": topic_val.clone(),
+            "description": format!("{}相关热门股票", topic_val),
+            "stocks": matched,
+            "totalStocks": total_stocks,
         }))
     }
 
@@ -111,7 +108,7 @@ impl ScreeningService {
             _ => spot.into_iter().take(limit).collect(),
         };
         let count = results.len() as i64;
-        Ok(value!({"status": "ok", "data": results, "strategy": strategy, "count": count}))
+        Ok(value!({"strategy": strategy, "count": count, "results": results}))
     }
 
     fn filter_dual_low(&self, stocks: &[Value], limit: usize) -> Vec<Value> {

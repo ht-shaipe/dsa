@@ -8,10 +8,10 @@ pub struct PortfolioPositionLot {
     #[field(primary = true, increment = 1)]
     pub id: i64,
 
-    #[field(rename = "accountId", required = true, comment = "账户ID")]
+    #[field(rename = "account_id", required = true, comment = "账户ID")]
     pub account_id: i64,
 
-    #[field(rename = "costMethod", default_value = "'fifo'", comment = "成本方法: fifo/avg")]
+    #[field(rename = "cost_method", default_value = "'fifo'", comment = "成本方法: fifo/avg")]
     pub cost_method: String,
 
     #[field(required = true, comment = "股票代码")]
@@ -20,21 +20,21 @@ pub struct PortfolioPositionLot {
     #[field(default_value = "'cn'", comment = "市场")]
     pub market: String,
 
-    #[field(rename = "baseCurrency", default_value = "'CNY'", comment = "币种")]
+    #[field(rename = "base_currency", default_value = "'CNY'", comment = "币种")]
     pub base_currency: String,
 
-    #[field(rename = "openDate", required = true, comment = "建仓日期")]
+    #[field(rename = "open_date", required = true, comment = "建仓日期")]
     pub open_date: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "remainingQuantity", default_value = "0", comment = "剩余数量")]
+    #[field(rename = "remaining_quantity", default_value = "0", comment = "剩余数量")]
     pub remaining_quantity: f64,
 
-    #[field(rename = "unitCost", default_value = "0", comment = "单位成本")]
+    #[field(rename = "unit_cost", default_value = "0", comment = "单位成本")]
     pub unit_cost: f64,
 
-    #[field(rename = "sourceTradeId", comment = "来源交易ID")]
+    #[field(rename = "source_trade_id", comment = "来源交易ID")]
     pub source_trade_id: i64,
 
-    #[field(rename = "updatedTime", default_value = "current_timestamp()")]
+    #[field(rename = "updated_time", default_value = "current_timestamp()")]
     pub updated_time: Option<chrono::NaiveDateTime>,
 }

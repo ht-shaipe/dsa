@@ -138,7 +138,7 @@ impl AnalysisTools {
         value!({
             "latestVolume": latest_vol,
             "avgVolume5": avg_vol_5,
-            "volumeRatio": volume_ratio,
+            "volume_ratio": volume_ratio,
             "signal": signal,
             "volTrend": if vol_increasing >= 3 { "increasing" } else if vol_increasing <= 1 { "decreasing" } else { "stable" },
         })

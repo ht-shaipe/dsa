@@ -1,148 +1,203 @@
-# ==============================
-# HTTP服务配置
-# ==============================
 [server]
-# 允许跨域请求的前端地址列表
-cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
-# 服务监听地址，0.0.0.0 表示所有网卡
 host = "0.0.0.0"
-# 服务监听端口
 port = 8000
+cors_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+auth_password = ""
+auth_password_env = ""
 
-# ==============================
-# 股票数据配置
-# ==============================
 [stock]
-# 是否启用筹码分布分析
-enable_chip_distribution = true
-# 是否启用实时行情数据
-enable_realtime = true
-# 实时行情数据源优先级，按顺序尝试获取
-realtime_source_priority = ["tencent", "sina", "eastmoney"]
-# 是否检查交易日（非交易日跳过相关任务）
+watchlist = [
+    "600519",
+    "300750",
+    "002594",
+]
 trading_day_check = true
-# 关注列表，填入股票代码
-watchlist = ["600519", "300750", "002594"]
+enable_realtime = true
+enable_chip_distribution = true
+realtime_source_priority = [
+    "tencent",
+    "sina",
+    "eastmoney",
+]
 
-# ==============================
-# LLM 大语言模型配置
-# ==============================
 [llm]
-# API密钥对应的环境变量名，优先从环境变量读取密钥
-api_key_env = "DEEPSEEK_API_KEY"
-# 模型名称
-model = "deepseek-chat"
-# 模型提供商：deepseek/openai/anthropic等
 provider = "deepseek"
-# 生成温度，越高越随机，0~1之间
+api_key = "sk-7ec7f5658e3e46398c8f1133ee4ecae2"
+api_key_env = ""
+model = "deepseek-v4-pro"
 temperature = 0.7
-# 请求超时时间（秒）
 timeout_seconds = 60
+max_tokens = 100
+base_url = ""
+channels = []
+litellm_config_path = ""
+fallback_models = []
+vision_model = ""
+vision_provider = ""
+prompt_cache_telemetry_enabled = true
+prompt_cache_diagnostics_level = ""
 
-# ==============================
-# MySQL 数据库配置
-# ==============================
 [database]
-# 数据库主机地址
 host = "127.0.0.1"
-# 数据库名称
-name = "dsa"
-# 数据库密码（明文，建议使用 password_env 代替）
-password = ""
-# 数据库密码环境变量名，格式：<端口>_<用户名>，优先于 password 字段
-password_env = "mysql.8889_root"
-# 数据库端口
 port = 3306
-# 数据库用户名
+name = "dsa"
 user = "root"
+password_env = "DSA_DB_PASSWORD"
+password = "mysql.8889_root"
 
-# ==============================
-# 定时任务配置
-# ==============================
 [scheduler]
-# 是否启用定时任务调度
 enabled = false
-# 服务启动后是否立即执行一次任务
+times = ["09:30"]
 run_immediately = true
-# 任务执行时间列表（24小时制），可配置多个时间点
-times = ["18:00"]
 
-# ==============================
-# 大盘综述配置
-# ==============================
 [market_review]
-# 是否启用大盘综述功能
 enabled = true
-# 市场区域：cn=A股, hk=港股, us=美股等
 region = "cn"
 
-# ==============================
-# 回测配置
-# ==============================
 [backtest]
-# 是否启用回测功能
 enabled = true
-# 信号评估窗口天数，信号发出后观察该天数内的表现
 eval_window_days = 10
-# 信号最小年龄天数，过新的信号不参与回测统计
 min_age_days = 14
-# 中性带百分比，涨跌幅在此范围内视为中性（无方向）
 neutral_band_pct = 2.0
 
-# ==============================
-# Agent 智能体配置
-# ==============================
 [agent]
-# 架构模式：single=单智能体, multi=多智能体协作
-arch = "single"
-# 是否启用Agent功能
 enabled = false
-# 单次任务最大执行步数，防止无限循环
-max_steps = 10
-# 编排模式：standard=标准, 其他模式可扩展
-orchestrator_mode = "standard"
-# 技能列表，可加载的Agent能力模块
 skills = []
+max_steps = 10
+arch = "single"
+orchestrator_mode = "standard"
+context_compression_enabled = false
+context_compression_trigger_tokens = 8000
+context_protected_turns = 4
+deep_research_budget = 5
+deep_research_timeout = 60
+memory_enabled = false
+skill_autoweight = false
+nl_routing = false
 
-# ==============================
-# 通知配置
-# ==============================
 [notification]
-# --- 钉钉机器人 Webhook 地址 ---
 dingtalk_webhook = ""
-# --- 飞书机器人 Webhook 地址 ---
 feishu_webhook = ""
-# --- 企业微信机器人 Webhook 地址 ---
 wecom_webhook = ""
-# --- Telegram 通知配置 ---
 telegram_bot_token = ""
 telegram_chat_id = ""
-# --- Bark 推送地址（iOS推送） ---
 bark_url = ""
-# --- 邮件 SMTP 通知配置 ---
 email_smtp_host = ""
 email_smtp_port = 465
 email_user = ""
 email_pass = ""
-# 邮件密码环境变量名，优先于 email_pass
 email_pass_env = ""
 email_from = ""
 email_to = ""
+discord_webhook = ""
+slack_webhook = ""
+pushover_user_key = ""
+pushover_api_token = ""
+pushplus_token = ""
+serverchan_token = ""
+ntfy_topic = ""
+ntfy_server = ""
+gotify_server = ""
+gotify_app_token = ""
+custom_webhook_url = ""
+quiet_hours_start = 23
+quiet_hours_end = 7
+dedup_window_minutes = 30
+feishu_app_id = ""
+feishu_app_secret = ""
+feishu_chat_id = ""
+feishu_receive_id_type = ""
+feishu_domain = ""
+feishu_folder_token = ""
+feishu_verification_token = ""
+feishu_encrypt_key = ""
+feishu_stream_enabled = false
+feishu_webhook_secret = ""
+dingtalk_app_key = ""
+dingtalk_app_secret = ""
+dingtalk_stream_enabled = false
+dingtalk_secret = ""
+discord_bot_token = ""
+discord_main_channel_id = ""
+slack_bot_token = ""
+slack_channel_id = ""
+wecom_corpid = ""
+wecom_token = ""
+wecom_encoding_aes_key = ""
+wecom_agent_id = ""
+custom_webhook_bearer_token = ""
+custom_webhook_body_template = ""
+webhook_verify_ssl = true
+report_channels = []
+alert_channels = []
+system_error_channels = []
+dedup_ttl_seconds = 600
+cooldown_seconds = 300
+timezone = "Asia/Shanghai"
+min_severity = "info"
+daily_digest_enabled = false
 
-# ==============================
-# 搜索配置
-# ==============================
 [search]
-# 默认搜索引擎：serper/bing/google
 default_provider = "serper"
-# --- Serper 搜索 API ---
 serper_api_key = ""
 serper_api_key_env = "SERPER_API_KEY"
-# --- Bing 搜索 API ---
 bing_api_key = ""
 bing_api_key_env = "BING_SEARCH_API_KEY"
-# --- Google 搜索 API ---
 google_api_key = ""
 google_api_key_env = "GOOGLE_SEARCH_API_KEY"
-# Google 自定义搜索引擎 CX ID
 google_cx = ""
+
+[proxy]
+http_proxy = ""
+https_proxy = ""
+no_proxy = ""
+
+[social_sentiment]
+enabled = true
+eastmoney_board_url = ""
+
+[news]
+max_age_days = 3
+strategy_profile = "default"
+intel_retention_days = 90
+fetch_timeout_sec = 60
+max_items_per_source = 20
+auto_fetch_enabled = true
+newsnow_base_url = ""
+
+[report]
+templates_dir = ""
+renderer_enabled = true
+report_language = "zh"
+summary_only = false
+show_llm_model = false
+default_report_type = "full"
+integrity_enabled = true
+integrity_retry = 2
+history_compare_n = 5
+
+[bot]
+enabled = false
+command_prefix = "/"
+rate_limit_per_minute = 10
+admin_users = []
+
+[portfolio_risk]
+concentration_alert_pct = 30.0
+drawdown_alert_pct = 15.0
+stop_loss_alert_pct = 8.0
+sector_concentration_alert_pct = 40.0
+
+[data_source]
+tushare_token = ""
+tushare_token_env = ""
+finnhub_api_key = ""
+finnhub_api_key_env = ""
+alphavantage_api_key = ""
+alphavantage_api_key_env = ""
+longbridge_app_key = ""
+longbridge_app_secret = ""
+longbridge_access_token = ""

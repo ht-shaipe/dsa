@@ -17,14 +17,19 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 
 /// 获取期望密码 - 依次检查内存覆盖、环境变量、配置文件
 fn get_expected_password() -> String {
-    // Check in-memory override first, then env var, then config
     if let Some(pwd) = dsa_core::get_password_override() {
         return pwd;
     }
-    std::env::var("DSA_PASSWORD").unwrap_or_else(|_| {
-        let conf = dsa_core::get_global_config();
-        conf.database.password.clone()
-    })
+    if !std::env::var("DSA_PASSWORD").is_err() {
+        return std::env::var("DSA_PASSWORD").unwrap();
+    }
+    let conf = dsa_core::get_global_config();
+    if !conf.server.auth_password_env.is_empty() {
+        if let Ok(pwd) = std::env::var(&conf.server.auth_password_env) {
+            return pwd;
+        }
+    }
+    conf.server.auth_password.clone()
 }
 
 /// 基础认证服务
@@ -53,12 +58,10 @@ impl AuthService {
 
     /// 认证状态
     async fn status(&self) -> DsaResult<Value> {
+        let expected = get_expected_password();
         let has_password = dsa_core::get_password_override().is_some()
             || std::env::var("DSA_PASSWORD").is_ok()
-            || {
-                let conf = dsa_core::get_global_config();
-                !conf.database.password.is_empty()
-            };
+            || !expected.is_empty();
 
         Ok(value!({
             "status": "ok",

@@ -34,18 +34,18 @@ impl UsageService {
         let period_clause = match period.as_str() {
             "day" => "DATE(createTime) = CURDATE()",
             "week" => "YEARWEEK(createTime) = YEARWEEK(NOW())",
-            "month" => "MONTH(createTime) = MONTH(NOW()) AND YEAR(createTime) = YEAR(NOW())",
+            "month" => "MONTH(create_time) = MONTH(NOW()) AND YEAR(create_time) = YEAR(NOW())",
             _ => "1=1",
         };
 
         let sql = format!(
-            "SELECT llmProvider, llmModel, operationType, \
+            "SELECT llm_provider, llm_model, operation_type, \
              COUNT(*) as callCount, \
              SUM(promptTokens) as totalPromptTokens, \
              SUM(completionTokens) as totalCompletionTokens, \
              SUM(totalTokens) as totalTokens, \
              AVG(latencyMs) as avgLatencyMs \
-             FROM llm_usage WHERE {} GROUP BY llmProvider, llmModel, operationType",
+             FROM llm_usage WHERE {} GROUP BY llm_provider, llm_model, operation_type",
             period_clause
         );
 
@@ -59,13 +59,10 @@ impl UsageService {
         let total_tokens: i64 = results.iter().map(|r| r.get("totalTokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64).sum();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "period": period,
-                "totalCalls": total_calls,
-                "totalTokens": total_tokens,
-                "breakdown": results,
-            }
+            "period": period,
+            "totalCalls": total_calls,
+            "totalTokens": total_tokens,
+            "breakdown": results,
         }))
     }
 
@@ -74,7 +71,7 @@ impl UsageService {
         let connector = utils::get_db_connector()?;
 
         // 总计汇总
-        let total_sql = "SELECT COUNT(*) as totalCalls, SUM(totalTokens) as totalTokens, \
+        let total_sql = "SELECT COUNT(*) as totalCalls, SUM(total_tokens) as total_tokens, \
              AVG(latencyMs) as avgLatency \
              FROM llm_usage";
         let total_rows = Helper::query_rows(total_sql, vec![], &connector)
@@ -93,31 +90,31 @@ impl UsageService {
         let total_cost_estimate = (total_tokens as f64) * 0.002 / 1000.0;
 
         // 按Provider聚合
-        let provider_sql = "SELECT llmProvider, COUNT(*) as callCount, SUM(totalTokens) as totalTokens \
-             FROM llm_usage GROUP BY llmProvider";
+        let provider_sql = "SELECT llm_provider, COUNT(*) as callCount, SUM(total_tokens) as total_tokens \
+             FROM llm_usage GROUP BY llm_provider";
         let provider_rows = Helper::query_rows(provider_sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询Provider统计失败: {}", e)))?;
         let calls_by_provider: Vec<Value> = provider_rows.iter().map(|r| r.to_value2()).collect();
 
         // 按操作类型聚合
-        let type_sql = "SELECT operationType, COUNT(*) as callCount, SUM(totalTokens) as totalTokens \
-             FROM llm_usage GROUP BY operationType";
+        let type_sql = "SELECT operation_type, COUNT(*) as callCount, SUM(total_tokens) as total_tokens \
+             FROM llm_usage GROUP BY operation_type";
         let type_rows = Helper::query_rows(type_sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询操作类型统计失败: {}", e)))?;
         let calls_by_type: Vec<Value> = type_rows.iter().map(|r| r.to_value2()).collect();
 
         // 最近30天每日调用
-        let daily_sql = "SELECT DATE(createTime) as date, COUNT(*) as callCount, SUM(totalTokens) as totalTokens \
-             FROM llm_usage WHERE createTime >= DATE_SUB(NOW(), INTERVAL 30 DAY) \
-             GROUP BY DATE(createTime) ORDER BY date";
+        let daily_sql = "SELECT DATE(create_time) as date, COUNT(*) as callCount, SUM(total_tokens) as total_tokens \
+             FROM llm_usage WHERE create_time >= DATE_SUB(NOW(), INTERVAL 30 DAY) \
+             GROUP BY DATE(create_time) ORDER BY date";
         let daily_rows = Helper::query_rows(daily_sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询每日统计失败: {}", e)))?;
         let daily_calls: Vec<Value> = daily_rows.iter().map(|r| r.to_value2()).collect();
 
         // 今日汇总
-        let summary_sql = "SELECT COUNT(*) as calls, SUM(totalTokens) as tokens, \
+        let summary_sql = "SELECT COUNT(*) as calls, SUM(total_tokens) as tokens, \
              AVG(latencyMs) as avgLatency \
-             FROM llm_usage WHERE DATE(createTime) = CURDATE()";
+             FROM llm_usage WHERE DATE(create_time) = CURDATE()";
         let summary_rows = Helper::query_rows(summary_sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询今日统计失败: {}", e)))?;
 
@@ -135,29 +132,26 @@ impl UsageService {
             .unwrap_or(0.0);
 
         // 最近记录
-        let recent_sql = "SELECT id, llmProvider, llmModel, operationType, \
+        let recent_sql = "SELECT id, llm_provider, llm_model, operation_type, \
              promptTokens, completionTokens, totalTokens, cacheHit, latencyMs, \
              stockCode, createTime \
-             FROM llm_usage ORDER BY createTime DESC LIMIT 10";
+             FROM llm_usage ORDER BY create_time DESC LIMIT 10";
         let recent_rows = Helper::query_rows(recent_sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询最近记录失败: {}", e)))?;
 
         let recent: Vec<Value> = recent_rows.iter().map(|r| r.to_value2()).collect();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "totalCalls": total_calls,
-                "totalTokens": total_tokens,
-                "totalCostEstimate": total_cost_estimate,
-                "callsByProvider": calls_by_provider,
-                "callsByType": calls_by_type,
-                "dailyCalls": daily_calls,
-                "todayCalls": today_calls,
-                "todayTokens": today_tokens,
-                "avgLatencyMs": avg_latency,
-                "recentRecords": recent,
-            }
+            "totalCalls": total_calls,
+            "totalTokens": total_tokens,
+            "totalCostEstimate": total_cost_estimate,
+            "callsByProvider": calls_by_provider,
+            "callsByType": calls_by_type,
+            "dailyCalls": daily_calls,
+            "todayCalls": today_calls,
+            "todayTokens": today_tokens,
+            "avgLatencyMs": avg_latency,
+            "recentRecords": recent,
         }))
     }
 
@@ -171,27 +165,27 @@ impl UsageService {
         let connector = utils::get_db_connector()?;
 
         let (sql, p) = if !start_date.is_empty() && !end_date.is_empty() {
-            ("SELECT id, llmProvider, llmModel, operationType, \
+            ("SELECT id, llm_provider, llm_model, operation_type, \
               promptTokens, completionTokens, totalTokens, cacheHit, latencyMs, \
               stockCode, createTime \
-              FROM llm_usage WHERE DATE(createTime) >= :start_date AND DATE(createTime) <= :end_date \
-              ORDER BY createTime DESC".to_string(),
+              FROM llm_usage WHERE DATE(create_time) >= :start_date AND DATE(create_time) <= :end_date \
+              ORDER BY create_time DESC".to_string(),
              vec![
                  ("start_date".to_string(), Value::from(start_date.as_str())),
                  ("end_date".to_string(), Value::from(end_date.as_str())),
              ])
         } else if !start_date.is_empty() {
-            ("SELECT id, llmProvider, llmModel, operationType, \
+            ("SELECT id, llm_provider, llm_model, operation_type, \
               promptTokens, completionTokens, totalTokens, cacheHit, latencyMs, \
               stockCode, createTime \
-              FROM llm_usage WHERE DATE(createTime) >= :start_date \
-              ORDER BY createTime DESC".to_string(),
+              FROM llm_usage WHERE DATE(create_time) >= :start_date \
+              ORDER BY create_time DESC".to_string(),
              vec![("start_date".to_string(), Value::from(start_date.as_str()))])
         } else {
-            ("SELECT id, llmProvider, llmModel, operationType, \
+            ("SELECT id, llm_provider, llm_model, operation_type, \
               promptTokens, completionTokens, totalTokens, cacheHit, latencyMs, \
               stockCode, createTime \
-              FROM llm_usage ORDER BY createTime DESC".to_string(),
+              FROM llm_usage ORDER BY create_time DESC".to_string(),
              vec![])
         };
 
@@ -214,17 +208,14 @@ impl UsageService {
             .sum();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "records": records,
-                "summary": {
-                    "totalCalls": total_calls,
-                    "totalTokens": total_tokens,
-                    "totalCostEstimate": total_cost_estimate,
-                    "startDate": start_date,
-                    "endDate": end_date,
-                },
-            }
+            "records": records,
+            "summary": {
+                "totalCalls": total_calls,
+                "totalTokens": total_tokens,
+                "totalCostEstimate": total_cost_estimate,
+                "startDate": start_date,
+                "endDate": end_date,
+            },
         }))
     }
 
@@ -239,19 +230,19 @@ impl UsageService {
 
         let (sql, p) = if provider.is_empty() {
             (
-                "SELECT id, llmProvider, llmModel, operationType, \
+                "SELECT id, llm_provider, llm_model, operation_type, \
                  promptTokens, completionTokens, totalTokens, cacheHit, latencyMs, \
                  stockCode, createTime \
-                 FROM llm_usage ORDER BY createTime DESC LIMIT :limit"
+                 FROM llm_usage ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![("limit".to_string(), Value::from(limit))],
             )
         } else {
             (
-                "SELECT id, llmProvider, llmModel, operationType, \
+                "SELECT id, llm_provider, llm_model, operation_type, \
                  promptTokens, completionTokens, totalTokens, cacheHit, latencyMs, \
                  stockCode, createTime \
-                 FROM llm_usage WHERE llmProvider = :provider ORDER BY createTime DESC LIMIT :limit"
+                 FROM llm_usage WHERE llm_provider = :provider ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![
                     ("provider".to_string(), Value::from(provider.as_str())),
@@ -264,6 +255,6 @@ impl UsageService {
             .map_err(|e| DsaError::Database(format!("查询使用记录失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 }

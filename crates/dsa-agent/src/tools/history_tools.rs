@@ -17,11 +17,11 @@ impl HistoryTools {
             Ok(c) => c,
             Err(_) => return value!({"data": []}),
         };
-        let sql = format!("SELECT id, stockCode, stockName, sentimentScore, operationAdvice, \
+        let sql = format!("SELECT id, stock_code, stock_name, sentiment_score, operation_advice, \
              trendPrediction, idealBuy, secondaryBuy, stopLoss, takeProfit, \
              analysisSummary, createTime \
-             FROM analysis_history WHERE stockCode = '{}' AND status >= 1 \
-             ORDER BY createTime DESC LIMIT {}", code, limit);
+             FROM analysis_history WHERE stock_code = '{}' AND status >= 1 \
+             ORDER BY create_time DESC LIMIT {}", code, limit);
         match Helper::query_rows(&sql, vec![], &connector) {
             Ok(rows) => {
                 let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();

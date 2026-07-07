@@ -68,14 +68,14 @@ impl IntelligenceService {
     /// 列出情报源
     async fn sources(&self, _params: &Value) -> DsaResult<Value> {
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, name, sourceType, urlTemplate, configJson, scopeType, \
+        let sql = "SELECT id, name, source_type, url_template, config_json, scope_type, \
              scopeValue, market, enabled, fetchInterval, createTime, modifyTime \
              FROM intelligence_sources ORDER BY id";
         let rows = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询情报源失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 创建情报源
@@ -105,7 +105,7 @@ impl IntelligenceService {
             .unwrap_or(1.0) as i8;
 
         let sql = "INSERT INTO intelligence_sources \
-             (name, sourceType, urlTemplate, configJson, scopeType, scopeValue, market, \
+             (name, source_type, url_template, config_json, scopeType, scopeValue, market, \
               enabled, fetchInterval, createTime, modifyTime) \
              VALUES (:name, :type, :url, :config, 'all', '', :market, :enabled, :interval, NOW(), NOW())";
 
@@ -124,7 +124,7 @@ impl IntelligenceService {
         )
         .map_err(|e| DsaError::Database(format!("创建情报源失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": result as i64, "name": name}}))
+        Ok(value!({"id": result as i64, "name": name}))
     }
 
     /// 更新情报源
@@ -160,11 +160,11 @@ impl IntelligenceService {
             p.push(("name".to_string(), Value::from(name.as_str())));
         }
         if !url_template.is_empty() {
-            sets.push("urlTemplate = :url".to_string());
+            sets.push("url_template = :url".to_string());
             p.push(("url".to_string(), Value::from(url_template.as_str())));
         }
         if !config_json.is_empty() {
-            sets.push("configJson = :config".to_string());
+            sets.push("config_json = :config".to_string());
             p.push(("config".to_string(), Value::from(config_json.as_str())));
         }
         if let Some(e) = enabled {
@@ -177,7 +177,7 @@ impl IntelligenceService {
         }
 
         if sets.is_empty() {
-            return Ok(value!({"status": "ok", "message": "无更新内容"}));
+            return Ok(value!({"message": "无更新内容"}));
         }
 
         sets.push("modifyTime = NOW()".to_string());
@@ -189,7 +189,7 @@ impl IntelligenceService {
         Helper::execute(&sql, p, &connector)
             .map_err(|e| DsaError::Database(format!("更新情报源失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": id}}))
+        Ok(value!({"id": id}))
     }
 
     /// 删除情报源
@@ -204,11 +204,11 @@ impl IntelligenceService {
 
         let connector = utils::get_db_connector()?;
         // 软删除: 设置enabled=0
-        let sql = "UPDATE intelligence_sources SET enabled = 0, modifyTime = NOW() WHERE id = :id";
+        let sql = "UPDATE intelligence_sources SET enabled = 0, modify_time = NOW() WHERE id = :id";
         Helper::execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| DsaError::Database(format!("删除情报源失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": id}}))
+        Ok(value!({"id": id}))
     }
 
     /// 测试情报源连通性
@@ -226,19 +226,13 @@ impl IntelligenceService {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 Ok(value!({
-                    "status": "ok",
-                    "data": {
-                        "reachable": true,
-                        "httpStatus": status as i64,
-                    }
+                    "reachable": true,
+                    "httpStatus": status as i64,
                 }))
             }
             Err(e) => Ok(value!({
-                "status": "ok",
-                "data": {
-                    "reachable": false,
-                    "error": e.to_string(),
-                }
+                "reachable": false,
+                "error": e.to_string(),
             })),
         }
     }
@@ -254,7 +248,7 @@ impl IntelligenceService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, name, sourceType, urlTemplate, configJson, market \
+        let sql = "SELECT id, name, source_type, url_template, config_json, market \
              FROM intelligence_sources WHERE id = :id AND enabled = 1";
         let rows = Helper::query_rows(
             sql,
@@ -282,18 +276,15 @@ impl IntelligenceService {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "sourceId": source_id,
-                "fetchedCount": items.len() as i64,
-            }
+            "sourceId": source_id,
+            "fetchedCount": items.len() as i64,
         }))
     }
 
     /// 抓取所有启用的源
     async fn fetch_enabled(&self, _params: &Value) -> DsaResult<Value> {
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, name, sourceType, urlTemplate, configJson, market \
+        let sql = "SELECT id, name, source_type, url_template, config_json, market \
              FROM intelligence_sources WHERE enabled = 1";
         let rows = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询情报源失败: {}", e)))?;
@@ -314,11 +305,8 @@ impl IntelligenceService {
         }
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "sourcesProcessed": rows.len() as i64,
-                "totalFetched": total_fetched,
-            }
+            "sourcesProcessed": rows.len() as i64,
+            "totalFetched": total_fetched,
         }))
     }
 
@@ -336,10 +324,10 @@ impl IntelligenceService {
 
         let (sql, p) = if source_id > 0 {
             (
-                "SELECT id, sourceId, title, content, sourceUrl, scopeType, scopeValue, \
+                "SELECT id, source_id, title, content, source_url, scope_type, scope_value, \
                  market, publishedAt, fetchedAt, createTime \
-                 FROM intelligence_items WHERE sourceId = :sid \
-                 ORDER BY fetchedAt DESC LIMIT :limit"
+                 FROM intelligence_items WHERE source_id = :sid \
+                 ORDER BY fetched_at DESC LIMIT :limit"
                     .to_string(),
                 vec![
                     ("sid".to_string(), Value::from(source_id)),
@@ -348,10 +336,10 @@ impl IntelligenceService {
             )
         } else {
             (
-                "SELECT id, sourceId, title, content, sourceUrl, scopeType, scopeValue, \
+                "SELECT id, source_id, title, content, source_url, scope_type, scope_value, \
                  market, publishedAt, fetchedAt, createTime \
                  FROM intelligence_items \
-                 ORDER BY fetchedAt DESC LIMIT :limit"
+                 ORDER BY fetched_at DESC LIMIT :limit"
                     .to_string(),
                 vec![("limit".to_string(), Value::from(limit))],
             )
@@ -361,7 +349,7 @@ impl IntelligenceService {
             .map_err(|e| DsaError::Database(format!("查询情报条目失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 返回内置模板
@@ -390,7 +378,7 @@ impl IntelligenceService {
             }),
         ];
 
-        Ok(value!({"status": "ok", "data": templates}))
+        Ok(Value::Array(templates))
     }
 
     /// 从模板创建默认源
@@ -420,8 +408,7 @@ impl IntelligenceService {
         }
 
         Ok(value!({
-            "status": "ok",
-            "data": {"created": created, "total": items.len() as i64}
+            "created": created, "total": items.len() as i64
         }))
     }
 
@@ -454,7 +441,7 @@ impl IntelligenceService {
             }
 
             // 去重: 根据sourceUrl
-            let check_sql = "SELECT id FROM intelligence_items WHERE sourceUrl = :url LIMIT 1";
+            let check_sql = "SELECT id FROM intelligence_items WHERE source_url = :url LIMIT 1";
             let existing = Helper::query_rows(
                 check_sql,
                 vec![("url".to_string(), Value::from(link.as_str()))],
@@ -531,7 +518,7 @@ impl IntelligenceService {
                 }
 
                 // 去重
-                let check_sql = "SELECT id FROM intelligence_items WHERE sourceUrl = :url LIMIT 1";
+                let check_sql = "SELECT id FROM intelligence_items WHERE source_url = :url LIMIT 1";
                 let existing = Helper::query_rows(
                     check_sql,
                     vec![("url".to_string(), Value::from(link.to_string()))],

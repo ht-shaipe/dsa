@@ -79,7 +79,7 @@ impl DecisionService {
 
         // 去重检查: 同一股票+动作+日期的活跃信号
         let dedup_sql = "SELECT id FROM decision_signals \
-             WHERE stockCode = :code AND action = :action AND signalDate = :sdate AND status = 1 \
+             WHERE stock_code = :code AND action = :action AND signal_date = :sdate AND status = 1 \
              LIMIT 1";
         let dedup_rows = Helper::query_rows(
             dedup_sql,
@@ -95,8 +95,7 @@ impl DecisionService {
         if !dedup_rows.is_empty() {
             let existing_id: i64 = dedup_rows[0].get_value(0).as_f64().unwrap_or(0.0) as i64;
             return Ok(value!({
-                "status": "ok",
-                "data": {"id": existing_id, "message": "信号已存在，跳过重复创建", "duplicate": true}
+                "id": existing_id, "message": "信号已存在，跳过重复创建", "duplicate": true
             }));
         }
 
@@ -136,8 +135,7 @@ impl DecisionService {
         .map_err(|e| DsaError::Database(format!("创建决策信号失败: {}", e)))?;
 
         Ok(value!({
-            "status": "ok",
-            "data": {"id": result as i64, "code": code, "action": action, "duplicate": false}
+            "id": result as i64, "code": code, "action": action, "duplicate": false
         }))
     }
 
@@ -160,7 +158,7 @@ impl DecisionService {
         let mut p: Vec<(String, Value)> = Vec::new();
 
         if !code.is_empty() {
-            conditions.push("ds.stockCode = :code".to_string());
+            conditions.push("ds.stock_code = :code".to_string());
             p.push(("code".to_string(), Value::from(code.as_str())));
         }
         if !status.is_empty() {
@@ -187,11 +185,11 @@ impl DecisionService {
         let where_clause = conditions.join(" AND ");
 
         let sql = format!(
-            "SELECT ds.id, ds.stockCode, ds.stockName, ds.signalDate, ds.action, \
-             ds.sentimentScore, ds.confidenceLevel, ds.entryPrice, ds.stopLoss, \
-             ds.targetPrice, ds.reasoning, ds.evidence, ds.scopeType, ds.analysisId, \
-             ds.planQuality, ds.status, ds.createTime, ds.modifyTime \
-             FROM decision_signals ds WHERE {} ORDER BY ds.createTime DESC LIMIT :limit",
+            "SELECT ds.id, ds.stock_code, ds.stock_name, ds.signal_date, ds.action, \
+             ds.sentiment_score, ds.confidence_level, ds.entry_price, ds.stopLoss, \
+             ds.target_price, ds.reasoning, ds.evidence, ds.scope_type, ds.analysis_id, \
+             ds.plan_quality, ds.status, ds.create_time, ds.modify_time \
+             FROM decision_signals ds WHERE {} ORDER BY ds.create_time DESC LIMIT :limit",
             where_clause
         );
         p.push(("limit".to_string(), Value::from(limit)));
@@ -200,7 +198,7 @@ impl DecisionService {
             .map_err(|e| DsaError::Database(format!("查询决策信号列表失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 获取最新活跃信号
@@ -211,11 +209,11 @@ impl DecisionService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, stockCode, stockName, signalDate, action, \
+        let sql = "SELECT id, stock_code, stock_name, signal_date, action, \
              sentimentScore, confidenceLevel, entryPrice, stopLoss, targetPrice, \
              reasoning, evidence, scopeType, analysisId, planQuality, status, createTime \
-             FROM decision_signals WHERE stockCode = :code AND status = 1 \
-             ORDER BY createTime DESC LIMIT 1";
+             FROM decision_signals WHERE stock_code = :code AND status = 1 \
+             ORDER BY create_time DESC LIMIT 1";
         let rows = Helper::query_rows(
             sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
@@ -224,10 +222,10 @@ impl DecisionService {
         .map_err(|e| DsaError::Database(format!("查询最新信号失败: {}", e)))?;
 
         if rows.is_empty() {
-            return Ok(value!({"status": "ok", "data": Value::Null}));
+            return Ok(Value::Null);
         }
 
-        Ok(value!({"status": "ok", "data": rows[0].to_value2()}))
+        Ok(rows[0].to_value2())
     }
 
     /// 获取信号详情
@@ -241,7 +239,7 @@ impl DecisionService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, stockCode, stockName, signalDate, action, \
+        let sql = "SELECT id, stock_code, stock_name, signal_date, action, \
              sentimentScore, confidenceLevel, entryPrice, stopLoss, targetPrice, \
              reasoning, evidence, scopeType, scopeValue, analysisId, planQuality, \
              status, creatorId, createTime, modifyTime \
@@ -250,10 +248,10 @@ impl DecisionService {
             .map_err(|e| DsaError::Database(format!("查询信号详情失败: {}", e)))?;
 
         if rows.is_empty() {
-            return Ok(value!({"status": "ok", "data": Value::Null}));
+            return Ok(Value::Null);
         }
 
-        Ok(value!({"status": "ok", "data": rows[0].to_value2()}))
+        Ok(rows[0].to_value2())
     }
 
     /// 更新信号状态
@@ -281,7 +279,7 @@ impl DecisionService {
         };
 
         let connector = utils::get_db_connector()?;
-        let sql = "UPDATE decision_signals SET status = :status, modifyTime = NOW() WHERE id = :id";
+        let sql = "UPDATE decision_signals SET status = :status, modify_time = NOW() WHERE id = :id";
         Helper::execute(
             sql,
             vec![
@@ -292,7 +290,7 @@ impl DecisionService {
         )
         .map_err(|e| DsaError::Database(format!("更新信号状态失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"id": id, "newStatus": new_status}}))
+        Ok(value!({"id": id, "newStatus": new_status}))
     }
 
     /// 查询信号结果
@@ -309,10 +307,10 @@ impl DecisionService {
 
         let (sql, p) = if signal_id > 0 {
             (
-                "SELECT id, signalId, stockCode, evalHorizon, evalDate, actualReturn, \
+                "SELECT id, signal_id, stock_code, eval_horizon, eval_date, actual_return, \
                  maxDrawdown, directionCorrect, hitTarget, hitStopLoss, status, createTime \
-                 FROM decision_signal_outcomes WHERE signalId = :sid AND status = 1 \
-                 ORDER BY evalDate DESC LIMIT :limit"
+                 FROM decision_signal_outcomes WHERE signal_id = :sid AND status = 1 \
+                 ORDER BY eval_date DESC LIMIT :limit"
                     .to_string(),
                 vec![
                     ("sid".to_string(), Value::from(signal_id)),
@@ -321,10 +319,10 @@ impl DecisionService {
             )
         } else {
             (
-                "SELECT id, signalId, stockCode, evalHorizon, evalDate, actualReturn, \
+                "SELECT id, signal_id, stock_code, eval_horizon, eval_date, actual_return, \
                  maxDrawdown, directionCorrect, hitTarget, hitStopLoss, status, createTime \
                  FROM decision_signal_outcomes WHERE status = 1 \
-                 ORDER BY evalDate DESC LIMIT :limit"
+                 ORDER BY eval_date DESC LIMIT :limit"
                     .to_string(),
                 vec![("limit".to_string(), Value::from(limit))],
             )
@@ -334,7 +332,7 @@ impl DecisionService {
             .map_err(|e| DsaError::Database(format!("查询信号结果失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 用户反馈 (upsert to decision_signal_feedback)
@@ -370,8 +368,8 @@ impl DecisionService {
         let sql = "INSERT INTO decision_signal_feedback \
              (signalId, feedbackValue, reasonCode, note, source, createTime, modifyTime) \
              VALUES (:sid, :fb, :rc, :note, 'api', NOW(), NOW()) \
-             ON DUPLICATE KEY UPDATE feedbackValue = VALUES(feedbackValue), \
-             reasonCode = VALUES(reasonCode), note = VALUES(note), modifyTime = NOW()";
+             ON DUPLICATE KEY UPDATE feedback_value = VALUES(feedback_value), \
+             reason_code = VALUES(reason_code), note = VALUES(note), modify_time = NOW()";
         Helper::execute(
             sql,
             vec![
@@ -384,7 +382,7 @@ impl DecisionService {
         )
         .map_err(|e| DsaError::Database(format!("保存反馈失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"signalId": signal_id, "feedback": feedback}}))
+        Ok(value!({"signalId": signal_id, "feedback": feedback}))
     }
 
     /// 查询信号反馈列表
@@ -398,8 +396,8 @@ impl DecisionService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, signalId, feedbackValue, reasonCode, note, source, createTime \
-             FROM decision_signal_feedback WHERE signalId = :sid ORDER BY createTime DESC";
+        let sql = "SELECT id, signal_id, feedback_value, reason_code, note, source, create_time \
+             FROM decision_signal_feedback WHERE signal_id = :sid ORDER BY create_time DESC";
         let rows = Helper::query_rows(
             sql,
             vec![("sid".to_string(), Value::from(signal_id))],
@@ -408,7 +406,7 @@ impl DecisionService {
         .map_err(|e| DsaError::Database(format!("查询反馈列表失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 重新评估活跃信号 (检查止损/目标价触发)
@@ -416,8 +414,8 @@ impl DecisionService {
         let connector = utils::get_db_connector()?;
 
         // Find active signals older than 1 day
-        let sql = "SELECT id, stockCode, action, entryPrice, stopLoss, targetPrice, createTime \
-             FROM decision_signals WHERE status = 1 AND createTime < DATE_SUB(NOW(), INTERVAL 1 DAY)";
+        let sql = "SELECT id, stock_code, action, entry_price, stop_loss, target_price, create_time \
+             FROM decision_signals WHERE status = 1 AND create_time < DATE_SUB(NOW(), INTERVAL 1 DAY)";
         let rows = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询活跃信号失败: {}", e)))?;
 
@@ -467,19 +465,19 @@ impl DecisionService {
             };
 
             if hit_stop {
-                let update_sql = "UPDATE decision_signals SET status = 3, modifyTime = NOW() WHERE id = :id";
+                let update_sql = "UPDATE decision_signals SET status = 3, modify_time = NOW() WHERE id = :id";
                 Helper::execute(update_sql, vec![("id".to_string(), Value::from(id))], &connector)
                     .map_err(|e| DsaError::Database(format!("更新信号状态失败: {}", e)))?;
                 reassessed += 1;
             } else if hit_target {
-                let update_sql = "UPDATE decision_signals SET status = 4, modifyTime = NOW() WHERE id = :id";
+                let update_sql = "UPDATE decision_signals SET status = 4, modify_time = NOW() WHERE id = :id";
                 Helper::execute(update_sql, vec![("id".to_string(), Value::from(id))], &connector)
                     .map_err(|e| DsaError::Database(format!("更新信号状态失败: {}", e)))?;
                 reassessed += 1;
             }
         }
 
-        Ok(value!({"status": "ok", "data": {"reassessed": reassessed, "totalChecked": rows.len() as i64}}))
+        Ok(value!({"reassessed": reassessed, "totalChecked": rows.len() as i64}))
     }
 
     /// 信号数据质量评分
@@ -493,13 +491,13 @@ impl DecisionService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, stockCode, reasoning, evidence, entryPrice, stopLoss, targetPrice \
+        let sql = "SELECT id, stock_code, reasoning, evidence, entry_price, stop_loss, target_price \
              FROM decision_signals WHERE id = :id";
         let rows = Helper::query_rows(sql, vec![("id".to_string(), Value::from(signal_id))], &connector)
             .map_err(|e| DsaError::Database(format!("查询信号详情失败: {}", e)))?;
 
         if rows.is_empty() {
-            return Ok(value!({"status": "ok", "data": Value::Null}));
+            return Ok(Value::Null);
         }
 
         let row = &rows[0];
@@ -559,14 +557,11 @@ impl DecisionService {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "signalId": signal_id,
-                "score": score,
-                "maxScore": 5,
-                "level": level,
-                "breakdown": breakdown,
-            }
+            "signalId": signal_id,
+            "score": score,
+            "maxScore": 5,
+            "level": level,
+            "breakdown": breakdown,
         }))
     }
 
@@ -576,14 +571,11 @@ impl DecisionService {
         let agent = &config.agent;
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "enabled": agent.enabled,
-                "orchestratorMode": agent.orchestrator_mode.clone(),
-                "maxSteps": agent.max_steps,
-                "arch": agent.arch.clone(),
-                "skills": agent.skills.clone(),
-            }
+            "enabled": agent.enabled,
+            "orchestratorMode": agent.orchestrator_mode.clone(),
+            "maxSteps": agent.max_steps,
+            "arch": agent.arch.clone(),
+            "skills": agent.skills.clone(),
         }))
     }
 
@@ -597,7 +589,7 @@ impl DecisionService {
         let tracker = dsa_backtest::SignalTracker::new();
         let outcomes = tracker.evaluate_outcomes(eval_window).await?;
 
-        Ok(value!({"status": "ok", "data": outcomes}))
+        Ok(Value::Array(outcomes))
     }
 
     /// 信号统计
@@ -623,7 +615,7 @@ impl DecisionService {
                  SUM(CASE WHEN action IN ('sell','reduce','avoid') THEN 1 ELSE 0 END) as bearish, \
                  SUM(CASE WHEN action = 'hold' THEN 1 ELSE 0 END) as neutral, \
                  AVG(sentimentScore) as avg_score \
-                 FROM decision_signals WHERE status = 1 AND stockCode = :code"
+                 FROM decision_signals WHERE status = 1 AND stock_code = :code"
                     .to_string(),
                 vec![("code".to_string(), Value::from(code.as_str()))],
             )
@@ -634,21 +626,17 @@ impl DecisionService {
 
         if rows.is_empty() {
             return Ok(value!({
-                "status": "ok",
-                "data": {"total": 0, "bullish": 0, "bearish": 0, "neutral": 0, "avgScore": 0.0}
+                "total": 0, "bullish": 0, "bearish": 0, "neutral": 0, "avgScore": 0.0
             }));
         }
 
         let row = &rows[0];
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "total": row.get_value(0).as_f64().unwrap_or(0.0) as i64,
-                "bullish": row.get_value(1).as_f64().unwrap_or(0.0) as i64,
-                "bearish": row.get_value(2).as_f64().unwrap_or(0.0) as i64,
-                "neutral": row.get_value(3).as_f64().unwrap_or(0.0) as i64,
-                "avgScore": row.get_value(4).as_f64().unwrap_or(0.0),
-            }
+            "total": row.get_value(0).as_f64().unwrap_or(0.0) as i64,
+            "bullish": row.get_value(1).as_f64().unwrap_or(0.0) as i64,
+            "bearish": row.get_value(2).as_f64().unwrap_or(0.0) as i64,
+            "neutral": row.get_value(3).as_f64().unwrap_or(0.0) as i64,
+            "avgScore": row.get_value(4).as_f64().unwrap_or(0.0),
         }))
     }
 }

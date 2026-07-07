@@ -13,19 +13,19 @@ pub struct IntelligenceSource {
     #[field(required = true, comment = "名称")]
     pub name: String,
 
-    #[field(required = true, comment = "类型")]
+    #[field(required = true, rename = "source_type", comment = "类型")]
     pub source_type: String,
 
-    #[field(comment = "URL模板")]
+    #[field(rename = "url_template", comment = "URL模板")]
     pub url_template: String,
 
-    #[field(comment = "配置JSON")]
+    #[field(rename = "config_json", comment = "配置JSON")]
     pub config_json: String,
 
-    #[field(rename = "scopeType", default_value = "'all'")]
+    #[field(rename = "scope_type", default_value = "'all'")]
     pub scope_type: String,
 
-    #[field(rename = "scopeValue", default_value = "''")]
+    #[field(rename = "scope_value", default_value = "''")]
     pub scope_value: String,
 
     #[field(rename = "market", default_value = "'cn'")]
@@ -34,13 +34,13 @@ pub struct IntelligenceSource {
     #[field(default_value = "1", comment = "启用状态")]
     pub enabled: i8,
 
-    #[field(rename = "fetchInterval", default_value = "60")]
+    #[field(rename = "fetch_interval", default_value = "60")]
     pub fetch_interval: i32,
 
-    #[field(rename = "createTime", default_value = "current_timestamp()")]
+    #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "modifyTime", default_value = "current_timestamp()")]
+    #[field(rename = "modify_time", default_value = "current_timestamp()")]
     pub modify_time: Option<chrono::NaiveDateTime>,
 
     #[field(default_value = "''", comment = "URL")]
@@ -49,12 +49,12 @@ pub struct IntelligenceSource {
     #[field(default_value = "''", comment = "描述")]
     pub description: String,
 
-    #[field(rename = "lastStatus", length = 32, default_value = "''", comment = "最后状态")]
+    #[field(rename = "last_status", length = 32, default_value = "''", comment = "最后状态")]
     pub last_status: String,
 
-    #[field(rename = "lastError", default_value = "''", comment = "最后错误")]
+    #[field(rename = "last_error", default_value = "''", comment = "最后错误")]
     pub last_error: String,
 
-    #[field(rename = "lastFetchedAt", comment = "最后抓取时间")]
+    #[field(rename = "last_fetched_at", comment = "最后抓取时间")]
     pub last_fetched_at: Option<chrono::NaiveDateTime>,
 }

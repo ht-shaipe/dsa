@@ -48,7 +48,12 @@
     <el-row :gutter="20" style="margin-top: 20px">
       <el-col :span="24">
         <el-card shadow="hover">
-          <template #header>自选股行情</template>
+          <template #header>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span>自选股行情</span>
+              <el-button link type="primary" @click="$router.push('/watchlist')">管理自选股</el-button>
+            </div>
+          </template>
           <el-table :data="watchlist" stripe style="width:100%">
             <el-table-column prop="code" label="代码" width="100" />
             <el-table-column prop="name" label="名称" width="120" />
@@ -63,7 +68,13 @@
               </template>
             </el-table-column>
             <el-table-column prop="volume" label="成交量" width="120" />
+            <el-table-column label="操作" width="80">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="analyzeFromWatchlist(row)">分析</el-button>
+              </template>
+            </el-table-column>
           </el-table>
+          <el-empty v-if="!watchlist.length" description="暂无自选股，前往自选股管理添加" />
         </el-card>
       </el-col>
     </el-row>
@@ -87,11 +98,11 @@ const selectedCode = ref('')
 const selectedName = ref('')
 
 const actionLabel = computed(() => {
-  const dt = analysisStore.currentReport?.decisionType || analysisStore.currentReport?.decision_type || ''
+  const dt = analysisStore.currentReport?.decisionType || ''
   return dt === 'buy' ? '买入' : dt === 'sell' ? '卖出' : dt === 'hold' ? '持有' : dt || '分析'
 })
 const actionType = computed(() => {
-  const dt = analysisStore.currentReport?.decisionType || analysisStore.currentReport?.decision_type || ''
+  const dt = analysisStore.currentReport?.decisionType || ''
   return dt === 'buy' ? 'success' : dt === 'sell' ? 'danger' : 'warning'
 })
 
@@ -128,6 +139,11 @@ async function loadWatchlist() {
     const res: any = await stockApi.watchlist()
     watchlist.value = res.data || []
   } catch { /* ignore */ }
+}
+
+function analyzeFromWatchlist(row: any) {
+  selectedCode.value = row.code || row.stockCode || ''
+  selectedName.value = row.name || row.stockName || ''
 }
 
 onMounted(() => {

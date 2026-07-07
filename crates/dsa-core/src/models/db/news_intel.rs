@@ -10,10 +10,10 @@ pub struct NewsIntel {
     #[field(primary = true, increment = 1)]
     pub id: i64,
 
-    #[field(required = true, rename = "stockCode", comment = "股票代码")]
+    #[field(required = true, rename = "stock_code", comment = "股票代码")]
     pub stock_code: String,
 
-    #[field(rename = "queryId", comment = "查询批次ID")]
+    #[field(rename = "query_id", comment = "查询批次ID")]
     pub query_id: String,
 
     #[field(comment = "标题")]
@@ -22,25 +22,25 @@ pub struct NewsIntel {
     #[field(comment = "摘要")]
     pub summary: String,
 
-    #[field(rename = "sourceUrl", comment = "来源URL")]
+    #[field(rename = "source_url", comment = "来源URL")]
     pub source_url: String,
 
     #[field(comment = "来源")]
     pub source: String,
 
-    #[field(rename = "publishedAt", comment = "发布时间")]
+    #[field(rename = "published_at", comment = "发布时间")]
     pub published_at: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "sentimentLabel", comment = "情感标签")]
+    #[field(rename = "sentiment_label", comment = "情感标签")]
     pub sentiment_label: String,
 
-    #[field(rename = "sentimentScore", comment = "情感评分")]
+    #[field(rename = "sentiment_score", comment = "情感评分")]
     pub sentiment_score: f64,
 
     #[field(default_value = "1")]
     pub status: i8,
 
-    #[field(rename = "createTime", default_value = "current_timestamp()")]
+    #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 
     #[field(length = 50, default_value = "''", comment = "名称")]
@@ -58,6 +58,6 @@ pub struct NewsIntel {
     #[field(default_value = "''", comment = "摘要片段")]
     pub snippet: String,
 
-    #[field(rename = "querySource", length = 32, default_value = "'system'", comment = "查询来源")]
+    #[field(rename = "query_source", length = 32, default_value = "'system'", comment = "查询来源")]
     pub query_source: String,
 }

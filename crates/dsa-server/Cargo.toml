@@ -37,3 +37,6 @@ tube_web = { workspace = true }
 tube_value = { workspace = true }
 
 deck_connector = { workspace = true }
+regex = { workspace = true }
+urlencoding = { workspace = true }
+reqwest = { workspace = true }

@@ -8,7 +8,7 @@ pub struct AlertNotification {
     #[field(primary = true, increment = 1)]
     pub id: i64,
 
-    #[field(rename = "triggerId", comment = "触发记录ID")]
+    #[field(rename = "trigger_id", comment = "触发记录ID")]
     pub trigger_id: i64,
 
     #[field(required = true, comment = "通知渠道: dingtalk/feishu/wecom/telegram/bark/email")]
@@ -20,18 +20,18 @@ pub struct AlertNotification {
     #[field(default_value = "0", comment = "是否成功")]
     pub success: i8,
 
-    #[field(rename = "errorCode", comment = "错误码")]
+    #[field(rename = "error_code", comment = "错误码")]
     pub error_code: String,
 
     #[field(default_value = "0", comment = "是否可重试")]
     pub retryable: i8,
 
-    #[field(rename = "latencyMs", comment = "延迟ms")]
+    #[field(rename = "latency_ms", comment = "延迟ms")]
     pub latency_ms: i32,
 
     #[field(comment = "诊断信息")]
     pub diagnostics: String,
 
-    #[field(rename = "createTime", default_value = "current_timestamp()")]
+    #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 }

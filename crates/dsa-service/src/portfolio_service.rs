@@ -43,14 +43,14 @@ impl PortfolioService {
     /// 查询账户列表
     async fn accounts(&self, _params: &Value) -> DsaResult<Value> {
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, name, market, broker, baseCurrency, initialCapital, \
+        let sql = "SELECT id, name, market, broker, base_currency, initial_capital, \
              remark, status, creatorId, createTime, modifyTime \
              FROM portfolio_accounts WHERE status >= 1 ORDER BY id";
         let rows = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询账户列表失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 添加持仓 (买入)
@@ -114,8 +114,8 @@ impl PortfolioService {
         .map_err(|e| DsaError::Database(format!("插入交易记录失败: {}", e)))?;
 
         // 2. 更新持仓
-        let check_sql = "SELECT id, quantity, avgCost FROM portfolio_positions \
-             WHERE accountId = :aid AND stockCode = :code AND status = 1 LIMIT 1";
+        let check_sql = "SELECT id, quantity, avg_cost FROM portfolio_positions \
+             WHERE account_id = :aid AND stock_code = :code AND status = 1 LIMIT 1";
         let existing = Helper::query_rows(
             check_sql,
             vec![
@@ -193,7 +193,7 @@ impl PortfolioService {
             .map_err(|e| DsaError::Database(format!("更新持仓失败: {}", e)))?;
         }
 
-        Ok(value!({"status": "ok", "data": {"action": "buy", "code": code, "price": price, "quantity": quantity}}))
+        Ok(value!({"action": "buy", "code": code, "price": price, "quantity": quantity}))
     }
 
     /// 移除持仓 (卖出)
@@ -228,8 +228,8 @@ impl PortfolioService {
         let connector = utils::get_db_connector()?;
 
         // 获取持仓信息
-        let check_sql = "SELECT id, quantity, avgCost, stockName FROM portfolio_positions \
-             WHERE accountId = :aid AND stockCode = :code AND status = 1 LIMIT 1";
+        let check_sql = "SELECT id, quantity, avg_cost, stock_name FROM portfolio_positions \
+             WHERE account_id = :aid AND stock_code = :code AND status = 1 LIMIT 1";
         let existing = Helper::query_rows(
             check_sql,
             vec![
@@ -286,7 +286,7 @@ impl PortfolioService {
         let remaining = old_qty - sell_qty;
         if remaining <= 0 {
             // 清仓: 软删除
-            let update_sql = "UPDATE portfolio_positions SET quantity = 0, status = 0, modifyTime = NOW() WHERE id = :id";
+            let update_sql = "UPDATE portfolio_positions SET quantity = 0, status = 0, modify_time = NOW() WHERE id = :id";
             Helper::execute(
                 update_sql,
                 vec![("id".to_string(), Value::from(pos_id))],
@@ -305,7 +305,7 @@ impl PortfolioService {
             let update_sql = "UPDATE portfolio_positions SET \
                  quantity = :qty, currentPrice = :price, marketValue = :mv, \
                  unrealizedPnl = :pnl, unrealizedPnlPct = :pnl_pct, \
-                 snapshotDate = NOW(), modifyTime = NOW() WHERE id = :id";
+                 snapshot_date = NOW(), modify_time = NOW() WHERE id = :id";
             Helper::execute(
                 update_sql,
                 vec![
@@ -321,7 +321,7 @@ impl PortfolioService {
             .map_err(|e| DsaError::Database(format!("更新持仓失败: {}", e)))?;
         }
 
-        Ok(value!({"status": "ok", "data": {"action": "sell", "code": code, "price": sell_price, "quantity": sell_qty}}))
+        Ok(value!({"action": "sell", "code": code, "price": sell_price, "quantity": sell_qty}))
     }
 
     /// 组合摘要 (含实时市值)
@@ -335,15 +335,15 @@ impl PortfolioService {
 
         let (sql, p) = if account_id > 0 {
             (
-                "SELECT id, accountId, stockCode, stockName, quantity, avgCost, \
+                "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
                  currentPrice, marketValue, unrealizedPnl, unrealizedPnlPct \
-                 FROM portfolio_positions WHERE accountId = :aid AND status = 1"
+                 FROM portfolio_positions WHERE account_id = :aid AND status = 1"
                     .to_string(),
                 vec![("aid".to_string(), Value::from(account_id))],
             )
         } else {
             (
-                "SELECT id, accountId, stockCode, stockName, quantity, avgCost, \
+                "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
                  currentPrice, marketValue, unrealizedPnl, unrealizedPnlPct \
                  FROM portfolio_positions WHERE status = 1"
                     .to_string(),
@@ -407,15 +407,12 @@ impl PortfolioService {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "totalValue": total_value,
-                "totalCost": total_cost,
-                "totalPnl": total_pnl,
-                "totalPnlPct": total_pnl_pct,
-                "positionCount": positions_detail.len() as i64,
-                "positions": positions_detail,
-            }
+            "totalValue": total_value,
+            "totalCost": total_cost,
+            "totalPnl": total_pnl,
+            "totalPnlPct": total_pnl_pct,
+            "positionCount": positions_detail.len() as i64,
+            "positions": positions_detail,
         }))
     }
 
@@ -429,16 +426,16 @@ impl PortfolioService {
 
         let (sql, p) = if account_id > 0 {
             (
-                "SELECT id, accountId, stockCode, stockName, quantity, avgCost, \
+                "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
                  currentPrice, marketValue, unrealizedPnl, unrealizedPnlPct, \
                  snapshotDate, status, createTime, modifyTime \
-                 FROM portfolio_positions WHERE accountId = :aid AND status = 1"
+                 FROM portfolio_positions WHERE account_id = :aid AND status = 1"
                     .to_string(),
                 vec![("aid".to_string(), Value::from(account_id))],
             )
         } else {
             (
-                "SELECT id, accountId, stockCode, stockName, quantity, avgCost, \
+                "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
                  currentPrice, marketValue, unrealizedPnl, unrealizedPnlPct, \
                  snapshotDate, status, createTime, modifyTime \
                  FROM portfolio_positions WHERE status = 1"
@@ -451,7 +448,7 @@ impl PortfolioService {
             .map_err(|e| DsaError::Database(format!("查询持仓失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 查询交易记录
@@ -468,10 +465,10 @@ impl PortfolioService {
 
         let (sql, p) = if account_id > 0 {
             (
-                "SELECT id, accountId, stockCode, stockName, direction, price, quantity, \
+                "SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
                  tradeDate, commission, tradeCurrency, dedupHash, remark, status, createTime \
-                 FROM portfolio_trades WHERE accountId = :aid AND status = 1 \
-                 ORDER BY createTime DESC LIMIT :limit"
+                 FROM portfolio_trades WHERE account_id = :aid AND status = 1 \
+                 ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![
                     ("aid".to_string(), Value::from(account_id)),
@@ -480,10 +477,10 @@ impl PortfolioService {
             )
         } else {
             (
-                "SELECT id, accountId, stockCode, stockName, direction, price, quantity, \
+                "SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
                  tradeDate, commission, tradeCurrency, dedupHash, remark, status, createTime \
                  FROM portfolio_trades WHERE status = 1 \
-                 ORDER BY createTime DESC LIMIT :limit"
+                 ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![("limit".to_string(), Value::from(limit))],
             )
@@ -493,7 +490,7 @@ impl PortfolioService {
             .map_err(|e| DsaError::Database(format!("查询交易记录失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 每日快照
@@ -509,7 +506,7 @@ impl PortfolioService {
         let connector = utils::get_db_connector()?;
 
         // 获取账户初始资金
-        let acct_sql = "SELECT initialCapital FROM portfolio_accounts WHERE id = :id AND status >= 1";
+        let acct_sql = "SELECT initial_capital FROM portfolio_accounts WHERE id = :id AND status >= 1";
         let acct_rows = Helper::query_rows(
             acct_sql,
             vec![("id".to_string(), Value::from(account_id))],
@@ -523,8 +520,8 @@ impl PortfolioService {
             .unwrap_or(0.0);
 
         // 获取持仓汇总
-        let pos_sql = "SELECT SUM(marketValue) as mv, SUM(unrealizedPnl) as pnl, \
-             SUM(costBasis) as cost FROM portfolio_positions WHERE accountId = :aid AND status = 1";
+        let pos_sql = "SELECT SUM(market_value) as mv, SUM(unrealized_pnl) as pnl, \
+             SUM(cost_basis) as cost FROM portfolio_positions WHERE account_id = :aid AND status = 1";
         let pos_rows = Helper::query_rows(
             pos_sql,
             vec![("aid".to_string(), Value::from(account_id))],
@@ -548,7 +545,7 @@ impl PortfolioService {
         // 获取已实现盈亏 (从交易记录汇总)
         let trade_sql = "SELECT SUM(CASE WHEN direction = 'sell' THEN price * quantity - commission \
              ELSE -(price * quantity + commission) END) as realized_pnl \
-             FROM portfolio_trades WHERE accountId = :aid AND status = 1";
+             FROM portfolio_trades WHERE account_id = :aid AND status = 1";
         let trade_rows = Helper::query_rows(
             trade_sql,
             vec![("aid".to_string(), Value::from(account_id))],
@@ -576,8 +573,8 @@ impl PortfolioService {
         };
 
         // 获取昨日快照用于计算daily_pnl
-        let prev_sql = "SELECT totalEquity FROM portfolio_daily_snapshots \
-             WHERE accountId = :aid ORDER BY snapshotDate DESC LIMIT 1";
+        let prev_sql = "SELECT total_equity FROM portfolio_daily_snapshots \
+             WHERE account_id = :aid ORDER BY snapshot_date DESC LIMIT 1";
         let prev_rows = Helper::query_rows(
             prev_sql,
             vec![("aid".to_string(), Value::from(account_id))],
@@ -620,18 +617,15 @@ impl PortfolioService {
         .map_err(|e| DsaError::Database(format!("创建快照失败: {}", e)))?;
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "accountId": account_id,
-                "totalEquity": total_equity,
-                "cashBalance": cash_balance,
-                "marketValue": market_value,
-                "unrealizedPnl": unrealized_pnl,
-                "dailyPnl": daily_pnl,
-                "dailyPnlPct": daily_pnl_pct,
-                "totalPnl": total_pnl,
-                "totalPnlPct": total_pnl_pct,
-            }
+            "accountId": account_id,
+            "totalEquity": total_equity,
+            "cashBalance": cash_balance,
+            "marketValue": market_value,
+            "unrealizedPnl": unrealized_pnl,
+            "dailyPnl": daily_pnl,
+            "dailyPnlPct": daily_pnl_pct,
+            "totalPnl": total_pnl,
+            "totalPnlPct": total_pnl_pct,
         }))
     }
 
@@ -651,8 +645,8 @@ impl PortfolioService {
             .unwrap_or(50.0) as i64;
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, accountId, eventDate, direction, amount, baseCurrency, note, createTime \
-             FROM portfolio_cash_ledger WHERE accountId = :aid ORDER BY eventDate DESC LIMIT :limit";
+        let sql = "SELECT id, account_id, event_date, direction, amount, base_currency, note, create_time \
+             FROM portfolio_cash_ledger WHERE account_id = :aid ORDER BY event_date DESC LIMIT :limit";
         let rows = Helper::query_rows(
             sql,
             vec![
@@ -664,7 +658,7 @@ impl PortfolioService {
         .map_err(|e| DsaError::Database(format!("查询现金流水失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 新增现金收支事件
@@ -708,7 +702,7 @@ impl PortfolioService {
         )
         .map_err(|e| DsaError::Database(format!("插入现金流水失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"accountId": account_id, "direction": direction, "amount": amount}}))
+        Ok(value!({"accountId": account_id, "direction": direction, "amount": amount}))
     }
 
     /// 查询公司行动记录
@@ -728,7 +722,7 @@ impl PortfolioService {
 
         let connector = utils::get_db_connector()?;
         let sql = "SELECT * FROM portfolio_corporate_actions \
-             WHERE accountId = :aid ORDER BY effectiveDate DESC LIMIT :limit";
+             WHERE account_id = :aid ORDER BY effective_date DESC LIMIT :limit";
         let rows = Helper::query_rows(
             sql,
             vec![
@@ -740,7 +734,7 @@ impl PortfolioService {
         .map_err(|e| DsaError::Database(format!("查询公司行动失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 新增公司行动
@@ -789,7 +783,7 @@ impl PortfolioService {
         )
         .map_err(|e| DsaError::Database(format!("插入公司行动失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"accountId": account_id, "symbol": symbol, "actionType": action_type}}))
+        Ok(value!({"accountId": account_id, "symbol": symbol, "actionType": action_type}))
     }
 
     /// 查询FIFO批次
@@ -804,7 +798,7 @@ impl PortfolioService {
 
         let connector = utils::get_db_connector()?;
         let sql = "SELECT * FROM portfolio_position_lots \
-             WHERE accountId = :aid AND remainingQuantity > 0 ORDER BY openDate ASC";
+             WHERE account_id = :aid AND remaining_quantity > 0 ORDER BY open_date ASC";
         let rows = Helper::query_rows(
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
@@ -813,7 +807,7 @@ impl PortfolioService {
         .map_err(|e| DsaError::Database(format!("查询FIFO批次失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 查询汇率
@@ -824,7 +818,7 @@ impl PortfolioService {
             .unwrap_or(50.0) as i64;
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT * FROM portfolio_fx_rates ORDER BY rateDate DESC LIMIT :limit";
+        let sql = "SELECT * FROM portfolio_fx_rates ORDER BY rate_date DESC LIMIT :limit";
         let rows = Helper::query_rows(
             sql,
             vec![("limit".to_string(), Value::from(limit))],
@@ -833,7 +827,7 @@ impl PortfolioService {
         .map_err(|e| DsaError::Database(format!("查询汇率失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 更新汇率
@@ -876,7 +870,7 @@ impl PortfolioService {
         )
         .map_err(|e| DsaError::Database(format!("更新汇率失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": {"fromCurrency": from_currency, "toCurrency": to_currency, "rate": rate}}))
+        Ok(value!({"fromCurrency": from_currency, "toCurrency": to_currency, "rate": rate}))
     }
 
     /// 组合风险分析
@@ -890,8 +884,8 @@ impl PortfolioService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT stockCode, marketValue, unrealizedPnlPct \
-             FROM portfolio_positions WHERE accountId = :aid AND status = 1";
+        let sql = "SELECT stock_code, market_value, unrealized_pnl_pct \
+             FROM portfolio_positions WHERE account_id = :aid AND status = 1";
         let rows = Helper::query_rows(
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
@@ -901,13 +895,10 @@ impl PortfolioService {
 
         if rows.is_empty() {
             return Ok(value!({
-                "status": "ok",
-                "data": {
-                    "position_concentration": 0.0,
-                    "sector_breakdown": [],
-                    "max_single_loss": 0.0,
-                    "position_count": 0,
-                }
+                "positionConcentration": 0.0,
+                "sectorBreakdown": [],
+                "maxSingleLoss": 0.0,
+                "positionCount": 0,
             }));
         }
 
@@ -970,14 +961,11 @@ impl PortfolioService {
         }
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "position_concentration": position_concentration,
-                "sector_breakdown": sector_breakdown,
-                "max_single_loss": max_loss_pct,
-                "position_count": rows.len() as i64,
-                "totalMarketValue": total_mv,
-            }
+            "positionConcentration": position_concentration,
+            "sectorBreakdown": sector_breakdown,
+            "maxSingleLoss": max_loss_pct,
+            "positionCount": rows.len() as i64,
+            "totalMarketValue": total_mv,
         }))
     }
 
@@ -1081,13 +1069,10 @@ impl PortfolioService {
         }
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "total": trades_arr.len() as i64,
-                "success": success_count,
-                "failed": fail_count,
-                "errors": errors,
-            }
+            "total": trades_arr.len() as i64,
+            "success": success_count,
+            "failed": fail_count,
+            "errors": errors,
         }))
     }
 }

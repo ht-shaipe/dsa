@@ -140,11 +140,8 @@ impl Orchestrator {
         );
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "role": "assistant",
-                "content": content,
-            }
+            "role": "assistant",
+            "content": content,
         }))
     }
 
@@ -186,17 +183,14 @@ impl Orchestrator {
         let result = llm.chat_stream(&body, callback).await
             .map_err(|e| DsaError::LlmAnalysis(format!("LLM流式调用失败: {}", e)))?;
 
-        Ok(value!({
-            "status": "ok",
-            "data": result,
-        }))
+        Ok(result)
     }
 
     async fn models(&self) -> DsaResult<Value> {
         let conf = dsa_core::get_global_config();
         let api_key = conf.resolve_api_key();
         if api_key.is_empty() {
-            return Ok(value!({"status": "ok", "data": []}));
+            return Ok(value!([]));
         }
 
         let provider = LlmProvider::instance(&conf.llm.provider)
@@ -206,27 +200,42 @@ impl Orchestrator {
         let models = llm.models().await
             .map_err(|e| DsaError::LlmAnalysis(format!("获取模型列表失败: {}", e)))?;
 
-        Ok(value!({"status": "ok", "data": models}))
+        Ok(models)
     }
 
-    async fn history(&self, _params: &Value) -> DsaResult<Value> {
+    async fn history(&self, params: &Value) -> DsaResult<Value> {
+        let session_id = dsa_core::utils::param_string(params, "sessionId");
         let connector = match dsa_core::utils::get_db_connector() {
             Ok(c) => c,
             Err(_) => {
                 let messages: Vec<Value> = self.memory.get_messages().to_vec();
-                return Ok(value!({ "status": "ok", "data": messages }));
+                return Ok(Value::Array(messages));
             }
         };
-        let sql = "SELECT role, content, createTime FROM conversation_messages ORDER BY createTime ASC LIMIT 200";
-        let messages: Vec<Value> = deck_mysql::Helper::query_rows(sql, vec![], &connector)
+
+        let (sql, p) = if session_id.is_empty() {
+            ("SELECT session_id, role, content, create_time FROM conversation_messages ORDER BY create_time ASC LIMIT 500".to_string(), vec![])
+        } else {
+            ("SELECT session_id, role, content, create_time FROM conversation_messages WHERE session_id = :sid ORDER BY create_time ASC LIMIT 500".to_string(),
+             vec![("sid".to_string(), Value::from(session_id.as_str()))])
+        };
+        let messages: Vec<Value> = deck_mysql::Helper::query_rows(&sql, p, &connector)
             .unwrap_or_default()
             .iter()
-            .map(|r| r.to_value2())
+            .map(|r| {
+                let mut v = r.to_value2();
+                if let Value::Object(ref mut map) = v {
+                    if let Some(Value::Text(ref mut s)) = map.get_mut("content") {
+                        let clean: String = s.replace('\n', "\\n").replace('\r', "").replace('\t', " ").chars().map(|c| {
+                            if c.is_control() { ' ' } else { c }
+                        }).collect();
+                        *s = clean;
+                    }
+                }
+                v
+            })
             .collect();
-        Ok(value!({
-            "status": "ok",
-            "data": messages,
-        }))
+        Ok(Value::Array(messages))
     }
 
     /// 运行完整的多Agent分析管道
@@ -319,12 +328,9 @@ impl Orchestrator {
         dsa_core::utils::record_llm_usage(&conf.llm.provider, model, "pipeline_single", 0, 0, elapsed, code);
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "code": code,
-                "arch": "single",
-                "analysis": content,
-            }
+            "code": code,
+            "arch": "single",
+            "analysis": content,
         }))
     }
 
@@ -484,22 +490,19 @@ impl Orchestrator {
         let portfolio_result = portfolio_agent.process(&portfolio_input).await?;
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "code": &code,
-                "currentPrice": current_price,
-                "changePercent": change_percent,
-                "technical": tech_result,
-                "intel": intel_result,
-                "risk": risk_result,
-                "decision": decision_result,
-                "portfolio": portfolio_result,
-                "skills": skill_results,
-                "localIndicators": {
-                    "trend": trend_analysis,
-                    "volume": volume_analysis,
-                },
-            }
+            "code": &code,
+            "currentPrice": current_price,
+            "changePercent": change_percent,
+            "technical": tech_result,
+            "intel": intel_result,
+            "risk": risk_result,
+            "decision": decision_result,
+            "portfolio": portfolio_result,
+            "skills": skill_results,
+            "localIndicators": {
+                "trend": trend_analysis,
+                "volume": volume_analysis,
+            },
         }))
     }
 
@@ -523,7 +526,7 @@ impl Orchestrator {
                 "enabled": enabled,
             })
         }).collect();
-        Ok(value!({"status": "ok", "data": skills}))
+        Ok(Value::Array(skills))
     }
 
     async fn strategies(&self) -> DsaResult<Value> {
@@ -542,7 +545,7 @@ impl Orchestrator {
                 conf.agent.skills.contains(&name.to_string())
             }).collect()
         };
-        Ok(value!({"status": "ok", "data": filtered}))
+        Ok(Value::Array(filtered))
     }
 
     fn fetch_portfolio_positions(code: &str) -> (Vec<Value>, f64) {
@@ -551,17 +554,17 @@ impl Orchestrator {
             Err(_) => return (vec![], 100000.0),
         };
         let sql = if code.is_empty() {
-            "SELECT p.stockCode, p.stockName, p.quantity, p.avgCost, p.currentPrice, \
-             p.marketValue, p.profitLoss, p.profitLossPct, a.totalAssets \
+            "SELECT p.stock_code, p.stock_name, p.quantity, p.avg_cost, p.current_price, \
+             p.market_value, p.profitLoss, p.profitLossPct, a.total_assets \
              FROM portfolio_positions p \
-             JOIN portfolio_accounts a ON p.accountId = a.id \
+             JOIN portfolio_accounts a ON p.account_id = a.id \
              WHERE p.status >= 1 AND a.status >= 1".to_string()
         } else {
-            format!("SELECT p.stockCode, p.stockName, p.quantity, p.avgCost, p.currentPrice, \
-             p.marketValue, p.profitLoss, p.profitLossPct, a.totalAssets \
+            format!("SELECT p.stock_code, p.stock_name, p.quantity, p.avg_cost, p.current_price, \
+             p.market_value, p.profitLoss, p.profitLossPct, a.total_assets \
              FROM portfolio_positions p \
-             JOIN portfolio_accounts a ON p.accountId = a.id \
-             WHERE p.status >= 1 AND a.status >= 1 AND p.stockCode = '{}'", code)
+             JOIN portfolio_accounts a ON p.account_id = a.id \
+             WHERE p.status >= 1 AND a.status >= 1 AND p.stock_code = '{}'", code)
         };
         match deck_mysql::Helper::query_rows(&sql, vec![], &connector) {
             Ok(rows) => {
@@ -614,14 +617,11 @@ impl Orchestrator {
             .as_str().unwrap_or_default().to_string();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "mode": "quick",
-                "code": code,
-                "analysis": analysis,
-                "trend": trend,
-                "volume": volume,
-            }
+            "mode": "quick",
+            "code": code,
+            "analysis": analysis,
+            "trend": trend,
+            "volume": volume,
         }))
     }
 
@@ -694,18 +694,15 @@ impl Orchestrator {
             .as_str().unwrap_or_default().to_string();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "mode": "specialist",
-                "code": code,
-                "analysis": analysis,
-                "trend": trend,
-                "volume": volume,
-                "patterns": patterns,
-                "chip": chip,
-                "skills": skill_result,
-                "strategy": strategy_result,
-            }
+            "mode": "specialist",
+            "code": code,
+            "analysis": analysis,
+            "trend": trend,
+            "volume": volume,
+            "patterns": patterns,
+            "chip": chip,
+            "skills": skill_result,
+            "strategy": strategy_result,
         }))
     }
 }

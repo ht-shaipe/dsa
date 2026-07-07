@@ -77,8 +77,8 @@ impl BaseAgent for RiskAgent {
              - volatilityRisk: 波动风险评估\n\
              - liquidityRisk: 流动性风险评估\n\
              - suggestedPosition: 建议仓位比例(0-100%)\n\
-             - stopLossPrice: 建议止损价\n\
-             - takeProfitPrice: 建议止盈价\n\
+             - stop_loss_price: 建议止损价\n\
+             - take_profit_price: 建议止盈价\n\
              - maxLossAmount: 最大可承受亏损金额(按10万本金)\n\
              - riskWarnings: 风险提示数组\n\
              - summary: 风险评估总结(200字以内)",

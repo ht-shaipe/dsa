@@ -93,14 +93,11 @@ impl ReportService {
         let report_type = "full".to_string();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "markdown": markdown,
-                "html_preview": html_preview,
-                "code": stock_code,
-                "report_type": report_type,
-                "language": language,
-            }
+            "markdown": markdown,
+            "htmlPreview": html_preview,
+            "code": stock_code,
+            "reportType": report_type,
+            "language": language,
         }))
     }
 
@@ -159,14 +156,11 @@ impl ReportService {
         let report_type = "brief".to_string();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "markdown": markdown,
-                "html_preview": html_preview,
-                "code": stock_code,
-                "report_type": report_type,
-                "language": language,
-            }
+            "markdown": markdown,
+            "htmlPreview": html_preview,
+            "code": stock_code,
+            "reportType": report_type,
+            "language": language,
         }))
     }
 
@@ -229,13 +223,10 @@ impl ReportService {
         );
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "markdown": markdown,
-                "code": stock_code,
-                "report_type": "wechat",
-                "language": language,
-            }
+            "markdown": markdown,
+            "code": stock_code,
+            "report_type": "wechat",
+            "language": language,
         }))
     }
 
@@ -260,11 +251,11 @@ impl ReportService {
 
         let connector = utils::get_db_connector()?;
 
-        let sql = "SELECT id, stockCode, stockName, sentimentScore, decisionType, \
+        let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, \
                    confidenceLevel, operationAdvice, analysisSummary, riskWarning, \
                    createTime \
-                   FROM analysis_history WHERE stockCode = :code AND status = 1 \
-                   ORDER BY createTime DESC LIMIT :limit";
+                   FROM analysis_history WHERE stock_code = :code AND status = 1 \
+                   ORDER BY create_time DESC LIMIT :limit";
         let rows = Helper::query_rows(
             sql,
             vec![
@@ -302,11 +293,8 @@ impl ReportService {
         let summary = build_compare_summary(&comparisons, &labels);
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "comparisons": comparisons,
-                "summary": summary,
-            }
+            "comparisons": comparisons,
+            "summary": summary,
         }))
     }
 
@@ -319,7 +307,7 @@ impl ReportService {
         } else {
             language
         };
-        Ok(value!({"status": "ok", "data": get_labels(&lang)}))
+        Ok(get_labels(&lang))
     }
 
     /// 加载分析记录 - 按ID或按股票代码取最新，返回Value
@@ -332,7 +320,7 @@ impl ReportService {
 
         let (sql, p) = if analysis_id > 0 {
             (
-                "SELECT id, stockCode, stockName, sentimentScore, decisionType, \
+                "SELECT id, stock_code, stock_name, sentiment_score, decision_type, \
                  confidenceLevel, operationAdvice, analysisSummary, riskWarning, \
                  report_json, marketContext, reportType, queryId, status, \
                  createTime, modifyTime \
@@ -342,12 +330,12 @@ impl ReportService {
             )
         } else {
             (
-                "SELECT id, stockCode, stockName, sentimentScore, decisionType, \
+                "SELECT id, stock_code, stock_name, sentiment_score, decision_type, \
                  confidenceLevel, operationAdvice, analysisSummary, riskWarning, \
                  report_json, marketContext, reportType, queryId, status, \
                  createTime, modifyTime \
-                 FROM analysis_history WHERE stockCode = :code AND status = 1 \
-                 ORDER BY createTime DESC LIMIT 1"
+                 FROM analysis_history WHERE stock_code = :code AND status = 1 \
+                 ORDER BY create_time DESC LIMIT 1"
                     .to_string(),
                 vec![("code".to_string(), Value::from(code))],
             )

@@ -467,6 +467,10 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_cors_origins")]
     pub cors_origins: Vec<String>,
+    #[serde(default)]
+    pub auth_password: String,
+    #[serde(default)]
+    pub auth_password_env: String,
 }
 
 /// 股票监控配置
@@ -522,6 +526,8 @@ impl Default for LlmChannelConfig {
 pub struct LlmConfig {
     pub provider: String,
     #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
     pub api_key_env: String,
     #[serde(default = "default_model")]
     pub model: String,
@@ -529,6 +535,10 @@ pub struct LlmConfig {
     pub temperature: f64,
     #[serde(default = "default_timeout")]
     pub timeout_seconds: u64,
+    #[serde(default)]
+    pub max_tokens: u32,
+    #[serde(default)]
+    pub base_url: String,
     #[serde(default)]
     pub fallback_provider: Option<String>,
     #[serde(default)]
@@ -635,6 +645,8 @@ impl Default for AppConfig {
                 host: "0.0.0.0".to_string(),
                 port: 8000,
                 cors_origins: default_cors_origins(),
+                auth_password: String::new(),
+                auth_password_env: String::new(),
             },
             stock: StockConfig {
                 watchlist: vec!["600519".to_string(), "300750".to_string(), "002594".to_string()],
@@ -649,10 +661,13 @@ impl Default for AppConfig {
             },
             llm: LlmConfig {
                 provider: "deepseek".to_string(),
+                api_key: String::new(),
                 api_key_env: "DEEPSEEK_API_KEY".to_string(),
                 model: default_model(),
                 temperature: default_temperature(),
                 timeout_seconds: default_timeout(),
+                max_tokens: 4096,
+                base_url: String::new(),
                 fallback_provider: None,
                 fallback_api_key_env: None,
                 fallback_model: None,
@@ -723,6 +738,7 @@ impl AppConfig {
         }
         let content = std::fs::read_to_string(path)
             .map_err(|e| crate::DsaError::Config(format!("读取配置文件失败: {}", e)))?;
+
         let config: Self = toml::from_str(&content)
             .map_err(|e| crate::DsaError::Config(format!("解析配置文件失败: {}", e)))?;
         Ok(config)
@@ -730,6 +746,9 @@ impl AppConfig {
 
     /// 从环境变量解析LLM API密钥
     pub fn resolve_api_key(&self) -> String {
+        if !self.llm.api_key.is_empty() {
+            return self.llm.api_key.clone();
+        }
         if !self.llm.api_key_env.is_empty() {
             if let Ok(key) = std::env::var(&self.llm.api_key_env) {
                 return key;
@@ -739,6 +758,8 @@ impl AppConfig {
     }
 
     /// 从环境变量或配置解析数据库密码
+    ///
+    /// 优先从 password_env 指定的环境变量读取，找不到则回退到 password 字段
     pub fn resolve_db_password(&self) -> String {
         if !self.database.password_env.is_empty() {
             if let Ok(pwd) = std::env::var(&self.database.password_env) {

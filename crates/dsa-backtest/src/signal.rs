@@ -29,10 +29,10 @@ impl SignalTracker {
         };
 
         // 查询待评估的活跃信号
-        let sql = "SELECT id, stockCode, action, entryPrice, stopLoss, targetPrice, \
-             signalDate FROM decision_signals \
+        let sql = "SELECT id, stock_code, action, entry_price, stop_loss, target_price, \
+             signal_date FROM decision_signals \
              WHERE status = 1 AND action IN ('buy', 'add', 'hold', 'reduce', 'sell') \
-             ORDER BY signalDate DESC LIMIT 100";
+             ORDER BY signal_date DESC LIMIT 100";
         let rows = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询决策信号失败: {}", e)))?;
 
@@ -47,7 +47,7 @@ impl SignalTracker {
             let target_price: f64 = row.get_value(5).as_f64().unwrap_or(0.0);
 
             // 检查是否已有评估结果
-            let check_sql = "SELECT id FROM decision_signal_outcomes WHERE signalId = :sid AND evalHorizon = :horizon LIMIT 1";
+            let check_sql = "SELECT id FROM decision_signal_outcomes WHERE signal_id = :sid AND eval_horizon = :horizon LIMIT 1";
             let existing = Helper::query_rows(
                 check_sql,
                 vec![
@@ -64,8 +64,8 @@ impl SignalTracker {
 
             // 获取实际K线数据
             let hist_sql = "SELECT close FROM stock_daily \
-                 WHERE stockCode = :code AND status = 1 \
-                 ORDER BY tradeDate DESC LIMIT :limit";
+                 WHERE stock_code = :code AND status = 1 \
+                 ORDER BY trade_date DESC LIMIT :limit";
             let hist_rows = Helper::query_rows(
                 hist_sql,
                 vec![
@@ -132,13 +132,13 @@ impl SignalTracker {
 
             outcomes.push(value!({
                 "signalId": signal_id,
-                "stockCode": code,
+                "stock_code": code,
                 "action": action,
                 "actualReturn": actual_return,
-                "maxDrawdown": max_dd,
-                "directionCorrect": direction_correct,
+                "max_drawdown": max_dd,
+                "direction_correct": direction_correct,
                 "hitTarget": hit_target,
-                "hitStopLoss": hit_sl,
+                "hit_stop_loss": hit_sl,
             }));
         }
 

@@ -143,10 +143,10 @@ impl BotCommand for AnalyzeCommand {
             let prefix = utils::market_prefix(&code_clean);
             let full_code = format!("{}{}", prefix, code_clean);
 
-            let sql = "SELECT id, stockCode, stockName, sentimentScore, decisionType, \
+            let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, \
                         operationAdvice, analysisSummary, createTime \
-                        FROM analysis_history WHERE stockCode = :code AND status = 1 \
-                        ORDER BY createTime DESC LIMIT 1";
+                        FROM analysis_history WHERE stock_code = :code AND status = 1 \
+                        ORDER BY create_time DESC LIMIT 1";
             let params = vec![("code".to_string(), Value::from(full_code.as_str()))];
 
             let rows = deck_mysql::Helper::query_rows(sql, params, &connector)
@@ -340,10 +340,10 @@ impl BotCommand for HistoryCommand {
             let prefix = utils::market_prefix(&code_clean);
             let full_code = format!("{}{}", prefix, code_clean);
 
-            let sql = "SELECT id, stockCode, stockName, sentimentScore, decisionType, \
+            let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, \
                         operationAdvice, createTime \
-                        FROM analysis_history WHERE stockCode = :code AND status = 1 \
-                        ORDER BY createTime DESC LIMIT 3";
+                        FROM analysis_history WHERE stock_code = :code AND status = 1 \
+                        ORDER BY create_time DESC LIMIT 3";
             let params = vec![("code".to_string(), Value::from(full_code.as_str()))];
 
             let rows = deck_mysql::Helper::query_rows(sql, params, &connector)

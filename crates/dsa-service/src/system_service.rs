@@ -19,6 +19,7 @@ impl SystemService {
         match method {
             "get" => self.get_config().await,
             "reload" => self.reload_config().await,
+            "save" => self.save_config(params).await,
             "validate" => self.validate_config(params).await,
             "export_config" => self.export_config().await,
             "import_config" => self.import_config(params).await,
@@ -40,7 +41,7 @@ impl SystemService {
         let conf = dsa_core::get_global_config();
         let json = serde_json::to_value(&conf)
             .map_err(|e| DsaError::Config(format!("配置序列化失败: {}", e)))?;
-        Ok(value!({"status": "ok", "data": json}))
+        Ok(tube::Value::from(json))
     }
 
     /// 重新加载配置
@@ -62,7 +63,39 @@ impl SystemService {
             .db(&conf.database.name)
             .set_cache("default");
 
-        Ok(value!({"status": "ok", "message": "配置已重新加载"}))
+        Ok(value!({"message": "配置已重新加载"}))
+    }
+
+    /// 保存配置到文件并更新全局配置
+    /// 前端可能只传部分字段，需要深度合并到当前配置后再保存
+    async fn save_config(&self, params: &Value) -> DsaResult<Value> {
+        let patch = params
+            .get("config")
+            .cloned()
+            .unwrap_or(Value::Null);
+
+        let current = dsa_core::get_global_config();
+        let mut current_json = serde_json::to_value(&current)
+            .map_err(|e| DsaError::Config(format!("当前配置序列化失败: {}", e)))?;
+
+        let patch_json: serde_json::Value = serde_json::to_value(&patch)
+            .map_err(|e| DsaError::Config(format!("补丁配置转换失败: {}", e)))?;
+
+        merge_json(&mut current_json, &patch_json);
+
+        let conf: dsa_core::config::AppConfig = serde_json::from_value(current_json)
+            .map_err(|e| DsaError::Config(format!("合并后配置解析失败: {}", e)))?;
+
+        let toml_str = toml::to_string_pretty(&conf)
+            .map_err(|e| DsaError::Config(format!("配置序列化为TOML失败: {}", e)))?;
+
+        let conf_path = dsa_core::get_config_path();
+        std::fs::write(&conf_path, &toml_str)
+            .map_err(|e| DsaError::Config(format!("写入配置文件失败 {}: {}", conf_path, e)))?;
+
+        dsa_core::set_global_config(conf);
+
+        Ok(value!({"message": "配置已保存"}))
     }
 
     /// 验证配置
@@ -76,8 +109,8 @@ impl SystemService {
             .map_err(|e| DsaError::Config(format!("配置转换失败: {}", e)))?;
 
         match toml::from_str::<dsa_core::config::AppConfig>(&config_str) {
-            Ok(_) => Ok(value!({"status": "ok", "valid": true})),
-            Err(e) => Ok(value!({"status": "ok", "valid": false, "error": e.to_string()})),
+            Ok(_) => Ok(value!({"valid": true})),
+            Err(e) => Ok(value!({"valid": false, "error": e.to_string()})),
         }
     }
 
@@ -86,7 +119,7 @@ impl SystemService {
         let conf = dsa_core::get_global_config();
         let toml_str = toml::to_string_pretty(&conf)
             .map_err(|e| DsaError::Config(format!("配置序列化失败: {}", e)))?;
-        Ok(value!({"status": "ok", "data": toml_str}))
+        Ok(Value::from(toml_str))
     }
 
     /// 导入配置
@@ -105,7 +138,7 @@ impl SystemService {
 
         dsa_core::set_global_config(conf);
 
-        Ok(value!({"status": "ok", "message": "配置已导入"}))
+        Ok(value!({"message": "配置已导入"}))
     }
 
     /// 测试LLM连接
@@ -115,11 +148,8 @@ impl SystemService {
 
         if api_key.is_empty() {
             return Ok(value!({
-                "status": "ok",
-                "data": {
-                    "connected": false,
-                    "error": "API Key 未配置",
-                }
+                "connected": false,
+                "error": "API Key 未配置",
             }));
         }
 
@@ -143,32 +173,23 @@ impl SystemService {
                             .unwrap_or(false);
 
                         Ok(value!({
-                            "status": "ok",
-                            "data": {
-                                "connected": true,
-                                "provider": conf.llm.provider,
-                                "model": conf.llm.model,
-                                "hasContent": has_content,
-                            }
+                            "connected": true,
+                            "provider": conf.llm.provider,
+                            "model": conf.llm.model,
+                            "hasContent": has_content,
                         }))
                     }
                     Err(e) => Ok(value!({
-                        "status": "ok",
-                        "data": {
-                            "connected": false,
-                            "error": format!("LLM调用失败: {}", e),
-                            "provider": conf.llm.provider,
-                            "model": conf.llm.model,
-                        }
+                        "connected": false,
+                        "error": format!("LLM调用失败: {}", e),
+                        "provider": conf.llm.provider,
+                        "model": conf.llm.model,
                     })),
                 }
             }
             Err(e) => Ok(value!({
-                "status": "ok",
-                "data": {
-                    "connected": false,
-                    "error": format!("不支持的provider: {}", e),
-                }
+                "connected": false,
+                "error": format!("不支持的provider: {}", e),
             })),
         }
     }
@@ -203,11 +224,8 @@ impl SystemService {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "provider": provider,
-                "models": models,
-            }
+            "provider": provider,
+            "models": models,
         }))
     }
 
@@ -218,12 +236,9 @@ impl SystemService {
 
         if api_key.is_empty() {
             return Ok(value!({
-                "status": "ok",
-                "data": {
-                    "success": false,
-                    "error": "API Key 未配置",
-                    "latencyMs": 0,
-                }
+                "success": false,
+                "error": "API Key 未配置",
+                "latency_ms": 0,
             }));
         }
 
@@ -243,37 +258,28 @@ impl SystemService {
                     Ok(_response) => {
                         let latency_ms = start.elapsed().as_millis() as i64;
                         Ok(value!({
-                            "status": "ok",
-                            "data": {
-                                "success": true,
-                                "provider": conf.llm.provider,
-                                "model": conf.llm.model,
-                                "latencyMs": latency_ms,
-                            }
+                            "success": true,
+                            "provider": conf.llm.provider,
+                            "model": conf.llm.model,
+                            "latency_ms": latency_ms,
                         }))
                     }
                     Err(e) => {
                         let latency_ms = start.elapsed().as_millis() as i64;
                         Ok(value!({
-                            "status": "ok",
-                            "data": {
-                                "success": false,
-                                "error": format!("LLM调用失败: {}", e),
-                                "provider": conf.llm.provider,
-                                "model": conf.llm.model,
-                                "latencyMs": latency_ms,
-                            }
+                            "success": false,
+                            "error": format!("LLM调用失败: {}", e),
+                            "provider": conf.llm.provider,
+                            "model": conf.llm.model,
+                            "latency_ms": latency_ms,
                         }))
                     }
                 }
             }
             Err(e) => Ok(value!({
-                "status": "ok",
-                "data": {
-                    "success": false,
-                    "error": format!("不支持的provider: {}", e),
-                    "latencyMs": 0,
-                }
+                "success": false,
+                "error": format!("不支持的provider: {}", e),
+                "latency_ms": 0,
             })),
         }
     }
@@ -298,7 +304,7 @@ impl SystemService {
         let conf = dsa_core::get_global_config();
         let json = serde_json::to_value(&conf)
             .map_err(|e| DsaError::Config(format!("配置序列化失败: {}", e)))?;
-        Ok(value!({"status": "ok", "data": json}))
+        Ok(tube::Value::from(json))
     }
 
     /// 从JSON导入配置 - 验证并更新全局配置
@@ -317,6 +323,25 @@ impl SystemService {
 
         dsa_core::set_global_config(conf);
 
-        Ok(value!({"status": "ok", "message": "配置已导入并更新"}))
+        Ok(value!({"message": "配置已导入并更新"}))
+    }
+}
+
+/// 深度合并 JSON: patch 中的字段覆盖 base 中的对应字段
+/// 如果两边都是 Object 则递归合并，否则 patch 的值覆盖 base
+fn merge_json(base: &mut serde_json::Value, patch: &serde_json::Value) {
+    match (base, patch) {
+        (serde_json::Value::Object(base_map), serde_json::Value::Object(patch_map)) => {
+            for (key, patch_val) in patch_map {
+                if let Some(base_val) = base_map.get_mut(key) {
+                    merge_json(base_val, patch_val);
+                } else {
+                    base_map.insert(key.clone(), patch_val.clone());
+                }
+            }
+        }
+        (base, patch) => {
+            *base = patch.clone();
+        }
     }
 }

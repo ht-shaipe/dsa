@@ -77,8 +77,8 @@
             </div>
             <el-button type="primary" link @click="schedulerForm.times.push('')">添加时间</el-button>
           </el-form-item>
-          <el-form-item label="自选股列表">
-            <el-input v-model="schedulerForm.watchlist" type="textarea" :rows="4" placeholder="每行一个股票代码，如 SH600519" />
+          <el-form-item label="自选股">
+            <router-link to="/watchlist" style="color:var(--el-color-primary)">前往自选股管理</router-link>
           </el-form-item>
           <el-form-item label="调度状态">
             <el-tag :type="schedulerStatus.running ? 'success' : 'info'">
@@ -244,7 +244,6 @@ const channelList = reactive([
 const schedulerForm = ref({
   enabled: false,
   times: ['09:30'] as string[],
-  watchlist: '',
 })
 const schedulerStatus = ref<Record<string, any>>({})
 const schedulerJobs = ref<any[]>([])
@@ -273,27 +272,39 @@ const importing = ref(false)
 async function loadConfig() {
   try {
     const res: any = await systemApi.get()
-    const config = res.data || {}
+    const config = res.data || res || {}
     const llm = config.llm || {}
     llmForm.value = {
       provider: llm.provider || 'openai',
       model: llm.model || '',
-      apiKey: llm.apiKey || llm.api_key || '',
-      baseUrl: llm.baseUrl || llm.base_url || '',
+      apiKey: llm.api_key || llm.apiKey || llm.api_key_env || '',
+      baseUrl: llm.base_url || llm.baseUrl || '',
       temperature: llm.temperature ?? 0.7,
-      maxTokens: llm.maxTokens || llm.max_tokens || 4096,
+      maxTokens: llm.max_tokens || llm.maxTokens || llm.timeout_seconds || 4096,
     }
     // Load notification URLs
     const notif = config.notification || config.notifications || {}
     for (const ch of channelList) {
-      ch.url = notif[ch.key]?.url || notif[ch.key]?.webhook || notif[ch.key] || ''
+      ch.url = notif[`${ch.key}_webhook`] || notif[ch.key]?.url || notif[ch.key]?.webhook || notif[ch.key] || ''
+      if (ch.key === 'telegram') {
+        const token = notif.telegram_bot_token || ''
+        const chatId = notif.telegram_chat_id || ''
+        ch.url = token && chatId ? `${token}:${chatId}` : token || ''
+      }
+      if (ch.key === 'email') {
+        const host = notif.email_smtp_host || ''
+        const port = notif.email_smtp_port || 465
+        const user = notif.email_user || ''
+        const pass = notif.email_pass || ''
+        const to = notif.email_to || ''
+        ch.url = host ? `smtp://${user}:${pass}@${host}:${port}?to=${to}` : ''
+      }
     }
     // Load scheduler
     const sched = config.scheduler || {}
     schedulerForm.value = {
       enabled: !!sched.enabled,
       times: sched.times || ['09:30'],
-      watchlist: (sched.watchlist || []).join('\n'),
     }
   } catch { /* ignore */ }
 }
@@ -301,16 +312,40 @@ async function loadConfig() {
 async function saveConfig() {
   saving.value = true
   try {
-    await systemApi.validate({
-      llm: llmForm.value,
-      notification: channelList.reduce((acc: Record<string, any>, ch) => {
-        if (ch.url) acc[ch.key] = ch.url
-        return acc
-      }, {}),
-      scheduler: {
-        ...schedulerForm.value,
-        watchlist: schedulerForm.value.watchlist.split('\n').filter(Boolean),
+    await systemApi.save({
+      llm: {
+        provider: llmForm.value.provider,
+        api_key: llmForm.value.apiKey,
+        base_url: llmForm.value.baseUrl,
+        model: llmForm.value.model,
+        temperature: llmForm.value.temperature,
+        max_tokens: llmForm.value.maxTokens,
       },
+      notification: (() => {
+        const n: Record<string, any> = {}
+        for (const ch of channelList) {
+          if (!ch.url) continue
+          if (ch.key === 'telegram') {
+            const parts = ch.url.split(':')
+            n.telegram_bot_token = parts[0] || ''
+            n.telegram_chat_id = parts.slice(1).join(':') || ''
+          } else if (ch.key === 'email') {
+            try {
+              const u = new URL(ch.url)
+              n.email_smtp_host = u.hostname
+              n.email_smtp_port = parseInt(u.port) || 465
+              n.email_user = decodeURIComponent(u.username)
+              n.email_pass = decodeURIComponent(u.password)
+              n.email_to = u.searchParams.get('to') || ''
+              n.email_from = n.email_user
+            } catch { n.email_smtp_host = ch.url }
+          } else {
+            n[`${ch.key}_webhook`] = ch.url
+          }
+        }
+        return n
+      })(),
+      scheduler: schedulerForm.value,
     })
     ElMessage.success('配置已保存')
     loadConfig()

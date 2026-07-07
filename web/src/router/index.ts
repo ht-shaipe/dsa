@@ -16,6 +16,7 @@ const router = createRouter({
       meta: { requiresAuth: true },
       children: [
         { path: '', name: 'Dashboard', component: () => import('@/views/DashboardView.vue') },
+        { path: 'watchlist', name: 'Watchlist', component: () => import('@/views/WatchlistView.vue') },
         { path: 'chat', name: 'Chat', component: () => import('@/views/ChatView.vue') },
         { path: 'screening', name: 'Screening', component: () => import('@/views/ScreeningView.vue') },
         { path: 'portfolio', name: 'Portfolio', component: () => import('@/views/PortfolioView.vue') },
@@ -24,6 +25,7 @@ const router = createRouter({
         { path: 'alerts', name: 'Alerts', component: () => import('@/views/AlertsView.vue') },
         { path: 'usage', name: 'Usage', component: () => import('@/views/UsageView.vue') },
         { path: 'settings', name: 'Settings', component: () => import('@/views/SettingsView.vue') },
+        { path: 'guide', name: 'Guide', component: () => import('@/views/GuideView.vue') },
       ],
     },
   ],

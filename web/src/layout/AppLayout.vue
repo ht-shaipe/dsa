@@ -8,7 +8,9 @@
         <AppHeader />
       </el-header>
       <el-main class="app-main">
-        <router-view />
+        <el-scrollbar>
+          <router-view />
+        </el-scrollbar>
       </el-main>
     </el-container>
   </el-container>
@@ -47,6 +49,6 @@ onMounted(() => {
 .app-main {
   background: var(--dsa-bg);
   padding: 20px;
-  overflow-y: auto;
+  overflow: hidden;
 }
 </style>

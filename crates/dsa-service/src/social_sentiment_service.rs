@@ -56,12 +56,9 @@ impl SocialSentimentService {
             else if fear_greed >= 25.0 { "fearful" }
             else { "extreme_fear" };
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "fearGreedIndex": fear_greed,
-                "sentiment": sentiment,
-                "marketChanges": changes,
-            }
+            "fearGreedIndex": fear_greed,
+            "sentiment": sentiment,
+            "marketChanges": changes,
         }))
     }
 
@@ -73,7 +70,7 @@ impl SocialSentimentService {
         }
         // 从数据库查询新闻情绪
         let connector = utils::get_db_connector()?;
-        let sql = format!("SELECT sentiment, importance, title FROM news_intel WHERE stockCode = '{}' ORDER BY publishedAt DESC LIMIT 10", code);
+        let sql = format!("SELECT sentiment, importance, title FROM news_intel WHERE stock_code = '{}' ORDER BY published_at DESC LIMIT 10", code);
         let rows = Helper::query_rows(&sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询新闻情绪失败: {}", e)))?;
         let items: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
@@ -81,13 +78,10 @@ impl SocialSentimentService {
             .filter_map(|i| i.get("sentiment").and_then(|v| v.as_f64()))
             .sum::<f64>() / items.len().max(1) as f64;
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "code": code,
-                "sentimentScore": avg_sentiment,
-                "newsCount": items.len() as i64,
-                "recentNews": items,
-            }
+            "code": code,
+            "sentiment_score": avg_sentiment,
+            "newsCount": items.len() as i64,
+            "recentNews": items,
         }))
     }
 
@@ -108,6 +102,6 @@ impl SocialSentimentService {
                 "code": item.get("f12").and_then(|v| v.as_str()).unwrap_or_default(),
             })
         }).collect();
-        Ok(value!({"status": "ok", "data": topics}))
+        Ok(Value::Array(topics))
     }
 }

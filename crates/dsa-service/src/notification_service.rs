@@ -95,7 +95,7 @@ impl NotificationService {
 
     async fn channels(&self) -> DsaResult<Value> {
         let conf = dsa_core::get_global_config();
-        Ok(value!({"status": "ok", "data": [
+        Ok(value!([
             {"id": "dingtalk", "name": "钉钉", "enabled": !conf.notification.dingtalk_webhook.is_empty()},
             {"id": "feishu", "name": "飞书", "enabled": !conf.notification.feishu_webhook.is_empty()},
             {"id": "wecom", "name": "企业微信", "enabled": !conf.notification.wecom_webhook.is_empty()},
@@ -110,7 +110,7 @@ impl NotificationService {
             {"id": "ntfy", "name": "ntfy", "enabled": !conf.notification.ntfy_topic.is_empty()},
             {"id": "gotify", "name": "Gotify", "enabled": !conf.notification.gotify_app_token.is_empty()},
             {"id": "custom_webhook", "name": "自定义Webhook", "enabled": !conf.notification.custom_webhook_url.is_empty()},
-        ]}))
+        ]))
     }
 
     async fn test_channel(&self, params: &Value) -> DsaResult<Value> {
@@ -126,7 +126,7 @@ impl NotificationService {
                 "content": "这是一条测试通知, 如果收到说明配置正确。",
             }))
             .await?;
-        Ok(value!({"status": "ok", "channel": channel, "test": true, "result": result}))
+        Ok(value!({"channel": channel, "test": true, "result": result}))
     }
 
     // -----------------------------------------------------------------------
@@ -852,7 +852,6 @@ impl NotificationService {
         };
 
         Ok(value!({
-            "status": "ok",
             "severity": severity,
             "type": ntype,
             "channels": recommended,

@@ -27,6 +27,7 @@ pub mod alert_rule;
 pub mod alert_trigger;
 pub mod alert_notification;
 pub mod alert_cooldown;
+pub mod watchlist_stock;
 pub mod schema_migration;
 
 pub use analysis_history::AnalysisHistory;
@@ -56,4 +57,5 @@ pub use alert_rule::AlertRule;
 pub use alert_trigger::AlertTrigger;
 pub use alert_notification::AlertNotification;
 pub use alert_cooldown::AlertCooldown;
+pub use watchlist_stock::WatchlistStock;
 pub use schema_migration::SchemaMigration;

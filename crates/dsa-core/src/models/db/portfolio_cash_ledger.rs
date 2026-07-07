@@ -8,10 +8,10 @@ pub struct PortfolioCashLedger {
     #[field(primary = true, increment = 1)]
     pub id: i64,
 
-    #[field(rename = "accountId", required = true, comment = "账户ID")]
+    #[field(rename = "account_id", required = true, comment = "账户ID")]
     pub account_id: i64,
 
-    #[field(rename = "eventDate", required = true, comment = "事件日期")]
+    #[field(rename = "event_date", required = true, comment = "事件日期")]
     pub event_date: Option<chrono::NaiveDateTime>,
 
     #[field(required = true, comment = "方向: in/out")]
@@ -20,12 +20,12 @@ pub struct PortfolioCashLedger {
     #[field(required = true, comment = "金额")]
     pub amount: f64,
 
-    #[field(rename = "baseCurrency", default_value = "'CNY'", comment = "币种")]
+    #[field(rename = "base_currency", default_value = "'CNY'", comment = "币种")]
     pub base_currency: String,
 
     #[field(comment = "备注")]
     pub note: String,
 
-    #[field(rename = "createTime", default_value = "current_timestamp()")]
+    #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 }

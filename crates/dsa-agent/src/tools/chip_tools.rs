@@ -18,7 +18,7 @@ impl ChipTools {
             Ok(c) => c,
             Err(_) => return value!({"code": code, "concentration": 50.0, "message": "DB连接失败"}),
         };
-        let sql = format!("SELECT close, volume FROM stock_daily WHERE stockCode = '{}' AND status >= 1 ORDER BY tradeDate DESC LIMIT 20", code);
+        let sql = format!("SELECT close, volume FROM stock_daily WHERE stock_code = '{}' AND status >= 1 ORDER BY trade_date DESC LIMIT 20", code);
         match Helper::query_rows(&sql, vec![], &connector) {
             Ok(rows) => {
                 if rows.is_empty() {

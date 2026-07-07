@@ -1,4 +1,4 @@
-.PHONY: dev dev-server dev-web build build-server build-web clean check install run stop help
+.PHONY: dev dev-server dev-web build build-server build-web clean check install run stop env db-init help
 
 # 项目配置
 CONFIG     ?= conf/config.toml
@@ -6,10 +6,18 @@ BIN        := target/debug/dsa
 PORT       ?= 8000
 WEB_PORT   ?= 5173
 
+# 数据库默认配置 (可通过环境变量覆盖)
+DB_HOST    ?= 127.0.0.1
+DB_PORT    ?= 3306
+DB_NAME    ?= dsa
+DB_USER    ?= root
+DB_PASS    ?=
+
 # 颜色输出
 CYAN  := \033[36m
 GREEN := \033[32m
 YELLOW := \033[33m
+RED   := \033[31m
 NC    := \033[0m
 
 help: ## 显示帮助信息
@@ -26,6 +34,10 @@ help: ## 显示帮助信息
 	@echo "  make build-web    仅构建前端"
 	@echo "  make release      Release 模式构建后端"
 	@echo ""
+	@echo "$(GREEN)数据库命令:$(NC)"
+	@echo "  make env          创建 .env 环境变量文件"
+	@echo "  make db-init      初始化数据库 (创建库 + 启动迁移)"
+	@echo ""
 	@echo "$(GREEN)运维命令:$(NC)"
 	@echo "  make run          运行后端 (需先 build)"
 	@echo "  make stop         停止运行中的服务"
@@ -34,17 +46,64 @@ help: ## 显示帮助信息
 	@echo "  make install      安装前端依赖"
 	@echo ""
 	@echo "$(GREEN)环境变量:$(NC)"
-	@echo "  CONFIG=$(CONFIG)  配置文件路径"
-	@echo "  PORT=$(PORT)      后端端口"
-	@echo "  WEB_PORT=$(WEB_PORT) 前端端口"
+	@echo "  CONFIG=$(CONFIG)     配置文件路径"
+	@echo "  DB_HOST=$(DB_HOST)   数据库主机"
+	@echo "  DB_PORT=$(DB_PORT)   数据库端口"
+	@echo "  DB_NAME=$(DB_NAME)   数据库名称"
+	@echo "  DB_USER=$(DB_USER)   数据库用户"
+	@echo "  DB_PASS=***          数据库密码"
+
+# ============================================================
+# 环境准备
+# ============================================================
+
+env: ## 创建 .env 环境变量文件
+	@if [ ! -f .env ]; then \
+		echo "$(GREEN)Creating .env file...$(NC)"; \
+		echo "# DSA 环境变量配置" > .env; \
+		echo "# 数据库密码" >> .env; \
+		echo "DSA_DB_PASSWORD=$(DB_PASS)" >> .env; \
+		echo "" >> .env; \
+		echo "# LLM API 密钥" >> .env; \
+		echo "DEEPSEEK_API_KEY=" >> .env; \
+		echo "" >> .env; \
+		echo "# 搜索 API 密钥" >> .env; \
+		echo "SERPER_API_KEY=" >> .env; \
+		echo "BING_SEARCH_API_KEY=" >> .env; \
+		echo "GOOGLE_SEARCH_API_KEY=" >> .env; \
+		echo "$(GREEN).env created. Please fill in your API keys and database password.$(NC)"; \
+	else \
+		echo "$(YELLOW).env already exists, skipping.$(NC)"; \
+	fi
+
+db-init: env ## 初始化数据库 (创建 dsa 库)
+	@echo "$(GREEN)[Database] Creating database $(DB_NAME) if not exists...$(NC)"
+	@if command -v mysql > /dev/null 2>&1; then \
+		mysql -h $(DB_HOST) -P $(DB_PORT) -u $(DB_USER) \
+			$$( [ -n "$(DB_PASS)" ] && echo "-p$(DB_PASS)" || echo "" ) \
+			-e "CREATE DATABASE IF NOT EXISTS \`$(DB_NAME)\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null \
+		&& echo "$(GREEN)Database $(DB_NAME) created/verified.$(NC)" \
+		|| echo "$(RED)Failed to connect MySQL. Please check database config in conf/config.toml$(NC)"; \
+	elif command -v docker > /dev/null 2>&1; then \
+		echo "$(YELLOW)mysql client not found, trying docker...$(NC)"; \
+		docker exec $$(docker ps --filter "ancestor=mysql" -q | head -1) \
+			mysql -u $(DB_USER) \
+			$$( [ -n "$(DB_PASS)" ] && echo "-p$(DB_PASS)" || echo "" ) \
+			-e "CREATE DATABASE IF NOT EXISTS \`$(DB_NAME)\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null \
+		&& echo "$(GREEN)Database $(DB_NAME) created/verified via docker.$(NC)" \
+		|| echo "$(RED)No MySQL available. Please start MySQL first.$(NC)"; \
+	else \
+		echo "$(RED)No MySQL client or Docker found. Please install MySQL or start a Docker container.$(NC)"; \
+		echo "$(YELLOW)Hint: docker run -d --name mysql-dsa -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=dsa -p 3306:3306 mysql:8$(NC)"; \
+	fi
 
 # ============================================================
 # 开发模式
 # ============================================================
 
-dev: build-server ## 启动开发环境 (后端 + 前端)
+dev: env build-server ## 启动开发环境 (后端 + 前端)
 	@echo "$(CYAN)Starting DSA dev environment...$(NC)"
-	@trap 'kill 0; exit 0' INT TERM; \
+	@trap '$(MAKE) stop; exit 0' INT TERM; \
 	$(MAKE) dev-server & \
 	$(MAKE) dev-web & \
 	wait

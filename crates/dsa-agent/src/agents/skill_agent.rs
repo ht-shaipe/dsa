@@ -26,7 +26,7 @@ impl SkillAgent {
             "trend": context.get("trend").and_then(|v| v.as_str()).unwrap_or_default(),
             "volumeSignal": context.get("volumeSignal").and_then(|v| v.as_str()).unwrap_or_default(),
             "changePercent": context.get("changePercent").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            "chipConcentration": context.get("chipConcentration").and_then(|v| v.as_f64()).unwrap_or(50.0),
+            "chip_concentration": context.get("chipConcentration").and_then(|v| v.as_f64()).unwrap_or(50.0),
         });
 
         let routed = router.route(&skill_context);

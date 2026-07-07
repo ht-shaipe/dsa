@@ -66,7 +66,7 @@ impl BaseAgent for DecisionAgent {
              - confidence: 决策信心度(0-100)\n\
              - score: 综合评分(0-100)\n\
              - positionSize: 建议仓位比例(0-100%)\n\
-             - targetPrice: 目标价格\n\
+             - target_price: 目标价格\n\
              - stopLoss: 止损价格\n\
              - takeProfit: 止盈价格\n\
              - reasoning: 决策理由(300字以内)\n\

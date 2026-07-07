@@ -8,8 +8,8 @@
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover" class="stat-card">
-          <el-statistic title="总盈亏" :value="summary.totalPnl || 0" :precision="2" prefix="¥" />
-          <div :class="pnlClass(summary.totalPnl)">{{ pnlText(summary.totalPnl) }}</div>
+          <el-statistic title="总盈亏" :value="summary.total_pnl || 0" :precision="2" prefix="¥" />
+          <div :class="pnlClass(summary.total_pnl)">{{ pnlText(summary.total_pnl) }}</div>
         </el-card>
       </el-col>
       <el-col :span="6">
@@ -41,27 +41,27 @@
             <el-table-column prop="name" label="名称" width="120" />
             <el-table-column prop="quantity" label="数量" width="100" />
             <el-table-column prop="avgCost" label="成本价" width="100">
-              <template #default="{ row }">{{ Number(row.avgCost || row.avg_cost || 0).toFixed(2) }}</template>
+              <template #default="{ row }">{{ Number(row.avgCost || 0).toFixed(2) }}</template>
             </el-table-column>
             <el-table-column prop="currentPrice" label="现价" width="100">
-              <template #default="{ row }">{{ Number(row.currentPrice || row.current_price || 0).toFixed(2) }}</template>
+              <template #default="{ row }">{{ Number(row.currentPrice || 0).toFixed(2) }}</template>
             </el-table-column>
             <el-table-column label="浮动盈亏" width="140">
               <template #default="{ row }">
-                <span :class="pnlClass(row.unrealizedPnl || row.unrealized_pnl)">
-                  {{ pnlText(row.unrealizedPnl || row.unrealized_pnl) }}
+                <span :class="pnlClass(row.unrealizedPnl)">
+                  {{ pnlText(row.unrealizedPnl) }}
                 </span>
               </template>
             </el-table-column>
             <el-table-column label="盈亏比例" width="120">
               <template #default="{ row }">
-                <span :class="pnlClass(row.unrealizedPnl || row.unrealized_pnl)">
+                <span :class="pnlClass(row.unrealizedPnl)">
                   {{ positionPnlPercent(row) }}
                 </span>
               </template>
             </el-table-column>
             <el-table-column prop="marketValue" label="市值" width="120">
-              <template #default="{ row }">{{ Number(row.marketValue || row.market_value || 0).toFixed(2) }}</template>
+              <template #default="{ row }">{{ Number(row.marketValue || 0).toFixed(2) }}</template>
             </el-table-column>
           </el-table>
           <el-empty v-if="!positions.length" description="暂无持仓" />
@@ -152,7 +152,7 @@ const tradeForm = ref({
 
 const pnlPercent = computed(() => {
   const tv = summary.value.totalValue || 0
-  const tp = summary.value.totalPnl || 0
+  const tp = summary.value.total_pnl || 0
   if (!tv) return 0
   return (tp / (tv - tp)) * 100
 })
@@ -168,8 +168,8 @@ function pnlText(val: number | undefined) {
 }
 
 function positionPnlPercent(row: any) {
-  const cost = Number(row.avgCost || row.avg_cost || 0)
-  const price = Number(row.currentPrice || row.current_price || 0)
+  const cost = Number(row.avgCost || 0)
+  const price = Number(row.currentPrice || 0)
   if (!cost) return '0.00%'
   const pct = ((price - cost) / cost) * 100
   return (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'

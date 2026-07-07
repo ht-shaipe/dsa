@@ -16,6 +16,6 @@ pub struct SchemaMigration {
     #[field(comment = "描述")]
     pub description: String,
 
-    #[field(rename = "appliedAt", default_value = "current_timestamp()")]
+    #[field(rename = "applied_at", default_value = "current_timestamp()")]
     pub applied_at: Option<chrono::NaiveDateTime>,
 }

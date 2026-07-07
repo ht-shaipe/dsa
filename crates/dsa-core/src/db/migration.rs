@@ -46,6 +46,7 @@ pub fn run_migrations(connector: &Connector) {
         ("alert_triggers", AlertTrigger::class()),
         ("alert_notifications", AlertNotification::class()),
         ("alert_cooldowns", AlertCooldown::class()),
+        ("watchlist_stocks", WatchlistStock::class()),
         ("conversation_messages", ConversationMessage::class()),
         ("conversation_summaries", ConversationSummary::class()),
         ("agent_provider_turns", AgentProviderTurn::class()),
@@ -271,7 +272,7 @@ fn is_migration_applied(connector: &Connector, version: &str) -> bool {
 
 /// Record a successful migration in the tracking table.
 fn record_migration(connector: &Connector, version: &str, description: &str) {
-    let sql = "INSERT INTO `schema_migrations` (`version`, `description`, `appliedAt`) VALUES (:version, :description, NOW())";
+    let sql = "INSERT INTO `schema_migrations` (`version`, `description`, `applied_at`) VALUES (:version, :description, NOW())";
     match deck::Helper::execute(
         sql,
         vec![

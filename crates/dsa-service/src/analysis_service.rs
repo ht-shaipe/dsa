@@ -84,14 +84,11 @@ impl AnalysisService {
             .map_err(|e| DsaError::ReportParse(format!("报告序列化失败: {}", e)))?;
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "report": report_json,
-                "markdown": markdown,
-                "text": text,
-                "code": code,
-                "name": stock_name,
-            }
+            "report": report_json,
+            "markdown": markdown,
+            "text": text,
+            "code": code,
+            "name": stock_name,
         }))
     }
 
@@ -136,7 +133,7 @@ impl AnalysisService {
             }
         }
 
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     async fn analyze_single(
@@ -164,16 +161,16 @@ impl AnalysisService {
         let connector = utils::get_db_connector()?;
 
         let (sql, p) = if id > 0 {
-            ("SELECT id, stockCode, stockName, sentimentScore, decisionType, operationAdvice, \
+            ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysisSummary, riskWarning, rawResult, contextSnapshot, reportType, \
               queryId, status, createTime, modifyTime \
               FROM analysis_history WHERE id = :id".to_string(),
              vec![("id".to_string(), Value::from(id))])
         } else if !query_id.is_empty() {
-            ("SELECT id, stockCode, stockName, sentimentScore, decisionType, operationAdvice, \
+            ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysisSummary, riskWarning, rawResult, contextSnapshot, reportType, \
               queryId, status, createTime, modifyTime \
-              FROM analysis_history WHERE queryId = :qid".to_string(),
+              FROM analysis_history WHERE query_id = :qid".to_string(),
              vec![("qid".to_string(), Value::from(query_id.as_str()))])
         } else {
             return Err(DsaError::Validation("请提供id或queryId".to_string()));
@@ -183,7 +180,7 @@ impl AnalysisService {
             .map_err(|e| DsaError::Database(format!("查询报告失败: {}", e)))?;
 
         let data = rows.first().map(|r| r.to_value2()).unwrap_or_else(|| value!({}));
-        Ok(value!({"status": "ok", "data": data}))
+        Ok(data)
     }
 
     async fn list_reports(&self, params: &Value) -> DsaResult<Value> {
@@ -193,17 +190,17 @@ impl AnalysisService {
         let connector = utils::get_db_connector()?;
 
         let (sql, p) = if !code.is_empty() {
-            ("SELECT id, stockCode, stockName, sentimentScore, decisionType, operationAdvice, \
+            ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysisSummary, createTime \
-              FROM analysis_history WHERE stockCode = :code AND status = 1 \
-              ORDER BY createTime DESC LIMIT :limit".to_string(),
+              FROM analysis_history WHERE stock_code = :code AND status = 1 \
+              ORDER BY create_time DESC LIMIT :limit".to_string(),
              vec![("code".to_string(), Value::from(code.as_str())),
                   ("limit".to_string(), Value::from(limit))])
         } else {
-            ("SELECT id, stockCode, stockName, sentimentScore, decisionType, operationAdvice, \
+            ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysisSummary, createTime \
               FROM analysis_history WHERE status = 1 \
-              ORDER BY createTime DESC LIMIT :limit".to_string(),
+              ORDER BY create_time DESC LIMIT :limit".to_string(),
              vec![("limit".to_string(), Value::from(limit))])
         };
 
@@ -211,7 +208,7 @@ impl AnalysisService {
             .map_err(|e| DsaError::Database(format!("查询报告列表失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     async fn market_review(&self, params: &Value) -> DsaResult<Value> {
@@ -228,18 +225,18 @@ impl AnalysisService {
         let connector = utils::get_db_connector()?;
 
         let (sql, p) = if !code.is_empty() {
-            ("SELECT id, stockCode, stockName, sentimentScore, decisionType, operationAdvice, \
+            ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysisSummary, riskWarning, reportType, queryId, status, createTime, modifyTime \
-              FROM analysis_history WHERE stockCode = :code AND status = 1 \
-              ORDER BY createTime DESC LIMIT :limit OFFSET :offset".to_string(),
+              FROM analysis_history WHERE stock_code = :code AND status = 1 \
+              ORDER BY create_time DESC LIMIT :limit OFFSET :offset".to_string(),
              vec![("code".to_string(), Value::from(code.as_str())),
                   ("limit".to_string(), Value::from(limit)),
                   ("offset".to_string(), Value::from(offset))])
         } else {
-            ("SELECT id, stockCode, stockName, sentimentScore, decisionType, operationAdvice, \
+            ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysisSummary, riskWarning, reportType, queryId, status, createTime, modifyTime \
               FROM analysis_history WHERE status = 1 \
-              ORDER BY createTime DESC LIMIT :limit OFFSET :offset".to_string(),
+              ORDER BY create_time DESC LIMIT :limit OFFSET :offset".to_string(),
              vec![("limit".to_string(), Value::from(limit)),
                   ("offset".to_string(), Value::from(offset))])
         };
@@ -248,7 +245,7 @@ impl AnalysisService {
             .map_err(|e| DsaError::Database(format!("查询历史列表失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 历史记录详情 - 按ID查询单条记录
@@ -260,7 +257,7 @@ impl AnalysisService {
 
         let connector = utils::get_db_connector()?;
 
-        let sql = "SELECT id, stockCode, stockName, sentimentScore, decisionType, operationAdvice, \
+        let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysisSummary, riskWarning, rawResult, contextSnapshot, reportType, \
               queryId, status, createTime, modifyTime \
               FROM analysis_history WHERE id = :id";
@@ -271,7 +268,7 @@ impl AnalysisService {
         ).map_err(|e| DsaError::Database(format!("查询历史详情失败: {}", e)))?;
 
         let data = rows.first().map(|r| r.to_value2()).unwrap_or_else(|| value!({}));
-        Ok(value!({"status": "ok", "data": data}))
+        Ok(data)
     }
 
     /// 历史记录对比 - 并排比较两条分析记录
@@ -284,7 +281,7 @@ impl AnalysisService {
 
         let connector = utils::get_db_connector()?;
 
-        let sql = "SELECT id, stockCode, stockName, sentimentScore, decisionType, operationAdvice, \
+        let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysisSummary, riskWarning, rawResult, contextSnapshot, reportType, \
               queryId, status, createTime, modifyTime \
               FROM analysis_history WHERE id IN (:id1, :id2) ORDER BY id";
@@ -298,7 +295,7 @@ impl AnalysisService {
         if results.len() < 2 {
             return Err(DsaError::Validation("未找到两条记录进行对比".to_string()));
         }
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 历史记录搜索 - 按关键词搜索stockName/analysisSummary
@@ -311,11 +308,11 @@ impl AnalysisService {
 
         let connector = utils::get_db_connector()?;
 
-        let sql = "SELECT id, stockCode, stockName, sentimentScore, decisionType, operationAdvice, \
+        let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysisSummary, createTime \
               FROM analysis_history WHERE status = 1 \
-              AND (stockName LIKE :kw OR analysisSummary LIKE :kw) \
-              ORDER BY createTime DESC LIMIT :limit";
+              AND (stock_name LIKE :kw OR analysis_summary LIKE :kw) \
+              ORDER BY create_time DESC LIMIT :limit";
         let kw_pattern = format!("%{}%", keyword);
         let rows = deck_mysql::Helper::query_rows(
             sql,
@@ -327,7 +324,7 @@ impl AnalysisService {
         ).map_err(|e| DsaError::Database(format!("搜索历史记录失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     fn param_code(params: &Value) -> String {

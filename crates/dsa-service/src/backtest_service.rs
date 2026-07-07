@@ -41,7 +41,7 @@ impl BacktestService {
         let neutral_band = conf.backtest.neutral_band_pct;
 
         // 查询决策信号
-        let sql = "SELECT id, stockCode, stockName, signalDate, action, \
+        let sql = "SELECT id, stock_code, stock_name, signal_date, action, \
              entryPrice, stopLoss, targetPrice, confidenceLevel, \
              sentimentScore, reasoning, scopeType, analysisId, status \
              FROM decision_signals WHERE id = :id AND status >= 1";
@@ -70,10 +70,10 @@ impl BacktestService {
         let analysis_id: i64 = row.get_value(12).as_f64().unwrap_or(0.0) as i64;
 
         // 查询信号日期之后的stock_daily数据
-        let hist_sql = "SELECT tradeDate, open, high, low, close, volume \
+        let hist_sql = "SELECT trade_date, open, high, low, close, volume \
              FROM stock_daily \
-             WHERE stockCode = :code AND tradeDate >= :sdate AND status = 1 \
-             ORDER BY tradeDate ASC LIMIT :limit";
+             WHERE stock_code = :code AND trade_date >= :sdate AND status = 1 \
+             ORDER BY trade_date ASC LIMIT :limit";
         let hist_rows = Helper::query_rows(
             hist_sql,
             vec![
@@ -182,12 +182,12 @@ impl BacktestService {
               :sr, :de, :outcome, :sl, :tp, \
               :hit_sl, :hit_tp, :oa) \
              ON DUPLICATE KEY UPDATE \
-              evalStatus='completed', evaluatedAt=NOW(), startPrice=VALUES(startPrice), \
-              endClose=VALUES(endClose), maxHigh=VALUES(maxHigh), minLow=VALUES(minLow), \
-              stockReturnPct=VALUES(stockReturnPct), directionExpected=VALUES(directionExpected), \
-              outcome=VALUES(outcome), maxDrawdown=VALUES(maxDrawdown), returnPct=VALUES(returnPct), \
-              directionCorrect=VALUES(directionCorrect), hitStopLoss=VALUES(hitStopLoss), \
-              hitTakeProfit=VALUES(hitTakeProfit)";
+              eval_status='completed', evaluated_at=NOW(), start_price=VALUES(start_price), \
+              end_close=VALUES(end_close), max_high=VALUES(max_high), min_low=VALUES(min_low), \
+              stock_return_pct=VALUES(stock_return_pct), direction_expected=VALUES(direction_expected), \
+              outcome=VALUES(outcome), max_drawdown=VALUES(max_drawdown), return_pct=VALUES(return_pct), \
+              direction_correct=VALUES(direction_correct), hit_stop_loss=VALUES(hit_stop_loss), \
+              hit_take_profit=VALUES(hit_take_profit)";
 
         let result = Helper::execute(
             insert_sql,
@@ -224,31 +224,28 @@ impl BacktestService {
 
         // 更新信号状态为已评估
         let _ = Helper::execute(
-            "UPDATE decision_signals SET status = 4, modifyTime = NOW() WHERE id = :id",
+            "UPDATE decision_signals SET status = 4, modify_time = NOW() WHERE id = :id",
             vec![("id".to_string(), Value::from(signal_id))],
             &connector,
         );
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "id": result as i64,
-                "signalId": signal_id,
-                "stockCode": stock_code,
-                "stockName": stock_name,
-                "directionExpected": direction_expected,
-                "outcome": outcome,
-                "startPrice": start_price,
-                "endClose": end_close,
-                "maxHigh": max_high,
-                "minLow": min_low,
-                "stockReturnPct": stock_return_pct,
-                "maxDrawdown": max_drawdown,
-                "directionCorrect": direction_correct,
-                "hitStopLoss": hit_stop_loss,
-                "hitTakeProfit": hit_take_profit,
-                "evalWindow": eval_window,
-            }
+            "id": result as i64,
+            "signalId": signal_id,
+            "stock_code": stock_code,
+            "stock_name": stock_name,
+            "direction_expected": direction_expected,
+            "outcome": outcome,
+            "start_price": start_price,
+            "end_close": end_close,
+            "max_high": max_high,
+            "min_low": min_low,
+            "stock_return_pct": stock_return_pct,
+            "max_drawdown": max_drawdown,
+            "direction_correct": direction_correct,
+            "hit_stop_loss": hit_stop_loss,
+            "hit_take_profit": hit_take_profit,
+            "evalWindow": eval_window,
         }))
     }
 
@@ -261,8 +258,8 @@ impl BacktestService {
 
         // 查询所有活跃且已过评估窗口的信号
         let sql = "SELECT id FROM decision_signals \
-             WHERE status = 1 AND signalDate < DATE_SUB(CURDATE(), INTERVAL :ew DAY) \
-             ORDER BY signalDate ASC LIMIT :limit";
+             WHERE status = 1 AND signal_date < DATE_SUB(CURDATE(), INTERVAL :ew DAY) \
+             ORDER BY signal_date ASC LIMIT :limit";
         let rows = Helper::query_rows(
             sql,
             vec![
@@ -290,12 +287,9 @@ impl BacktestService {
         }
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "evaluatedCount": evaluated_count,
-                "totalPending": rows.len() as i64,
-                "errors": errors,
-            }
+            "evaluatedCount": evaluated_count,
+            "totalPending": rows.len() as i64,
+            "errors": errors,
         }))
     }
 
@@ -344,17 +338,14 @@ impl BacktestService {
 
         if rows.is_empty() {
             return Ok(value!({
-                "status": "ok",
-                "data": {
-                    "totalTrades": 0,
-                    "winRate": 0.0,
-                    "avgReturn": 0.0,
-                    "sharpeRatio": 0.0,
-                    "maxDrawdown": 0.0,
-                    "wins": 0,
-                    "losses": 0,
-                    "neutrals": 0,
-                }
+                "totalTrades": 0,
+                "winRate": 0.0,
+                "avgReturn": 0.0,
+                "sharpeRatio": 0.0,
+                "max_drawdown": 0.0,
+                "wins": 0,
+                "losses": 0,
+                "neutrals": 0,
             }));
         }
 
@@ -378,17 +369,14 @@ impl BacktestService {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "totalTrades": total as i64,
-                "winRate": win_rate,
-                "avgReturn": avg_return,
-                "sharpeRatio": sharpe_ratio,
-                "maxDrawdown": max_dd,
-                "wins": wins as i64,
-                "losses": losses as i64,
-                "neutrals": neutrals as i64,
-            }
+            "totalTrades": total as i64,
+            "winRate": win_rate,
+            "avgReturn": avg_return,
+            "sharpeRatio": sharpe_ratio,
+            "max_drawdown": max_dd,
+            "wins": wins as i64,
+            "losses": losses as i64,
+            "neutrals": neutrals as i64,
         }))
     }
 
@@ -400,7 +388,7 @@ impl BacktestService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, analysisId, stockCode, signalDate, decisionAction, \
+        let sql = "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
              simulatedEntry, simulatedExit, exitDate, returnPct, maxDrawdown, \
              directionCorrect, scopeType, status, createTime, \
              evalWindowDays, evalStatus, evaluatedAt, startPrice, endClose, \
@@ -415,10 +403,10 @@ impl BacktestService {
         .map_err(|e| DsaError::Database(format!("查询回测详情失败: {}", e)))?;
 
         if rows.is_empty() {
-            return Ok(value!({"status": "ok", "data": Value::Null}));
+            return Ok(Value::Null);
         }
 
-        Ok(value!({"status": "ok", "data": rows[0].to_value2()}))
+        Ok(rows[0].to_value2())
     }
 
     /// 回测结果列表
@@ -444,12 +432,12 @@ impl BacktestService {
         let where_clause = conditions.join(" AND ");
 
         let sql = format!(
-            "SELECT id, analysisId, stockCode, signalDate, decisionAction, \
+            "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
              simulatedEntry, simulatedExit, returnPct, maxDrawdown, directionCorrect, \
              scopeType, status, createTime, evalWindowDays, evalStatus, \
              startPrice, endClose, maxHigh, minLow, stockReturnPct, \
              directionExpected, outcome \
-             FROM backtest_results WHERE {} ORDER BY createTime DESC LIMIT :limit OFFSET :offset",
+             FROM backtest_results WHERE {} ORDER BY create_time DESC LIMIT :limit OFFSET :offset",
             where_clause
         );
         p.push(("limit".to_string(), Value::from(limit)));
@@ -459,6 +447,6 @@ impl BacktestService {
             .map_err(|e| DsaError::Database(format!("查询回测列表失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 }

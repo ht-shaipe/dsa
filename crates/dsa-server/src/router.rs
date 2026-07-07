@@ -32,7 +32,9 @@ fn check_auth(req: &HttpRequest) -> Result<(), &'static str> {
         || std::env::var("DSA_PASSWORD").is_ok()
         || {
             let conf = dsa_core::get_global_config();
-            !conf.database.password.is_empty()
+            !conf.server.auth_password.is_empty()
+                || (!conf.server.auth_password_env.is_empty()
+                    && std::env::var(&conf.server.auth_password_env).is_ok())
         };
     if !has_password {
         return Ok(());
@@ -69,6 +71,10 @@ fn check_auth(req: &HttpRequest) -> Result<(), &'static str> {
 }
 
 pub async fn api_handler(req: HttpRequest, payload: web::Payload) -> Result<HttpResponse, ActixError> {
+    api_handler_inner(req, payload).await
+}
+
+async fn api_handler_inner(req: HttpRequest, payload: web::Payload) -> Result<HttpResponse, ActixError> {
     // Auth check
     if let Err(msg) = check_auth(&req) {
         return Ok(HttpResponse::Unauthorized().json(serde_json::json!({
@@ -77,7 +83,13 @@ pub async fn api_handler(req: HttpRequest, payload: web::Payload) -> Result<Http
         })));
     }
 
-    let param = tube_web::parse_request(req, payload).await;
+    let mut param = tube_web::parse_request(req, payload).await;
+
+    // tube_web 对 GET 请求固定 method="get"，丢失了路径中的业务方法名
+    // 修正: 对于 GET /api/v1/{module}/{method} 风格请求，用 path 替代 method
+    if param.method == "get" && !param.path.is_empty() {
+        param.method = param.path.replace("/", ".");
+    }
 
     let res = match param.module.to_lowercase().as_str() {
         "stock" => crate::handler::stock::distribute(&param).await,

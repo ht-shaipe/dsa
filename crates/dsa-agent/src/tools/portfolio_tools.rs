@@ -18,10 +18,10 @@ impl PortfolioTools {
             Err(_) => return value!({"totalAssets": 100000.0, "positions": []}),
         };
         // Get all active positions
-        let sql = "SELECT p.stockCode, p.stockName, p.quantity, p.avgCost, p.currentPrice, \
-             p.marketValue, p.unrealizedPnl, p.unrealizedPnlPct, a.initialCapital \
+        let sql = "SELECT p.stock_code, p.stock_name, p.quantity, p.avg_cost, p.current_price, \
+             p.market_value, p.unrealized_pnl, p.unrealized_pnl_pct, a.initial_capital \
              FROM portfolio_positions p \
-             JOIN portfolio_accounts a ON p.accountId = a.id \
+             JOIN portfolio_accounts a ON p.account_id = a.id \
              WHERE p.status = 1 AND a.status >= 1";
         match Helper::query_rows(sql, vec![], &connector) {
             Ok(rows) => {

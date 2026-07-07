@@ -12,7 +12,7 @@ export const intelligenceApi = {
   /** 测试情报源连接 */
   sourceTest: (url: string) => callApi('intelligence', 'source_test', { url }),
   /** 抓取情报源数据 */
-  sourceFetch: (sourceId: number) => callApi('intelligence', 'source_fetch', { sourceId }),
+  sourceFetch: (source_id: number) => callApi('intelligence', 'source_fetch', { sourceId }),
   /** 抓取所有已启用情报源 */
   fetchEnabled: () => callApi('intelligence', 'fetch_enabled'),
   /** 获取情报条目列表 */

@@ -32,7 +32,7 @@ impl AlertWorkerService {
     async fn run(&self, _params: &Value) -> DsaResult<Value> {
         let connector = utils::get_db_connector()?;
 
-        let sql = "SELECT id, stockCode, stockName, ruleType, conditionJson,              enabled, lastTriggeredAt, triggerCount, alertType, severity              FROM alert_rules WHERE enabled = 1 AND status >= 1";
+        let sql = "SELECT id, stock_code, stock_name, rule_type, conditionJson,              enabled, last_triggered_at, triggerCount, alertType, severity              FROM alert_rules WHERE enabled = 1 AND status >= 1";
         let rules = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询告警规则失败: {}", e)))?;
 
@@ -73,7 +73,7 @@ impl AlertWorkerService {
 
             let reason = self.describe_trigger(&condition, current_price, change_pct);
 
-            let trigger_sql = "INSERT INTO alert_triggers                  (ruleId, stockCode, triggerType, triggerValue, conditionSnapshot, notified, status, createTime)                  VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
+            let trigger_sql = "INSERT INTO alert_triggers                  (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time)                  VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
             let trigger_result = Helper::execute(
                 trigger_sql,
                 vec![
@@ -88,12 +88,12 @@ impl AlertWorkerService {
 
             if let Ok(trigger_id) = trigger_result {
                 let _ = Helper::execute(
-                    "UPDATE alert_rules SET lastTriggeredAt = NOW(),                      triggerCount = triggerCount + 1, modifyTime = NOW() WHERE id = :id",
+                    "UPDATE alert_rules SET last_triggered_at = NOW(),                      triggerCount = triggerCount + 1, modify_time = NOW() WHERE id = :id",
                     vec![("id".to_string(), Value::from(rule_id))],
                     &connector,
                 );
                 let _ = Helper::execute(
-                    "INSERT INTO alert_notifications                      (triggerId, channel, attempt, success, errorCode, retryable,                       latencyMs, diagnostics, createTime)                      VALUES (:tid, 'system', 1, 1, '', 0, 0, :diag, NOW())",
+                    "INSERT INTO alert_notifications                      (trigger_id, channel, attempt, success, error_code, retryable,                       latency_ms, diagnostics, create_time)                      VALUES (:tid, 'system', 1, 1, '', 0, 0, :diag, NOW())",
                     vec![
                         ("tid".to_string(), Value::from(trigger_id as i64)),
                         ("diag".to_string(), Value::from(reason.as_str())),
@@ -122,7 +122,7 @@ impl AlertWorkerService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, stockCode, stockName, ruleType, conditionJson,              enabled, lastTriggeredAt, triggerCount, alertType, severity              FROM alert_rules WHERE id = :id AND status >= 1";
+        let sql = "SELECT id, stock_code, stock_name, rule_type, conditionJson,              enabled, last_triggered_at, triggerCount, alertType, severity              FROM alert_rules WHERE id = :id AND status >= 1";
         let rows = Helper::query_rows(
             sql,
             vec![("id".to_string(), Value::from(rule_id))],
@@ -161,9 +161,9 @@ impl AlertWorkerService {
             return Ok(value!({
                 "status": "ok",
                 "data": {
-                    "ruleId": rule_id,
+                    "rule_id": rule_id,
                     "triggered": false,
-                    "currentPrice": current_price,
+                    "current_price": current_price,
                     "changePct": change_pct,
                 }
             }));
@@ -171,7 +171,7 @@ impl AlertWorkerService {
 
         let reason = self.describe_trigger(&condition, current_price, change_pct);
 
-        let trigger_sql = "INSERT INTO alert_triggers              (ruleId, stockCode, triggerType, triggerValue, conditionSnapshot, notified, status, createTime)              VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
+        let trigger_sql = "INSERT INTO alert_triggers              (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time)              VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
         let trigger_result = Helper::execute(
             trigger_sql,
             vec![
@@ -186,7 +186,7 @@ impl AlertWorkerService {
         .map_err(|e| DsaError::Database(format!("创建触发记录失败: {}", e)))?;
 
         let _ = Helper::execute(
-            "UPDATE alert_rules SET lastTriggeredAt = NOW(), triggerCount = triggerCount + 1,              modifyTime = NOW() WHERE id = :id",
+            "UPDATE alert_rules SET last_triggered_at = NOW(), triggerCount = triggerCount + 1,              modify_time = NOW() WHERE id = :id",
             vec![("id".to_string(), Value::from(rule_id))],
             &connector,
         );
@@ -194,10 +194,10 @@ impl AlertWorkerService {
         Ok(value!({
             "status": "ok",
             "data": {
-                "ruleId": rule_id,
+                "rule_id": rule_id,
                 "triggered": true,
                 "triggerId": trigger_result as i64,
-                "currentPrice": current_price,
+                "current_price": current_price,
                 "changePct": change_pct,
                 "reason": reason,
             }
@@ -228,7 +228,7 @@ impl AlertWorkerService {
             .unwrap_or(0.0);
         let current_volume = quote.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-        let hist_sql = "SELECT close, high, low, volume              FROM stock_daily WHERE stockCode = :code AND status = 1              ORDER BY tradeDate DESC LIMIT 60";
+        let hist_sql = "SELECT close, high, low, volume              FROM stock_daily WHERE stock_code = :code AND status = 1              ORDER BY trade_date DESC LIMIT 60";
         let hist_rows = Helper::query_rows(
             hist_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
@@ -313,9 +313,9 @@ impl AlertWorkerService {
             "status": "ok",
             "data": {
                 "code": code,
-                "currentPrice": current_price,
+                "current_price": current_price,
                 "changePct": change_pct,
-                "volumeRatio": volume_ratio,
+                "volume_ratio": volume_ratio,
                 "maPosition": ma_position,
                 "ma5": ma5,
                 "ma10": ma10,

@@ -51,27 +51,36 @@ pub fn get_db_connector() -> Result<Connector, DsaError> {
 /// 从东方财富获取K线数据并写入数据库
 pub async fn fetch_kline(code: &str, period: &str) -> Result<Vec<KlineBar>, DsaError> {
     let em = EastMoney::new();
-    let raw = em
-        .stock_zh_a_hist(code, Some(period), None, None, Some("qfq"))
-        .await
-        .map_err(|e| DsaError::StockData(format!("获取K线数据失败: {}", e)))?;
-
-    let mut bars = Vec::with_capacity(raw.len());
-    for item in &raw {
-        bars.push(KlineBar {
-            date: item.get("日期").and_then(|v| v.as_str()).unwrap_or_default(),
-            open: item.get("开盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            high: item.get("最高").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            low: item.get("最低").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            close: item.get("收盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
-            volume: item.get("成交量").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64,
-            amount: item.get("成交额").and_then(|v| v.as_f64()).unwrap_or(0.0),
-        });
+    let mut last_err = None;
+    for i in 0..3 {
+        match em.stock_zh_a_hist(code, Some(period), None, None, Some("qfq")).await {
+            Ok(raw) => {
+                let mut bars = Vec::with_capacity(raw.len());
+                for item in &raw {
+                    bars.push(KlineBar {
+                        date: item.get("日期").and_then(|v| v.as_str()).unwrap_or_default(),
+                        open: item.get("开盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        high: item.get("最高").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        low: item.get("最低").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        close: item.get("收盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        volume: item.get("成交量").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64,
+                        amount: item.get("成交额").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    });
+                }
+                save_kline_to_db(code, &bars);
+                return Ok(bars);
+            }
+            Err(e) => {
+                if i < 2 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500 * (i as u64 + 1))).await;
+                    last_err = Some(e);
+                } else {
+                    return Err(DsaError::StockData(format!("获取K线数据失败: {}", e)));
+                }
+            }
+        }
     }
-
-    save_kline_to_db(code, &bars);
-
-    Ok(bars)
+    Err(DsaError::StockData(format!("获取K线数据失败: {}", last_err.unwrap())))
 }
 
 fn save_kline_to_db(code: &str, bars: &[KlineBar]) {
@@ -81,7 +90,7 @@ fn save_kline_to_db(code: &str, bars: &[KlineBar]) {
     };
     for bar in bars.iter().rev().take(5) {
         let sql = "INSERT INTO stock_daily \
-             (stockCode, stockName, tradeDate, open, high, low, close, volume, amount, status, createTime) \
+             (stock_code, stock_name, trade_date, open, high, low, close, volume, amount, status, create_time) \
              VALUES (:code, '', :date, :open, :high, :low, :close, :vol, :amt, 1, NOW()) \
              ON DUPLICATE KEY UPDATE \
              open=VALUES(open), high=VALUES(high), low=VALUES(low), \
@@ -110,27 +119,39 @@ pub async fn fetch_realtime_quote(code: &str) -> Result<Value, DsaError> {
 
     let conf = crate::get_global_config();
     if conf.stock.realtime_source_priority.is_empty() {
-        return QQ::new()
-            .get_realtime_quote(&symbol)
+        let qq = QQ::new();
+        return qq.get_realtime_quote(&symbol)
             .await
             .map_err(|e| DsaError::StockData(format!("获取实时行情失败: {}", e)));
     }
 
     for source in &conf.stock.realtime_source_priority {
-        let result = match source.as_str() {
-            "tencent" | "qq" => QQ::new().get_realtime_quote(&symbol).await,
-            "sina" | "real" => Real::new().get_price(&symbol).await,
-            "eastmoney" => EastMoney::new().stock_zh_a_spot().await
-                .map(|spot: Vec<Value>| {
-                    spot.iter()
-                        .find(|item| {
-                            let item_code: String = item.get("代码").or_else(|| item.get("code"))
-                                .and_then(|v| v.as_str()).unwrap_or_default();
-                            item_code == code
-                        })
-                        .cloned()
-                        .unwrap_or_else(|| tube::value!({}))
-                }),
+        let result: Result<Value, DsaError> = match source.as_str() {
+            "tencent" | "qq" => {
+                let qq = QQ::new();
+                qq.get_realtime_quote(&symbol).await
+                    .map_err(|e| DsaError::StockData(format!("{}", e)))
+            }
+            "sina" | "real" => {
+                let real = Real::new();
+                real.get_price(&symbol).await
+                    .map_err(|e| DsaError::StockData(format!("{}", e)))
+            }
+            "eastmoney" => {
+                let em = EastMoney::new();
+                em.stock_zh_a_spot().await
+                    .map(|spot: Vec<Value>| {
+                        spot.iter()
+                            .find(|item| {
+                                let item_code: String = item.get("代码").or_else(|| item.get("code"))
+                                    .and_then(|v| v.as_str()).unwrap_or_default();
+                                item_code == code
+                            })
+                            .cloned()
+                            .unwrap_or_else(|| tube::value!({}))
+                    })
+                    .map_err(|e| DsaError::StockData(format!("{}", e)))
+            }
             _ => continue,
         };
         if let Ok(val) = result {
@@ -143,8 +164,8 @@ pub async fn fetch_realtime_quote(code: &str) -> Result<Value, DsaError> {
         }
     }
 
-    QQ::new()
-        .get_realtime_quote(&symbol)
+    let qq = QQ::new();
+    qq.get_realtime_quote(&symbol)
         .await
         .map_err(|e| DsaError::StockData(format!("获取实时行情失败: {}", e)))
 }
@@ -184,8 +205,8 @@ pub fn record_llm_usage(
         Err(_) => return,
     };
     let sql = "INSERT INTO llm_usage \
-         (llmProvider, llmModel, operationType, promptTokens, completionTokens, totalTokens, \
-          cacheHit, latencyMs, stockCode, createTime) \
+         (llm_provider, llm_model, operation_type, prompt_tokens, completion_tokens, total_tokens, \
+          cache_hit, latency_ms, stock_code, create_time) \
          VALUES (:provider, :model, :op, :pt, :ct, :tt, 0, :latency, :code, NOW())";
     let total = prompt_tokens + completion_tokens;
     let _ = deck::Helper::execute(
@@ -219,7 +240,7 @@ pub fn record_conversation_message(
         Err(_) => return,
     };
     let sql = "INSERT INTO conversation_messages \
-         (sessionId, role, content, llmProvider, llmModel, promptTokens, completionTokens, createTime) \
+         (session_id, role, content, llm_provider, llm_model, prompt_tokens, completion_tokens, create_time) \
          VALUES (:sid, :role, :content, :provider, :model, :pt, :ct, NOW())";
     let _ = deck::Helper::execute(
         sql,

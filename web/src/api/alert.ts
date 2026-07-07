@@ -4,7 +4,7 @@ export const alertApi = {
   /** 获取预警规则列表 */
   rules: (code?: string) => callApi('alert', 'rules', { code }),
   /** 创建预警规则 */
-  ruleCreate: (params: { code: string; ruleType: string; name?: string; condition?: Record<string, any> }) => callApi('alert', 'rule_create', params),
+  ruleCreate: (params: { code: string; rule_type: string; name?: string; condition?: Record<string, any> }) => callApi('alert', 'rule_create', params),
   /** 更新预警规则 */
   ruleUpdate: (id: number, condition: Record<string, any>) => callApi('alert', 'rule_update', { id, condition }),
   /** 删除预警规则 */

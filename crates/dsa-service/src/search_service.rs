@@ -71,10 +71,9 @@ impl SearchService {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": results,
             "query": query,
             "provider": resolved_provider,
+            "results": results,
         }))
     }
 
@@ -126,9 +125,8 @@ impl SearchService {
         self.save_news_to_db(&code, &all_results);
 
         Ok(value!({
-            "status": "ok",
-            "data": all_results,
             "code": code,
+            "results": all_results,
         }))
     }
 
@@ -145,7 +143,7 @@ impl SearchService {
             if title.is_empty() {
                 continue;
             }
-            let check = "SELECT id FROM news_intel WHERE sourceUrl = :url LIMIT 1";
+            let check = "SELECT id FROM news_intel WHERE source_url = :url LIMIT 1";
             if let Ok(existing) = deck_mysql::Helper::query_rows(
                 check,
                 vec![("url".to_string(), Value::from(url.to_string()))],
@@ -178,11 +176,11 @@ impl SearchService {
         let google_key = Self::resolve_key(&conf.search.google_api_key, &conf.search.google_api_key_env);
         let bing_key = Self::resolve_key(&conf.search.bing_api_key, &conf.search.bing_api_key_env);
 
-        Ok(value!({"status": "ok", "data": [
+        Ok(value!([
             {"id": "serper", "name": "Serper (Google SERP)", "enabled": !serper_key.is_empty()},
             {"id": "google", "name": "Google Custom Search", "enabled": !google_key.is_empty() && !conf.search.google_cx.is_empty()},
             {"id": "bing", "name": "Bing Search", "enabled": !bing_key.is_empty()},
-        ]}))
+        ]))
     }
 
     // -----------------------------------------------------------------------
@@ -231,17 +229,16 @@ impl SearchService {
         let results: Vec<Value> = organic
             .iter()
             .filter_map(|item| {
-                let title = item.get("title").and_then(|v| v.as_str()).unwrap_or_default();
-                let link = item.get("link").and_then(|v| v.as_str()).unwrap_or_default();
-                let snippet = item.get("snippet").and_then(|v| v.as_str()).unwrap_or_default();
-                if title.is_empty() {
+                let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                let link = item.get("link").and_then(|v| v.as_str()).unwrap_or("");
+                let snippet = item.get("snippet").and_then(|v| v.as_str()).unwrap_or("");
+                if title.is_empty() && link.is_empty() {
                     return None;
                 }
                 Some(value!({
                     "title": title,
-                    "url": link,
+                    "link": link,
                     "snippet": snippet,
-                    "source": "serper",
                 }))
             })
             .collect();

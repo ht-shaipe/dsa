@@ -48,7 +48,7 @@ impl BacktestEngine {
 
         // 查询分析历史记录
         let sql =
-            "SELECT id, stockCode, stockName, sentimentScore, trendPrediction, operationAdvice, \
+            "SELECT id, stock_code, stock_name, sentiment_score, trend_prediction, operation_advice, \
              decisionType, idealBuy, secondaryBuy, stopLoss, takeProfit, reportJson, \
              analysisSummary, riskWarning, marketContext, createTime \
              FROM analysis_history WHERE id = :id AND status = 1";
@@ -72,8 +72,8 @@ impl BacktestEngine {
         // 获取信号日期后的实际K线数据
         let signal_date_str = row.get_string(15);
         let hist_sql = "SELECT close FROM stock_daily \
-             WHERE stockCode = :code AND status = 1 \
-             ORDER BY tradeDate DESC LIMIT :limit";
+             WHERE stock_code = :code AND status = 1 \
+             ORDER BY trade_date DESC LIMIT :limit";
         let hist_rows = Helper::query_rows(
             hist_sql,
             vec![
@@ -193,19 +193,19 @@ impl BacktestEngine {
 
         let (sql, p) = if code.is_empty() {
             (
-                "SELECT id, analysisId, stockCode, signalDate, decisionAction, \
+                "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
                  simulatedEntry, simulatedExit, returnPct, maxDrawdown, directionCorrect, \
                  scopeType, status, createTime \
-                 FROM backtest_results WHERE status = 1 ORDER BY createTime DESC LIMIT :limit"
+                 FROM backtest_results WHERE status = 1 ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![("limit".to_string(), Value::from(limit))],
             )
         } else {
             (
-                "SELECT id, analysisId, stockCode, signalDate, decisionAction, \
+                "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
                  simulatedEntry, simulatedExit, returnPct, maxDrawdown, directionCorrect, \
                  scopeType, status, createTime \
-                 FROM backtest_results WHERE status = 1 AND stockCode = :code ORDER BY createTime DESC LIMIT :limit"
+                 FROM backtest_results WHERE status = 1 AND stock_code = :code ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![
                     ("code".to_string(), Value::from(code.as_str())),
@@ -218,7 +218,7 @@ impl BacktestEngine {
             .map_err(|e| DsaError::Database(format!("查询回测列表失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 查询回测结果详情
@@ -232,7 +232,7 @@ impl BacktestEngine {
         }
 
         let connector = Self::get_db_connector()?;
-        let sql = "SELECT id, analysisId, stockCode, signalDate, decisionAction, \
+        let sql = "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
              simulatedEntry, simulatedExit, exitDate, returnPct, maxDrawdown, \
              directionCorrect, scopeType, status, createTime \
              FROM backtest_results WHERE id = :id AND status = 1";
@@ -246,7 +246,7 @@ impl BacktestEngine {
             )));
         }
 
-        Ok(value!({"status": "ok", "data": rows[0].to_value2()}))
+        Ok(rows[0].to_value2())
     }
 
     /// 查询信号结果评估
@@ -263,10 +263,10 @@ impl BacktestEngine {
 
         let (sql, p) = if signal_id > 0 {
             (
-                "SELECT id, signalId, stockCode, evalHorizon, evalDate, actualReturn, \
+                "SELECT id, signal_id, stock_code, eval_horizon, eval_date, actual_return, \
                  maxDrawdown, directionCorrect, hitTarget, hitStopLoss, status, createTime \
-                 FROM decision_signal_outcomes WHERE signalId = :sid AND status = 1 \
-                 ORDER BY evalDate DESC LIMIT :limit"
+                 FROM decision_signal_outcomes WHERE signal_id = :sid AND status = 1 \
+                 ORDER BY eval_date DESC LIMIT :limit"
                     .to_string(),
                 vec![
                     ("sid".to_string(), Value::from(signal_id)),
@@ -275,10 +275,10 @@ impl BacktestEngine {
             )
         } else {
             (
-                "SELECT id, signalId, stockCode, evalHorizon, evalDate, actualReturn, \
+                "SELECT id, signal_id, stock_code, eval_horizon, eval_date, actual_return, \
                  maxDrawdown, directionCorrect, hitTarget, hitStopLoss, status, createTime \
                  FROM decision_signal_outcomes WHERE status = 1 \
-                 ORDER BY evalDate DESC LIMIT :limit"
+                 ORDER BY eval_date DESC LIMIT :limit"
                     .to_string(),
                 vec![("limit".to_string(), Value::from(limit))],
             )
@@ -288,7 +288,7 @@ impl BacktestEngine {
             .map_err(|e| DsaError::Database(format!("查询信号结果失败: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 
     /// 聚合回测统计数据
@@ -317,7 +317,7 @@ impl BacktestEngine {
                  AVG(returnPct) as avg_return, \
                  SUM(CASE WHEN directionCorrect = 1 THEN 1 ELSE 0 END) as dir_correct, \
                  MAX(maxDrawdown) as max_drawdown \
-                 FROM backtest_results WHERE status = 1 AND stockCode = :code"
+                 FROM backtest_results WHERE status = 1 AND stock_code = :code"
                     .to_string(),
                 vec![("code".to_string(), Value::from(code.as_str()))],
             )

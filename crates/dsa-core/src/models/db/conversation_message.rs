@@ -10,27 +10,27 @@ pub struct ConversationMessage {
     #[field(primary = true, increment = 1)]
     pub id: i64,
 
-    #[field(required = true, rename = "sessionId", comment = "会话ID")]
+    #[field(required = true, rename = "session_id", comment = "会话ID")]
     pub session_id: String,
 
     #[field(required = true, comment = "角色: user/assistant/system")]
     pub role: String,
 
-    #[field(required = true, comment = "内容")]
+    #[field(required = true, r#type = "text", comment = "内容")]
     pub content: String,
 
-    #[field(rename = "llmProvider", comment = "LLM提供商")]
+    #[field(rename = "llm_provider", comment = "LLM提供商")]
     pub llm_provider: String,
 
-    #[field(rename = "llmModel", comment = "LLM模型")]
+    #[field(rename = "llm_model", comment = "LLM模型")]
     pub llm_model: String,
 
-    #[field(rename = "promptTokens", default_value = "0")]
+    #[field(rename = "prompt_tokens", default_value = "0")]
     pub prompt_tokens: i32,
 
-    #[field(rename = "completionTokens", default_value = "0")]
+    #[field(rename = "completion_tokens", default_value = "0")]
     pub completion_tokens: i32,
 
-    #[field(rename = "createTime", default_value = "current_timestamp()")]
+    #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 }

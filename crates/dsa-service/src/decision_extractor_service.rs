@@ -36,7 +36,7 @@ impl DecisionExtractorService {
         let connector = utils::get_db_connector()?;
 
         // 查询分析历史
-        let sql = "SELECT id, stockCode, stockName, decisionType, confidenceLevel,              sentimentScore, idealBuy, stopLoss, takeProfit, operationAdvice,              riskWarning, marketContext, analysisSummary, createTime              FROM analysis_history WHERE id = :id AND status >= 1";
+        let sql = "SELECT id, stock_code, stock_name, decision_type, confidence_level,              sentiment_score, ideal_buy, stop_loss, takeProfit, operation_advice,              risk_warning, market_context, analysis_summary, create_time              FROM analysis_history WHERE id = :id AND status >= 1";
         let rows = Helper::query_rows(
             sql,
             vec![("id".to_string(), Value::from(analysis_id))],
@@ -85,7 +85,7 @@ impl DecisionExtractorService {
         };
 
         // 去重: 检查是否已有来自同一分析的信号
-        let dedup_sql = "SELECT id FROM decision_signals              WHERE analysisId = :aid AND sourceType = 'analysis' AND status >= 1 LIMIT 1";
+        let dedup_sql = "SELECT id FROM decision_signals              WHERE analysis_id = :aid AND source_type = 'analysis' AND status >= 1 LIMIT 1";
         let dedup_rows = Helper::query_rows(
             dedup_sql,
             vec![("aid".to_string(), Value::from(analysis_id))],
@@ -102,7 +102,7 @@ impl DecisionExtractorService {
         }
 
         // 创建决策信号
-        let insert_sql = "INSERT INTO decision_signals              (stockCode, stockName, signalDate, action, sentimentScore, confidenceLevel,               entryPrice, stopLoss, targetPrice, reasoning, evidence, scopeType,               analysisId, status, market, sourceType, marketPhase, confidence,               riskSummary, signalStatus, createTime, modifyTime)              VALUES (:code, :name, :sdate, :action, :score, :conf,               :entry, :sl, :tp, :reasoning, :evidence, 'watchlist',               :aid, 1, 'A', 'analysis', :phase, :confidence,               :risk, 'active', NOW(), NOW())";
+        let insert_sql = "INSERT INTO decision_signals              (stock_code, stock_name, signal_date, action, sentiment_score, confidence_level,               entry_price, stop_loss, target_price, reasoning, evidence, scope_type,               analysis_id, status, market, source_type, market_phase, confidence,               risk_summary, signal_status, create_time, modify_time)              VALUES (:code, :name, :sdate, :action, :score, :conf,               :entry, :sl, :tp, :reasoning, :evidence, 'watchlist',               :aid, 1, 'A', 'analysis', :phase, :confidence,               :risk, 'active', NOW(), NOW())";
 
         let result = Helper::execute(
             insert_sql,
@@ -136,9 +136,9 @@ impl DecisionExtractorService {
             "status": "ok",
             "data": {
                 "id": result as i64,
-                "stockCode": stock_code,
+                "stock_code": stock_code,
                 "action": action,
-                "marketPhase": market_phase,
+                "market_phase": market_phase,
                 "duplicate": false,
             }
         }))
@@ -150,7 +150,7 @@ impl DecisionExtractorService {
         let connector = utils::get_db_connector()?;
 
         // 查找没有对应信号的活跃分析记录
-        let sql = "SELECT ah.id              FROM analysis_history ah              LEFT JOIN decision_signals ds ON ah.id = ds.analysisId AND ds.sourceType = 'analysis' AND ds.status >= 1              WHERE ah.status >= 1 AND ds.id IS NULL              ORDER BY ah.createTime DESC LIMIT :limit";
+        let sql = "SELECT ah.id              FROM analysis_history ah              LEFT JOIN decision_signals ds ON ah.id = ds.analysis_id AND ds.source_type = 'analysis' AND ds.status >= 1              WHERE ah.status >= 1 AND ds.id IS NULL              ORDER BY ah.create_time DESC LIMIT :limit";
         let rows = Helper::query_rows(
             sql,
             vec![("limit".to_string(), Value::from(limit))],
@@ -195,7 +195,7 @@ impl DecisionExtractorService {
         let mut score: i32 = 0;
 
         // 1. K-line coverage (0-2)
-        let coverage_sql = "SELECT COUNT(*) FROM stock_daily WHERE stockCode = :code AND tradeDate >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status = 1";
+        let coverage_sql = "SELECT COUNT(*) FROM stock_daily WHERE stock_code = :code AND trade_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status = 1";
         let coverage_rows = Helper::query_rows(
             coverage_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
@@ -212,7 +212,7 @@ impl DecisionExtractorService {
         score += kline_score;
 
         // 2. News coverage (0-1)
-        let news_sql = "SELECT COUNT(*) FROM news_intel WHERE stockCode = :code AND createTime >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status >= 1";
+        let news_sql = "SELECT COUNT(*) FROM news_intel WHERE stock_code = :code AND create_time >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status >= 1";
         let news_rows = Helper::query_rows(
             news_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
@@ -229,7 +229,7 @@ impl DecisionExtractorService {
         score += news_score;
 
         // 3. Analysis freshness (0-1)
-        let analysis_sql = "SELECT COUNT(*) FROM analysis_history WHERE stockCode = :code AND createTime >= DATE_SUB(CURDATE(), INTERVAL 3 DAY) AND status >= 1";
+        let analysis_sql = "SELECT COUNT(*) FROM analysis_history WHERE stock_code = :code AND create_time >= DATE_SUB(CURDATE(), INTERVAL 3 DAY) AND status >= 1";
         let analysis_rows = Helper::query_rows(
             analysis_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
@@ -246,7 +246,7 @@ impl DecisionExtractorService {
         score += analysis_score;
 
         // 4. Signal activity (0-1)
-        let signal_sql = "SELECT COUNT(*) FROM decision_signals WHERE stockCode = :code AND status = 1";
+        let signal_sql = "SELECT COUNT(*) FROM decision_signals WHERE stock_code = :code AND status = 1";
         let signal_rows = Helper::query_rows(
             signal_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],

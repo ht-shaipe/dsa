@@ -14,7 +14,7 @@ export const decisionApi = {
   /** 获取信号验证结果 */
   outcomes: (params?: { signalId?: number; limit?: number }) => callApi('decision', 'outcomes', params || {}),
   /** 提交决策反馈 */
-  feedback: (signalId: number, feedback: string, rating?: number) => callApi('decision', 'feedback', { signalId, feedback, rating }),
+  feedback: (signal_id: number, feedback: string, rating?: number) => callApi('decision', 'feedback', { signalId, feedback, rating }),
   /** 评估决策结果 */
   evaluateOutcomes: (evalWindow?: number) => callApi('decision', 'evaluate_outcomes', { evalWindow }),
   /** 获取决策统计 */

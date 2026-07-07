@@ -8,46 +8,46 @@ pub struct AlertRule {
     #[field(primary = true, increment = 1)]
     pub id: i64,
 
-    #[field(required = true, rename = "stockCode", comment = "股票代码")]
+    #[field(required = true, rename = "stock_code", comment = "股票代码")]
     pub stock_code: String,
 
-    #[field(rename = "stockName", comment = "股票名称")]
+    #[field(rename = "stock_name", comment = "股票名称")]
     pub stock_name: String,
 
-    #[field(required = true, rename = "ruleType", comment = "规则类型: price/change/volume")]
+    #[field(required = true, rename = "rule_type", comment = "规则类型: price/change/volume")]
     pub rule_type: String,
 
-    #[field(rename = "conditionJson", comment = "条件JSON")]
+    #[field(rename = "condition_json", comment = "条件JSON")]
     pub condition_json: String,
 
     #[field(default_value = "1", comment = "是否启用")]
     pub enabled: i8,
 
-    #[field(rename = "lastTriggeredAt", comment = "最后触发时间")]
+    #[field(rename = "last_triggered_at", comment = "最后触发时间")]
     pub last_triggered_at: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "triggerCount", default_value = "0", comment = "触发次数")]
+    #[field(rename = "trigger_count", default_value = "0", comment = "触发次数")]
     pub trigger_count: i32,
 
     #[field(default_value = "1", comment = "状态")]
     pub status: i8,
 
-    #[field(rename = "createTime", default_value = "current_timestamp()")]
+    #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "modifyTime", default_value = "current_timestamp()")]
+    #[field(rename = "modify_time", default_value = "current_timestamp()")]
     pub modify_time: Option<chrono::NaiveDateTime>,
 
     #[field(length = 64, default_value = "''", comment = "规则名称")]
     pub name: String,
 
-    #[field(rename = "targetScope", length = 32, default_value = "'stock'", comment = "目标范围")]
+    #[field(rename = "target_scope", length = 32, default_value = "'stock'", comment = "目标范围")]
     pub target_scope: String,
 
     #[field(length = 64, default_value = "''", comment = "目标")]
     pub target: String,
 
-    #[field(rename = "alertType", length = 32, default_value = "''", comment = "告警类型")]
+    #[field(rename = "alert_type", length = 32, default_value = "''", comment = "告警类型")]
     pub alert_type: String,
 
     #[field(default_value = "''", comment = "参数JSON")]
@@ -59,9 +59,9 @@ pub struct AlertRule {
     #[field(length = 16, default_value = "'system'", comment = "来源")]
     pub source: String,
 
-    #[field(rename = "cooldownPolicy", default_value = "''", comment = "冷却策略")]
+    #[field(rename = "cooldown_policy", default_value = "''", comment = "冷却策略")]
     pub cooldown_policy: String,
 
-    #[field(rename = "notificationPolicy", default_value = "''", comment = "通知策略")]
+    #[field(rename = "notification_policy", default_value = "''", comment = "通知策略")]
     pub notification_policy: String,
 }

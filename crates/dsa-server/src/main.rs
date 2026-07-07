@@ -32,8 +32,26 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    init_database(&conf);
-    dsa_core::db::run_migrations(&Connector::new("mysql").alias("default"));
+    // 通过 Connector 构建数据库连接并注册到 deck 全局缓存
+    // set_cache 内部调用 set_connector，key 格式: {db_type}_{name}_connector
+    // 后续通过 get_connector("default", "mysql") 获取
+    let password = conf.resolve_db_password();
+    Connector::new("mysql")
+        .server(&conf.database.host)
+        .port(conf.database.port as u16)
+        .user(&conf.database.user)
+        .password(&password)
+        .db(&conf.database.name)
+        .set_cache("default");
+
+    tube::log!("MySQL连接池已注册: mysql://{}@{}:{}/{}", conf.database.user, conf.database.host, conf.database.port, conf.database.name);
+
+    // 运行数据库迁移
+    if let Some(conn) = deck_connector::get_connector("default", "mysql") {
+        dsa_core::db::run_migrations(&conn);
+    } else {
+        tube::log!("数据库连接未初始化，跳过迁移");
+    }
 
     dsa_core::set_config_path(conf_path_str);
     dsa_core::set_global_config(conf.clone());
@@ -67,34 +85,23 @@ async fn main() -> std::io::Result<()> {
             .service(
                 web::scope("/api/v1")
                     .service(
+                        web::resource("/agent/chat/stream")
+                            .route(web::post().to(dsa_server::handler::stream::chat_stream)),
+                    )
+                    .service(
                         web::resource("/{cls}")
                             .route(web::to(dsa_server::router::api_handler)),
                     )
                     .service(
                         web::resource("/{cls}/{tail:.*}")
                             .route(web::to(dsa_server::router::api_handler)),
-                    )
-                    .service(
-                        web::resource("/agent/chat/stream")
-                            .route(web::post().to(dsa_server::handler::stream::chat_stream)),
                     ),
             )
             .service(fs::Files::new("/", "./web/dist").index_file("index.html"))
     })
     .bind(ip)?
+    .workers(12)
+    .keep_alive(std::time::Duration::from_secs(5))
     .run()
     .await
-}
-
-fn init_database(conf: &dsa_core::config::AppConfig) {
-    let password = conf.resolve_db_password();
-    Connector::new("mysql")
-        .server(&conf.database.host)
-        .port(conf.database.port as u16)
-        .user(&conf.database.user)
-        .password(&password)
-        .db(&conf.database.name)
-        .set_cache("default");
-
-    tube::log!("MySQL连接池已初始化: {}:{}", conf.database.host, conf.database.port);
 }

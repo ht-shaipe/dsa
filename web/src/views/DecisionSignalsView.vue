@@ -103,7 +103,7 @@
               <template #default="{ row }">{{ Number(row.priceChange || row.price_change || 0).toFixed(2) }}</template>
             </el-table-column>
             <el-table-column prop="evaluatedAt" label="评估时间" min-width="160">
-              <template #default="{ row }">{{ row.evaluatedAt || row.evaluated_at || '-' }}</template>
+              <template #default="{ row }">{{ row.evaluated_at || row.evaluated_at || '-' }}</template>
             </el-table-column>
           </el-table>
         </div>
@@ -184,7 +184,7 @@ async function openDetail(sig: Record<string, any>) {
   loadOutcomes(sig.id)
 }
 
-async function loadOutcomes(signalId: number) {
+async function loadOutcomes(signal_id: number) {
   try {
     const res: any = await decisionApi.outcomes({ signalId, limit: 20 })
     outcomes.value = res.data || []

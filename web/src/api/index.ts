@@ -11,14 +11,20 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
   const auth = useAuthStore()
-  if (auth.token) {
+  if (auth.token && auth.token !== 'no-auth-required') {
     config.headers.Authorization = `Bearer ${auth.token}`
   }
   return config
 })
 
 api.interceptors.response.use(
-  (res) => res.data,
+  (res) => {
+    const body = res.data
+    if (body && typeof body === 'object' && 'code' in body && 'result' in body) {
+      body.data = body.result
+    }
+    return body
+  },
   (err) => {
     if (err.response?.status === 401) {
       const auth = useAuthStore()

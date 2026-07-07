@@ -51,7 +51,7 @@ impl Conversation {
         }).collect();
 
         value!({
-            "sessionId": self.session_id.clone(),
+            "session_id": self.session_id.clone(),
             "messages": msgs,
         })
     }
@@ -84,7 +84,7 @@ impl Conversation {
 
         // 读取该session的所有消息
         let sql = "SELECT role, content FROM conversation_messages \
-              WHERE sessionId = :sid ORDER BY createTime ASC";
+              WHERE session_id = :sid ORDER BY create_time ASC";
         let rows = Helper::query_rows(
             sql,
             vec![("sid".to_string(), Value::from(session_id.to_string()))],

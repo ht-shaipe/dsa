@@ -28,13 +28,13 @@
             <el-table-column prop="provider" label="供应商" width="120" />
             <el-table-column prop="model" label="模型" width="180" />
             <el-table-column prop="totalTokens" label="总Token" width="140">
-              <template #default="{ row }">{{ Number(row.totalTokens || row.total_tokens || 0).toLocaleString() }}</template>
+              <template #default="{ row }">{{ Number(row.totalTokens || 0).toLocaleString() }}</template>
             </el-table-column>
             <el-table-column prop="promptTokens" label="输入Token" width="140">
-              <template #default="{ row }">{{ Number(row.promptTokens || row.prompt_tokens || 0).toLocaleString() }}</template>
+              <template #default="{ row }">{{ Number(row.promptTokens || 0).toLocaleString() }}</template>
             </el-table-column>
             <el-table-column prop="completionTokens" label="输出Token" width="140">
-              <template #default="{ row }">{{ Number(row.completionTokens || row.completion_tokens || 0).toLocaleString() }}</template>
+              <template #default="{ row }">{{ Number(row.completionTokens || 0).toLocaleString() }}</template>
             </el-table-column>
             <el-table-column prop="cost" label="费用" width="120">
               <template #default="{ row }">¥{{ Number(row.cost || 0).toFixed(4) }}</template>
@@ -59,8 +59,8 @@
         </el-table-column>
         <el-table-column label="Token用量" width="140">
           <template #default="{ row }">
-            {{ Number(row.promptTokens || row.prompt_tokens || 0).toLocaleString() }} /
-            {{ Number(row.completionTokens || row.completion_tokens || 0).toLocaleString() }}
+            {{ Number(row.prompt_tokens || row.prompt_tokens || 0).toLocaleString() }} /
+            {{ Number(row.completion_tokens || row.completion_tokens || 0).toLocaleString() }}
           </template>
         </el-table-column>
         <el-table-column prop="cost" label="费用" width="120">
@@ -90,12 +90,12 @@ const records = ref<any[]>([])
 const summaryCards = computed(() => [
   {
     label: '总Token',
-    value: Number(summary.value.totalTokens || summary.value.total_tokens || 0),
+    value: Number(summary.value.totalTokens || 0),
     precision: 0,
   },
   {
     label: '总费用',
-    value: Number(summary.value.totalCost || summary.value.total_cost || 0),
+    value: Number(summary.value.totalCost || 0),
     precision: 4,
     prefix: '¥',
   },

@@ -5,6 +5,8 @@ export const systemApi = {
   get: () => callApi('system', 'get'),
   /** 重载系统配置 */
   reload: () => callApi('system', 'reload'),
+  /** 保存系统配置（写入文件+更新运行时） */
+  save: (config: any) => callApi('system', 'save', { config }),
   /** 校验系统配置 */
   validate: (config: any) => callApi('system', 'validate', { config }),
   /** 导出系统配置 */

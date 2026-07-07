@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn test_extract_json_from_content_plain_json() {
         let pipeline = make_test_pipeline();
-        let content = r#"{"sentimentScore": 8, "decisionType": "buy"}"#;
+        let content = r#"{"sentiment_score": 8, "decision_type": "buy"}"#;
         let result = pipeline.extract_json_from_content(content);
         assert!(result.starts_with('{'));
         assert!(result.contains("sentimentScore"));

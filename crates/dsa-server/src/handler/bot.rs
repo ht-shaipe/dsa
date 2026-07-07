@@ -16,6 +16,6 @@ pub async fn distribute(param: &RequestParameter) -> Result<Value> {
     service
         .dispatch(&raw_message, &context)
         .await
-        .map(|text| value!({"status": "ok", "data": {"response": text}}))
+        .map(|text| value!({"response": text}))
         .map_err(|e| error!("{}", e))
 }

@@ -37,10 +37,11 @@
           <el-card shadow="hover">
             <template #header>市场热点</template>
             <el-row :gutter="16">
-              <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="h in hotspots" :key="h.topic || h.name">
+              <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="h in hotspots" :key="h.code || h.topic || h.name">
                 <el-card shadow="hover" class="hotspot-card" @click="showHotspotDetail(h)">
-                  <div class="hotspot-topic">{{ h.topic || h.name }}</div>
-                  <div class="hotspot-heat">热度: {{ h.heat || h.score || '-' }}</div>
+                  <div class="hotspot-topic">{{ h.name || h.topic }}</div>
+                  <div class="hotspot-code" v-if="h.code">{{ h.code }}</div>
+                  <div class="hotspot-heat">热度: {{ h.heat || h.score || h.hits || '-' }}</div>
                   <el-tag v-if="h.category" size="small" style="margin-top:8px">{{ h.category }}</el-tag>
                 </el-card>
               </el-col>
@@ -53,26 +54,26 @@
       <el-card shadow="hover">
         <template #header>筛选结果</template>
         <el-table :data="screenResults" stripe style="width:100%" v-loading="screening">
-          <el-table-column prop="code" label="代码" width="100" />
-          <el-table-column prop="name" label="名称" width="120" />
-          <el-table-column prop="strategy" label="策略" width="120" />
-          <el-table-column prop="score" label="评分" width="80">
-            <template #default="{ row }">
-              <span :style="{ color: row.score >= 80 ? '#67c23a' : row.score >= 60 ? '#e6a23c' : '#f56c6c' }">
-                {{ row.score }}
+          <el-table-column :prop="colKey" :label="colLabel" v-for="{key: colKey, label: colLabel} in resultColumns" :key="colKey" :width="colKey === '代码' || colKey === 'code' ? 100 : colKey === '名称' || colKey === 'name' ? 120 : undefined">
+            <template #default="{ row }" v-if="colKey === '涨跌幅' || colKey === 'change_pct'">
+              <span :style="{ color: (row[colKey] || 0) >= 0 ? '#f56c6c' : '#67c23a' }">
+                {{ row[colKey] }}{{ typeof row[colKey] === 'number' ? '%' : '' }}
               </span>
             </template>
           </el-table-column>
-          <el-table-column prop="reason" label="筛选理由" min-width="200" show-overflow-tooltip />
+          <el-table-column label="策略" width="120" v-if="screenResults.length">
+            <template #default>{{ activeStrategyLabel }}</template>
+          </el-table-column>
         </el-table>
         <el-empty v-if="!screenResults.length && !screening" description="点击「执行筛选」查看结果" />
       </el-card>
     </template>
 
-    <el-dialog v-model="hotspotDialogVisible" :title="'热点详情 - ' + currentHotspot.topic" width="600px">
+    <el-dialog v-model="hotspotDialogVisible" :title="'热点详情 - ' + (currentHotspot.name || currentHotspot.topic)" width="600px">
       <el-descriptions :column="1" border v-if="hotspotDetail">
-        <el-descriptions-item label="主题">{{ hotspotDetail.topic }}</el-descriptions-item>
-        <el-descriptions-item label="热度">{{ hotspotDetail.heat || hotspotDetail.score }}</el-descriptions-item>
+        <el-descriptions-item label="名称">{{ hotspotDetail.name || hotspotDetail.topic }}</el-descriptions-item>
+        <el-descriptions-item v-if="hotspotDetail.code" label="代码">{{ hotspotDetail.code }}</el-descriptions-item>
+        <el-descriptions-item label="热度">{{ hotspotDetail.heat || hotspotDetail.score || hotspotDetail.hits || '-' }}</el-descriptions-item>
         <el-descriptions-item label="分类">{{ hotspotDetail.category || '-' }}</el-descriptions-item>
         <el-descriptions-item label="相关股票">
           <el-tag v-for="s in (hotspotDetail.stocks || hotspotDetail.related_stocks || [])" :key="s.code || s" size="small" style="margin:2px">
@@ -87,6 +88,35 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+
+const COLUMN_MAP: Record<string, string> = {
+  '代码': '代码', 'code': '代码',
+  '名称': '名称', 'name': '名称',
+  '最新价': '最新价', 'price': '最新价',
+  '涨跌幅': '涨跌幅', 'change_pct': '涨跌幅',
+  '换手率': '换手率', 'turnover_rate': '换手率',
+  '市盈率-动态': '市盈率', 'pe': '市盈率',
+  '市净率': '市净率', 'pb': '市净率',
+  '量比': '量比', 'volume_ratio': '量比',
+  '成交额': '成交额', 'amount': '成交额',
+}
+
+const resultColumns = computed(() => {
+  if (!screenResults.value.length) return []
+  const first = screenResults.value[0]
+  const seen = new Set<string>()
+  return Object.keys(first).map(k => {
+    const label = COLUMN_MAP[k] || k
+    if (seen.has(label)) return null
+    seen.add(label)
+    return { key: k, label }
+  }).filter(Boolean) as { key: string; label: string }[]
+})
+
+const activeStrategyLabel = computed(() => {
+  const s = strategies.value.find(s => (s.id || s.name) === activeStrategy.value)
+  return s?.name || activeStrategy.value
+})
 import { ElMessage } from 'element-plus'
 import { screeningApi } from '@/api/screening'
 
@@ -178,6 +208,11 @@ onMounted(async () => {
 .hotspot-topic {
   font-size: 16px;
   font-weight: 500;
+  margin-bottom: 4px;
+}
+.hotspot-code {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
   margin-bottom: 8px;
 }
 .hotspot-heat {

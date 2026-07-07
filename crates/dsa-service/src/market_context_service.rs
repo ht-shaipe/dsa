@@ -70,7 +70,7 @@ impl MarketContextService {
 
         // 行业表现 (简化: 从stock_daily获取同行业数据)
         let connector = utils::get_db_connector()?;
-        let sector_sql = "SELECT stockCode, stockName, close, changePct              FROM stock_daily              WHERE tradeDate = (SELECT MAX(tradeDate) FROM stock_daily WHERE status = 1)              AND stockCode LIKE :sector_prefix AND status = 1              ORDER BY changePct DESC LIMIT 10";
+        let sector_sql = "SELECT stock_code, stock_name, close, changePct              FROM stock_daily              WHERE trade_date = (SELECT MAX(trade_date) FROM stock_daily WHERE status = 1)              AND stock_code LIKE :sector_prefix AND status = 1              ORDER BY changePct DESC LIMIT 10";
         let sector_prefix = if code.starts_with('6') { "6%" } else if code.starts_with('0') || code.starts_with('3') { "0%" } else { "%" };
         let sector_rows = Helper::query_rows(
             sector_sql,
@@ -104,7 +104,7 @@ impl MarketContextService {
         let index_code = if index_code_raw.is_empty() { "000001".to_string() } else { index_code_raw };
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT close FROM stock_daily              WHERE stockCode = :code AND status = 1              ORDER BY tradeDate DESC LIMIT 60";
+        let sql = "SELECT close FROM stock_daily              WHERE stock_code = :code AND status = 1              ORDER BY trade_date DESC LIMIT 60";
         let rows = Helper::query_rows(
             sql,
             vec![("code".to_string(), Value::from(index_code.as_str()))],

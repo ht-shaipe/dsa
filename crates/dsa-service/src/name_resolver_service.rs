@@ -35,10 +35,10 @@ impl NameResolverService {
         // If it looks like a 6-digit stock code, return directly
         if query.len() == 6 && query.chars().all(|c| c.is_ascii_digit()) {
             let connector = utils::get_db_connector()?;
-            let sql = "SELECT stockCode, stockName, close \
+            let sql = "SELECT stock_code, stock_name, close \
                  FROM stock_daily \
-                 WHERE stockCode = :code AND status = 1 \
-                 ORDER BY tradeDate DESC LIMIT 1";
+                 WHERE stock_code = :code AND status = 1 \
+                 ORDER BY trade_date DESC LIMIT 1";
             let rows = Helper::query_rows(
                 sql,
                 vec![("code".to_string(), Value::from(query.as_str()))],
@@ -52,28 +52,24 @@ impl NameResolverService {
                 let name = r.get_string(1);
                 let price: f64 = r.get_value(2).as_f64().unwrap_or(0.0);
                 return Ok(value!({
-                    "status": "ok",
-                    "data": {
-                        "code": code,
-                        "name": name,
-                        "price": price,
-                        "type": "exact_code",
-                    }
+                    "code": code,
+                    "name": name,
+                    "price": price,
+                    "type": "exact_code",
                 }));
             }
 
             return Ok(value!({
-                "status": "ok",
-                "data": {"code": query, "type": "code_no_data"}
+                "code": query, "type": "code_no_data"
             }));
         }
 
         // Otherwise search by name
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT DISTINCT stockCode, stockName, close \
+        let sql = "SELECT DISTINCT stock_code, stock_name, close \
              FROM stock_daily \
-             WHERE stockName LIKE :kw AND status = 1 \
-             ORDER BY tradeDate DESC LIMIT 10";
+             WHERE stock_name LIKE :kw AND status = 1 \
+             ORDER BY trade_date DESC LIMIT 10";
         let rows = Helper::query_rows(
             sql,
             vec![("kw".to_string(), Value::from(format!("%{}%", query)))],
@@ -89,11 +85,8 @@ impl NameResolverService {
         }).collect();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "matches": results,
-                "type": "name_search",
-            }
+            "matches": results,
+            "type": "name_search",
         }))
     }
 
@@ -108,10 +101,10 @@ impl NameResolverService {
         let connector = utils::get_db_connector()?;
 
         // Search by code or name
-        let sql = "SELECT DISTINCT stockCode, stockName, close \
+        let sql = "SELECT DISTINCT stock_code, stock_name, close \
              FROM stock_daily \
-             WHERE (stockCode LIKE :kw OR stockName LIKE :kw2) AND status = 1 \
-             ORDER BY tradeDate DESC LIMIT :limit";
+             WHERE (stock_code LIKE :kw OR stock_name LIKE :kw2) AND status = 1 \
+             ORDER BY trade_date DESC LIMIT :limit";
         let rows = Helper::query_rows(
             sql,
             vec![
@@ -130,6 +123,6 @@ impl NameResolverService {
             value!({"code": code, "name": name, "price": price})
         }).collect();
 
-        Ok(value!({"status": "ok", "data": results}))
+        Ok(Value::Array(results))
     }
 }
