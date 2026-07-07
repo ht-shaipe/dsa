@@ -1,0 +1,60 @@
+[workspace]
+members = [
+    "crates/dsa-core",
+    "crates/dsa-pipeline",
+    "crates/dsa-agent",
+    "crates/dsa-backtest",
+    "crates/dsa-service",
+    "crates/dsa-server",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["shaipe <shaipe@live.com>"]
+license = "MIT"
+
+[workspace.dependencies]
+dsa-core = { path = "crates/dsa-core" }
+dsa-pipeline = { path = "crates/dsa-pipeline" }
+dsa-agent = { path = "crates/dsa-agent" }
+dsa-backtest = { path = "crates/dsa-backtest" }
+dsa-service = { path = "crates/dsa-service" }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+futures = "0.3"
+lazy_static = "1.5"
+regex = "1"
+log = "0.4"
+
+reqwest = { version = "0.12", features = ["json"] }
+actix-web = "4.13"
+actix-cors = "0.7"
+actix-rt = "2.11"
+actix-files = "0.6"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+
+tube = { path = "/Users/shaipe/workspace/rust/kit/tube", features = ["derive", "utils", "fs", "cmd"] }
+tube_web = { path = "/Users/shaipe/workspace/rust/kit/tube/web" }
+tube_net = { path = "/Users/shaipe/workspace/rust/kit/tube/net" }
+tube_value = { path = "/Users/shaipe/workspace/rust/kit/tube/value" }
+
+qta_crawler = { path = "/Users/shaipe/workspace/rust/kit/qta/crawler" }
+qta_tdx = { path = "/Users/shaipe/workspace/rust/kit/qta/tdx" }
+qta_sdk = { path = "/Users/shaipe/workspace/rust/kit/qta/sdk" }
+
+ai-llm-kit = { path = "/Users/shaipe/workspace/rust/kit/ai/llm" }
+
+deck = { path = "/Users/shaipe/workspace/rust/kit/deck", features = ["derive", "mysql"] }
+deck_model = { path = "/Users/shaipe/workspace/rust/kit/deck/model" }
+deck_connector = { path = "/Users/shaipe/workspace/rust/kit/deck/connector" }

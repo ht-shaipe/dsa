@@ -1,0 +1,39 @@
+[package]
+name = "dsa-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "DSA HTTP server entry point"
+
+[[bin]]
+name = "dsa"
+path = "src/main.rs"
+
+[dependencies]
+dsa-core = { workspace = true }
+dsa-pipeline = { workspace = true }
+dsa-agent = { workspace = true }
+dsa-backtest = { workspace = true }
+dsa-service = { workspace = true }
+ai-llm-kit = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+lazy_static = { workspace = true }
+clap = { workspace = true }
+toml = { workspace = true }
+
+actix-web = { workspace = true }
+actix-cors = { workspace = true }
+actix-files = { workspace = true }
+actix-rt = { workspace = true }
+
+tube = { workspace = true }
+tube_web = { workspace = true }
+tube_value = { workspace = true }
+
+deck_connector = { workspace = true }

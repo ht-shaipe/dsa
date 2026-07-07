@@ -1,0 +1,36 @@
+[package]
+name = "dsa-service"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "DSA business service layer - stock data, analysis, scheduler, portfolio, alerts"
+
+[dependencies]
+dsa-core = { workspace = true }
+dsa-pipeline = { workspace = true }
+dsa-agent = { workspace = true }
+dsa-backtest = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+lazy_static = { workspace = true }
+toml = { workspace = true }
+
+tube = { workspace = true }
+tube_net = { workspace = true }
+ai-llm-kit = { workspace = true }
+qta_crawler = { workspace = true }
+qta_tdx = { workspace = true }
+qta_sdk = { workspace = true }
+deck = { workspace = true }
+deck_connector = { workspace = true }
+deck_mysql = { path = "/Users/shaipe/workspace/rust/kit/deck/backend/mysql" }
+reqwest = { workspace = true }
+urlencoding = "2"
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder", "tokio1"] }

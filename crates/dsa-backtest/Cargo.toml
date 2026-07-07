@@ -1,0 +1,21 @@
+[package]
+name = "dsa-backtest"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "DSA backtest engine and decision signal tracking"
+
+[dependencies]
+dsa-core = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+tube = { workspace = true }
+deck = { workspace = true }
+deck_connector = { workspace = true }
+deck_mysql = { path = "/Users/shaipe/workspace/rust/kit/deck/backend/mysql" }

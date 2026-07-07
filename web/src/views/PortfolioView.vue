@@ -1,0 +1,246 @@
+<template>
+  <div class="portfolio-view">
+    <el-row :gutter="20" style="margin-bottom: 20px">
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
+          <el-statistic title="总市值" :value="summary.totalValue || 0" :precision="2" prefix="¥" />
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
+          <el-statistic title="总盈亏" :value="summary.totalPnl || 0" :precision="2" prefix="¥" />
+          <div :class="pnlClass(summary.totalPnl)">{{ pnlText(summary.totalPnl) }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
+          <el-statistic title="持仓数量" :value="summary.positionCount || 0" />
+        </el-card>
+      </el-col>
+      <el-col :span="6">
+        <el-card shadow="hover" class="stat-card">
+          <el-statistic title="总收益率" :value="pnlPercent" :precision="2" suffix="%" />
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-row :gutter="20" style="margin-bottom: 20px">
+      <el-col :span="24">
+        <el-card shadow="hover">
+          <template #header>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span>持仓明细</span>
+              <div>
+                <el-button type="success" @click="openTradeDialog('buy')">买入</el-button>
+                <el-button type="danger" @click="openTradeDialog('sell')">卖出</el-button>
+              </div>
+            </div>
+          </template>
+          <el-table :data="positions" stripe style="width:100%">
+            <el-table-column prop="code" label="代码" width="100" />
+            <el-table-column prop="name" label="名称" width="120" />
+            <el-table-column prop="quantity" label="数量" width="100" />
+            <el-table-column prop="avgCost" label="成本价" width="100">
+              <template #default="{ row }">{{ Number(row.avgCost || row.avg_cost || 0).toFixed(2) }}</template>
+            </el-table-column>
+            <el-table-column prop="currentPrice" label="现价" width="100">
+              <template #default="{ row }">{{ Number(row.currentPrice || row.current_price || 0).toFixed(2) }}</template>
+            </el-table-column>
+            <el-table-column label="浮动盈亏" width="140">
+              <template #default="{ row }">
+                <span :class="pnlClass(row.unrealizedPnl || row.unrealized_pnl)">
+                  {{ pnlText(row.unrealizedPnl || row.unrealized_pnl) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column label="盈亏比例" width="120">
+              <template #default="{ row }">
+                <span :class="pnlClass(row.unrealizedPnl || row.unrealized_pnl)">
+                  {{ positionPnlPercent(row) }}
+                </span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="marketValue" label="市值" width="120">
+              <template #default="{ row }">{{ Number(row.marketValue || row.market_value || 0).toFixed(2) }}</template>
+            </el-table-column>
+          </el-table>
+          <el-empty v-if="!positions.length" description="暂无持仓" />
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-card shadow="hover" style="margin-bottom: 20px">
+      <template #header>交易记录</template>
+      <el-table :data="trades" stripe style="width:100%">
+        <el-table-column prop="code" label="代码" width="100" />
+        <el-table-column prop="name" label="名称" width="120" />
+        <el-table-column label="方向" width="80">
+          <template #default="{ row }">
+            <el-tag :type="(row.side || row.direction) === 'buy' ? 'success' : 'danger'" size="small">
+              {{ (row.side || row.direction) === 'buy' ? '买入' : '卖出' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="price" label="价格" width="100">
+          <template #default="{ row }">{{ Number(row.price || 0).toFixed(2) }}</template>
+        </el-table-column>
+        <el-table-column prop="quantity" label="数量" width="100" />
+        <el-table-column prop="commission" label="佣金" width="100">
+          <template #default="{ row }">{{ Number(row.commission || 0).toFixed(2) }}</template>
+        </el-table-column>
+        <el-table-column prop="tradeTime" label="时间" width="180">
+          <template #default="{ row }">{{ row.tradeTime || row.trade_time || row.createdAt || row.created_at || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip />
+      </el-table>
+      <el-empty v-if="!trades.length" description="暂无交易记录" />
+    </el-card>
+
+    <el-dialog v-model="tradeDialogVisible" :title="tradeDirection === 'buy' ? '买入股票' : '卖出股票'" width="500px">
+      <el-form :model="tradeForm" label-width="80px">
+        <el-form-item label="股票代码">
+          <StockAutocomplete @select="onTradeStockSelect" />
+        </el-form-item>
+        <el-form-item label="股票名称">
+          <el-input v-model="tradeForm.name" disabled />
+        </el-form-item>
+        <el-form-item label="价格">
+          <el-input-number v-model="tradeForm.price" :precision="2" :min="0" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="数量">
+          <el-input-number v-model="tradeForm.quantity" :min="1" :step="100" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="佣金">
+          <el-input-number v-model="tradeForm.commission" :precision="2" :min="0" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="tradeForm.remark" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="tradeDialogVisible = false">取消</el-button>
+        <el-button :type="tradeDirection === 'buy' ? 'success' : 'danger'" :loading="tradeSubmitting" @click="submitTrade">
+          确认{{ tradeDirection === 'buy' ? '买入' : '卖出' }}
+        </el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
+import { ElMessage } from 'element-plus'
+import { portfolioApi } from '@/api/portfolio'
+import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
+
+const summary = ref<Record<string, any>>({})
+const positions = ref<any[]>([])
+const trades = ref<any[]>([])
+const accounts = ref<any[]>([])
+
+const tradeDialogVisible = ref(false)
+const tradeDirection = ref<'buy' | 'sell'>('buy')
+const tradeSubmitting = ref(false)
+const tradeForm = ref({
+  code: '',
+  name: '',
+  price: 0,
+  quantity: 100,
+  commission: 0,
+  remark: '',
+})
+
+const pnlPercent = computed(() => {
+  const tv = summary.value.totalValue || 0
+  const tp = summary.value.totalPnl || 0
+  if (!tv) return 0
+  return (tp / (tv - tp)) * 100
+})
+
+function pnlClass(val: number | undefined) {
+  const v = Number(val || 0)
+  return v > 0 ? 'pnl-up' : v < 0 ? 'pnl-down' : ''
+}
+
+function pnlText(val: number | undefined) {
+  const v = Number(val || 0)
+  return (v >= 0 ? '+' : '') + v.toFixed(2)
+}
+
+function positionPnlPercent(row: any) {
+  const cost = Number(row.avgCost || row.avg_cost || 0)
+  const price = Number(row.currentPrice || row.current_price || 0)
+  if (!cost) return '0.00%'
+  const pct = ((price - cost) / cost) * 100
+  return (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'
+}
+
+function openTradeDialog(dir: 'buy' | 'sell') {
+  tradeDirection.value = dir
+  tradeForm.value = { code: '', name: '', price: 0, quantity: 100, commission: 0, remark: '' }
+  tradeDialogVisible.value = true
+}
+
+function onTradeStockSelect(code: string, name: string) {
+  tradeForm.value.code = code
+  tradeForm.value.name = name
+}
+
+async function submitTrade() {
+  if (!tradeForm.value.code) {
+    ElMessage.warning('请选择股票')
+    return
+  }
+  tradeSubmitting.value = true
+  try {
+    const accountId = accounts.value[0]?.id || 1
+    const { code, price, quantity, name, commission, remark } = tradeForm.value
+    if (tradeDirection.value === 'buy') {
+      await portfolioApi.add({ accountId, code, price, quantity, name, commission, remark })
+      ElMessage.success('买入成功')
+    } else {
+      await portfolioApi.remove({ accountId, code, price, quantity, commission, remark })
+      ElMessage.success('卖出成功')
+    }
+    tradeDialogVisible.value = false
+    loadData()
+  } catch {
+    ElMessage.error(tradeDirection.value === 'buy' ? '买入失败' : '卖出失败')
+  } finally {
+    tradeSubmitting.value = false
+  }
+}
+
+async function loadData() {
+  try {
+    const [summaryRes, positionsRes, tradesRes, accountsRes] = await Promise.all([
+      portfolioApi.summary(),
+      portfolioApi.positions(),
+      portfolioApi.trades(),
+      portfolioApi.accounts(),
+    ])
+    summary.value = (summaryRes as any).data || {}
+    positions.value = (positionsRes as any).data || []
+    trades.value = (tradesRes as any).data || []
+    accounts.value = (accountsRes as any).data || []
+  } catch { /* ignore */ }
+}
+
+onMounted(() => {
+  loadData()
+})
+</script>
+
+<style scoped lang="scss">
+.stat-card {
+  text-align: center;
+}
+.pnl-up {
+  color: #f56c6c;
+  font-weight: 500;
+}
+.pnl-down {
+  color: #67c23a;
+  font-weight: 500;
+}
+</style>

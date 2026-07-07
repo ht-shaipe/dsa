@@ -1,0 +1,25 @@
+[package]
+name = "dsa-pipeline"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "DSA analysis pipeline - technical indicators, LLM analysis, report generation"
+
+[dependencies]
+dsa-core = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+lazy_static = { workspace = true }
+
+tube = { workspace = true }
+ai-llm-kit = { workspace = true }
+qta_crawler = { workspace = true }
+qta_tdx = { workspace = true }
+qta_sdk = { workspace = true }
