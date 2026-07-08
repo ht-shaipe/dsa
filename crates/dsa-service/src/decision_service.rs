@@ -106,9 +106,9 @@ impl DecisionService {
         };
 
         let insert_sql = "INSERT INTO decision_signals \
-             (stockCode, stockName, signalDate, action, sentimentScore, confidenceLevel, \
-              entryPrice, stopLoss, targetPrice, reasoning, evidence, scopeType, scopeValue, \
-              analysisId, planQuality, status, creatorId, createTime, modifyTime) \
+             (stock_code, stock_name, signal_date, action, sentiment_score, confidence_level, \
+              entry_price, stop_loss, target_price, reasoning, evidence, scope_type, scope_value, \
+              analysis_id, plan_quality, status, creator_id, create_time, modify_time) \
              VALUES (:code, :name, :sdate, :action, :score, :conf, \
               :entry, :sl, :tp, :reasoning, :evidence, :scope, '', \
               :aid, 0, 1, 0, NOW(), NOW())";
@@ -185,11 +185,11 @@ impl DecisionService {
         let where_clause = conditions.join(" AND ");
 
         let sql = format!(
-            "SELECT ds.id, ds.stock_code, ds.stock_name, ds.signal_date, ds.action, \
-             ds.sentiment_score, ds.confidence_level, ds.entry_price, ds.stopLoss, \
-             ds.target_price, ds.reasoning, ds.evidence, ds.scope_type, ds.analysis_id, \
-             ds.plan_quality, ds.status, ds.create_time, ds.modify_time \
-             FROM decision_signals ds WHERE {} ORDER BY ds.create_time DESC LIMIT :limit",
+             "SELECT ds.id, ds.stock_code, ds.stock_name, ds.signal_date, ds.action, \
+              ds.sentiment_score, ds.confidence_level, ds.entry_price, ds.stop_loss, \
+              ds.target_price, ds.reasoning, ds.evidence, ds.scope_type, ds.analysis_id, \
+              ds.plan_quality, ds.status, ds.create_time, ds.modify_time \
+              FROM decision_signals ds WHERE {} ORDER BY ds.create_time DESC LIMIT :limit",
             where_clause
         );
         p.push(("limit".to_string(), Value::from(limit)));
@@ -210,8 +210,8 @@ impl DecisionService {
 
         let connector = utils::get_db_connector()?;
         let sql = "SELECT id, stock_code, stock_name, signal_date, action, \
-             sentimentScore, confidenceLevel, entryPrice, stopLoss, targetPrice, \
-             reasoning, evidence, scopeType, analysisId, planQuality, status, createTime \
+             sentiment_score, confidence_level, entry_price, stop_loss, target_price, \
+             reasoning, evidence, scope_type, analysis_id, plan_quality, status, create_time \
              FROM decision_signals WHERE stock_code = :code AND status = 1 \
              ORDER BY create_time DESC LIMIT 1";
         let rows = Helper::query_rows(
@@ -240,9 +240,9 @@ impl DecisionService {
 
         let connector = utils::get_db_connector()?;
         let sql = "SELECT id, stock_code, stock_name, signal_date, action, \
-             sentimentScore, confidenceLevel, entryPrice, stopLoss, targetPrice, \
-             reasoning, evidence, scopeType, scopeValue, analysisId, planQuality, \
-             status, creatorId, createTime, modifyTime \
+             sentiment_score, confidence_level, entry_price, stop_loss, target_price, \
+             reasoning, evidence, scope_type, scope_value, analysis_id, plan_quality, \
+             status, creator_id, create_time, modify_time \
              FROM decision_signals WHERE id = :id";
         let rows = Helper::query_rows(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| DsaError::Database(format!("查询信号详情失败: {}", e)))?;
@@ -308,7 +308,7 @@ impl DecisionService {
         let (sql, p) = if signal_id > 0 {
             (
                 "SELECT id, signal_id, stock_code, eval_horizon, eval_date, actual_return, \
-                 maxDrawdown, directionCorrect, hitTarget, hitStopLoss, status, createTime \
+                 max_drawdown, direction_correct, hit_target, hit_stop_loss, status, create_time \
                  FROM decision_signal_outcomes WHERE signal_id = :sid AND status = 1 \
                  ORDER BY eval_date DESC LIMIT :limit"
                     .to_string(),
@@ -320,7 +320,7 @@ impl DecisionService {
         } else {
             (
                 "SELECT id, signal_id, stock_code, eval_horizon, eval_date, actual_return, \
-                 maxDrawdown, directionCorrect, hitTarget, hitStopLoss, status, createTime \
+                 max_drawdown, direction_correct, hit_target, hit_stop_loss, status, create_time \
                  FROM decision_signal_outcomes WHERE status = 1 \
                  ORDER BY eval_date DESC LIMIT :limit"
                     .to_string(),
@@ -366,7 +366,7 @@ impl DecisionService {
 
         let connector = utils::get_db_connector()?;
         let sql = "INSERT INTO decision_signal_feedback \
-             (signalId, feedbackValue, reasonCode, note, source, createTime, modifyTime) \
+             (signal_id, feedback_value, reason_code, note, source, create_time, modify_time) \
              VALUES (:sid, :fb, :rc, :note, 'api', NOW(), NOW()) \
              ON DUPLICATE KEY UPDATE feedback_value = VALUES(feedback_value), \
              reason_code = VALUES(reason_code), note = VALUES(note), modify_time = NOW()";
@@ -603,7 +603,7 @@ impl DecisionService {
                  SUM(CASE WHEN action IN ('buy','add') THEN 1 ELSE 0 END) as bullish, \
                  SUM(CASE WHEN action IN ('sell','reduce','avoid') THEN 1 ELSE 0 END) as bearish, \
                  SUM(CASE WHEN action = 'hold' THEN 1 ELSE 0 END) as neutral, \
-                 AVG(sentimentScore) as avg_score \
+                 AVG(sentiment_score) as avg_score \
                  FROM decision_signals WHERE status = 1"
                     .to_string(),
                 vec![],
@@ -614,7 +614,7 @@ impl DecisionService {
                  SUM(CASE WHEN action IN ('buy','add') THEN 1 ELSE 0 END) as bullish, \
                  SUM(CASE WHEN action IN ('sell','reduce','avoid') THEN 1 ELSE 0 END) as bearish, \
                  SUM(CASE WHEN action = 'hold' THEN 1 ELSE 0 END) as neutral, \
-                 AVG(sentimentScore) as avg_score \
+                 AVG(sentiment_score) as avg_score \
                  FROM decision_signals WHERE status = 1 AND stock_code = :code"
                     .to_string(),
                 vec![("code".to_string(), Value::from(code.as_str()))],

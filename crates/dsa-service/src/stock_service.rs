@@ -1,20 +1,146 @@
 //! 股票数据服务 - 整合 qta_crawler 多源数据
 
+use dsa_core::models::db::WatchlistStock as WatchlistStockModel;
 use dsa_core::{DsaError, DsaResult, utils};
-use deck_mysql::{DataRow, Helper};
+use deck::{DataTable, QueryExecutor, SelectExecutor, TableService,
+    Condition, SortDirect, OrderExpr};
 use qta_crawler::{Basic, EastMoney, History, QQ, Real, Stock};
 use tube::Value;
+
+const DATASOURCE_KEY: &str = "default";
+
+fn eq_cond(field: &str, val: impl Into<Value>) -> Condition {
+    Condition::new(field, val.into())
+}
+
+fn eq_cond_not_param(field: &str, val: impl Into<Value>) -> Condition {
+    Condition::new(field, val.into()).not_param()
+}
+
+fn order_by(field: &str, direct: &str) -> Vec<OrderExpr> {
+    vec![OrderExpr::new(field, SortDirect::get_instance(direct))]
+}
+
+struct WatchlistTable {
+    data: Value,
+}
+
+impl DataTable<WatchlistStockModel> for WatchlistTable {
+    fn datasource_key(&self) -> String {
+        DATASOURCE_KEY.to_owned()
+    }
+}
+
+impl TableService<WatchlistStockModel> for WatchlistTable {
+    fn value(&self) -> Value {
+        self.data.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        ((0, 0, 0), (0, 0), (0, 0))
+    }
+}
+
+impl WatchlistTable {
+    fn new(data: &Value) -> Self {
+        WatchlistTable { data: data.clone() }
+    }
+
+    fn query_enabled_list(&self) -> Result<Vec<Value>, DsaError> {
+        self.select()
+            .r#where(vec![eq_cond("enabled", 1)])
+            .order(order_by("sortOrder", "asc"))
+            .order_str("sortOrder asc, id asc")
+            .query_values()
+            .map_err(|e| DsaError::Database(format!("查询自选股失败: {}", e)))
+    }
+
+    fn find_by_code(&self, code: &str) -> Result<Option<Value>, DsaError> {
+        let res = self.select()
+            .r#where(vec![eq_cond("stockCode", code), eq_cond("enabled", 1)])
+            .one()
+            .map_err(|e| DsaError::Database(format!("查重失败: {}", e)))?;
+        Ok(if res.is_null() { None } else { Some(res) })
+    }
+
+    fn add_stock(&self, code: &str, name: &str, group: &str, sort: i32) -> Result<Value, DsaError> {
+        let data = value!({
+            "stockCode": code,
+            "stockName": name,
+            "market": "cn",
+            "groupName": group,
+            "sortOrder": sort,
+            "enabled": 1,
+            "remark": "",
+        });
+        self.insert().data(&data).execute()
+            .map_err(|e| DsaError::Database(format!("添加自选股失败: {}", e)))
+    }
+
+    fn soft_remove(&self, id: i64) -> Result<Value, DsaError> {
+        self.update()
+            .data(&value!({ "enabled": 0, "modifyTime": chrono::Local::now().naive_local() }))
+            .r#where(vec![eq_cond("id", id)])
+            .execute()
+            .map_err(|e| DsaError::Database(format!("删除自选股失败: {}", e)))
+    }
+
+    fn hard_remove_by_code(&self, code: &str) -> Result<Value, DsaError> {
+        self.delete()
+            .r#where(vec![eq_cond("stockCode", code)])
+            .execute()
+            .map_err(|e| DsaError::Database(format!("删除自选股失败: {}", e)))
+    }
+
+    fn update_fields(&self, id: i64, data: &Value) -> Result<Value, DsaError> {
+        let mut d = data.clone();
+        d["id"] = value!(id);
+        d["modifyTime"] = value!(chrono::Local::now().naive_local());
+        self.update()
+            .data(&d)
+            .r#where(vec![eq_cond("id", id)])
+            .execute()
+            .map_err(|e| DsaError::Database(format!("更新自选股失败: {}", e)))
+    }
+
+    fn disable_all(&self) -> Result<Value, DsaError> {
+        self.update()
+            .data(&value!({ "enabled": 0, "modifyTime": chrono::Local::now().naive_local() }))
+            .r#where(vec![eq_cond("enabled", 1)])
+            .execute()
+            .map_err(|e| DsaError::Database(format!("同步自选股-禁用失败: {}", e)))
+    }
+
+    fn find_existing_by_code(&self, code: &str) -> Result<Option<Value>, DsaError> {
+        let res = self.select()
+            .r#where(vec![eq_cond("stockCode", code)])
+            .one()
+            .map_err(|e| DsaError::Database(format!("同步自选股-查重失败: {}", e)))?;
+        Ok(if res.is_null() { None } else { Some(res) })
+    }
+
+    fn re_enable_with_name(&self, code: &str, name: &str, sort: i32) -> Result<Value, DsaError> {
+        self.update()
+            .data(&value!({
+                "stockName": name,
+                "enabled": 1,
+                "sortOrder": sort,
+                "modifyTime": chrono::Local::now().naive_local()
+            }))
+            .r#where(vec![eq_cond("stockCode", code)])
+            .execute()
+            .map_err(|e| DsaError::Database(format!("同步自选股-更新失败: {}", e)))
+    }
+}
 
 /// 股票数据服务
 pub struct StockService {}
 
 impl StockService {
-    /// 创建股票服务实例
     pub fn new() -> Self {
         Self {}
     }
 
-    /// 请求分发 - 可用方法: search, quote, quotes, kline, history, info, watchlist, watchlist_add, watchlist_remove, watchlist_update, watchlist_sync, spot, industries, concepts
+    /// 请求分发
     pub async fn dispatch(&self, method: &str, params: &Value) -> DsaResult<Value> {
         match method {
             "search" => self.search(params).await,
@@ -228,18 +354,13 @@ impl StockService {
     }
 
     async fn get_watchlist(&self, _params: &Value) -> DsaResult<Value> {
-        let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, stock_code, stock_name, market, group_name, sort_order, enabled, remark, create_time, modify_time \
-             FROM watchlist_stocks WHERE enabled = 1 ORDER BY sort_order, id";
-        let rows = Helper::query_rows(sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("查询自选股失败: {}", e)))?;
-
-        let db_results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
+        let table = WatchlistTable::new(&value!({}));
+        let db_results = table.query_enabled_list()?;
 
         if !db_results.is_empty() {
             let codes: Vec<String> = db_results
                 .iter()
-                .filter_map(|r| r.get("stock_code").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .filter_map(|r| r.get("stockCode").and_then(|v| v.as_str()).map(|s| s.to_string()))
                 .collect();
 
             let real = Real::new();
@@ -257,7 +378,7 @@ impl StockService {
                 .iter()
                 .map(|db_item| {
                     let code = db_item
-                        .get("stock_code")
+                        .get("stockCode")
                         .and_then(|v| v.as_str())
                         .unwrap_or_default();
                     let prefixed = format!("{}{}", utils::market_prefix(code.as_str()), code);
@@ -325,17 +446,9 @@ impl StockService {
             return Err(DsaError::Validation("请提供股票代码".to_string()));
         }
 
-        let connector = utils::get_db_connector()?;
+        let table = WatchlistTable::new(params);
 
-        let check_sql = "SELECT id FROM watchlist_stocks WHERE stock_code = :code AND enabled = 1 LIMIT 1";
-        let existing = Helper::query_rows(
-            check_sql,
-            vec![("code".to_string(), Value::from(code.as_str()))],
-            &connector,
-        )
-        .map_err(|e| DsaError::Database(format!("查重失败: {}", e)))?;
-
-        if !existing.is_empty() {
+        if let Some(_) = table.find_by_code(&code)? {
             return Err(DsaError::Validation(format!(
                 "股票 {} 已在自选列表中",
                 code
@@ -345,57 +458,25 @@ impl StockService {
         let name = utils::param_string(params, "name");
         let group = utils::param_string(params, "group");
         let group_val = if group.is_empty() { "default" } else { &group };
-        let sort_order = params
-            .get("sortOrder")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i32;
+        let sort_order = utils::param_i64(params, "sortOrder") as i32;
 
-        let sql = "INSERT INTO watchlist_stocks \
-             (stock_code, stock_name, market, group_name, sort_order, enabled, remark, create_time, modify_time) \
-             VALUES (:code, :name, 'cn', :group, :sort, 1, '', NOW(), NOW())";
+        let result = table.add_stock(&code, &name, group_val, sort_order)?;
 
-        let result = Helper::execute(
-            sql,
-            vec![
-                ("code".to_string(), Value::from(code.as_str())),
-                ("name".to_string(), Value::from(name.as_str())),
-                ("group".to_string(), Value::from(group_val)),
-                ("sort".to_string(), Value::from(sort_order)),
-            ],
-            &connector,
-        )
-        .map_err(|e| DsaError::Database(format!("添加自选股失败: {}", e)))?;
-
-        Ok(value!({"id": result as i64, "stockCode": code}))
+        Ok(value!({"id": result, "stockCode": code}))
     }
 
     async fn watchlist_remove(&self, params: &Value) -> DsaResult<Value> {
-        let connector = utils::get_db_connector()?;
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let table = WatchlistTable::new(params);
+        let id = utils::param_i64(params, "id");
 
         if id > 0 {
-            let sql = "UPDATE watchlist_stocks SET enabled = 0, modify_time = NOW() WHERE id = :id";
-            Helper::execute(
-                sql,
-                vec![("id".to_string(), Value::from(id))],
-                &connector,
-            )
-            .map_err(|e| DsaError::Database(format!("删除自选股失败: {}", e)))?;
+            table.soft_remove(id)?;
             return Ok(value!({"id": id}));
         }
 
         let code = utils::param_string(params, "stockCode");
         if !code.is_empty() {
-            let sql = "DELETE FROM watchlist_stocks WHERE stock_code = :code";
-            Helper::execute(
-                sql,
-                vec![("code".to_string(), Value::from(code.as_str()))],
-                &connector,
-            )
-            .map_err(|e| DsaError::Database(format!("删除自选股失败: {}", e)))?;
+            table.hard_remove_by_code(&code)?;
             return Ok(value!({"stockCode": code}));
         }
 
@@ -403,57 +484,36 @@ impl StockService {
     }
 
     async fn watchlist_update(&self, params: &Value) -> DsaResult<Value> {
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = utils::param_i64(params, "id");
         if id == 0 {
             return Err(DsaError::Validation("请提供ID".to_string()));
         }
 
-        let connector = utils::get_db_connector()?;
-        let name = utils::param_string(params, "name");
-        let group = utils::param_string(params, "group");
-        let remark = utils::param_string(params, "remark");
-        let sort_order = params
-            .get("sortOrder")
-            .and_then(|v| v.as_f64())
-            .map(|v| v as i32);
-
-        let mut sets = Vec::new();
-        let mut p: Vec<(String, Value)> = Vec::new();
-        p.push(("id".to_string(), Value::from(id)));
-
-        if !name.is_empty() {
-            sets.push("stockName = :name".to_string());
-            p.push(("name".to_string(), Value::from(name.as_str())));
-        }
-        if !group.is_empty() {
-            sets.push("groupName = :group".to_string());
-            p.push(("group".to_string(), Value::from(group.as_str())));
-        }
-        if let Some(so) = sort_order {
-            sets.push("sortOrder = :sort".to_string());
-            p.push(("sort".to_string(), Value::from(so)));
-        }
-        if !remark.is_empty() {
-            sets.push("remark = :remark".to_string());
-            p.push(("remark".to_string(), Value::from(remark.as_str())));
+        let table = WatchlistTable::new(params);
+        let mut data = value!({});
+        if let Value::Object(ref mut map) = data {
+            let name = utils::param_string(params, "name");
+            if !name.is_empty() {
+                map.insert("stockName".to_string(), Value::from(name));
+            }
+            let group = utils::param_string(params, "group");
+            if !group.is_empty() {
+                map.insert("groupName".to_string(), Value::from(group));
+            }
+            let remark = utils::param_string(params, "remark");
+            if !remark.is_empty() {
+                map.insert("remark".to_string(), Value::from(remark));
+            }
+            if let Some(so) = params.get("sortOrder").and_then(|v| v.as_f64()).map(|v| v as i32) {
+                map.insert("sortOrder".to_string(), Value::from(so));
+            }
         }
 
-        if sets.is_empty() {
+        if data.is_object() && data.as_object().map_or(true, |m| m.is_empty()) {
             return Ok(value!({"message": "无更新内容"}));
         }
 
-        sets.push("modify_time = NOW()".to_string());
-        let sql = format!(
-            "UPDATE watchlist_stocks SET {} WHERE id = :id",
-            sets.join(", ")
-        );
-
-        Helper::execute(&sql, p, &connector)
-            .map_err(|e| DsaError::Database(format!("更新自选股失败: {}", e)))?;
-
+        table.update_fields(id, &data)?;
         Ok(value!({"id": id}))
     }
 
@@ -463,11 +523,8 @@ impl StockService {
             _ => vec![],
         };
 
-        let connector = utils::get_db_connector()?;
-
-        let disable_sql = "UPDATE watchlist_stocks SET enabled = 0, modify_time = NOW() WHERE enabled = 1";
-        Helper::execute(disable_sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("同步自选股-禁用失败: {}", e)))?;
+        let table = WatchlistTable::new(params);
+        table.disable_all()?;
 
         let mut count = 0i64;
         for item in &stocks {
@@ -485,40 +542,10 @@ impl StockService {
                 .unwrap_or_default()
                 .to_string();
 
-            let check_sql = "SELECT id FROM watchlist_stocks WHERE stock_code = :code LIMIT 1";
-            let existing = Helper::query_rows(
-                check_sql,
-                vec![("code".to_string(), Value::from(code.as_str()))],
-                &connector,
-            )
-            .map_err(|e| DsaError::Database(format!("同步自选股-查重失败: {}", e)))?;
-
-            if !existing.is_empty() {
-                let update_sql = "UPDATE watchlist_stocks SET stock_name = :name, enabled = 1, sort_order = :sort, modify_time = NOW() WHERE stock_code = :code";
-                Helper::execute(
-                    update_sql,
-                    vec![
-                        ("name".to_string(), Value::from(name.as_str())),
-                        ("sort".to_string(), Value::from(count as i32)),
-                        ("code".to_string(), Value::from(code.as_str())),
-                    ],
-                    &connector,
-                )
-                .map_err(|e| DsaError::Database(format!("同步自选股-更新失败: {}", e)))?;
+            if let Some(_) = table.find_existing_by_code(&code)? {
+                table.re_enable_with_name(&code, &name, count as i32)?;
             } else {
-                let insert_sql = "INSERT INTO watchlist_stocks \
-                     (stock_code, stock_name, market, group_name, sort_order, enabled, remark, create_time, modify_time) \
-                     VALUES (:code, :name, 'cn', 'default', :sort, 1, '', NOW(), NOW())";
-                Helper::execute(
-                    insert_sql,
-                    vec![
-                        ("code".to_string(), Value::from(code.as_str())),
-                        ("name".to_string(), Value::from(name.as_str())),
-                        ("sort".to_string(), Value::from(count as i32)),
-                    ],
-                    &connector,
-                )
-                .map_err(|e| DsaError::Database(format!("同步自选股-插入失败: {}", e)))?;
+                table.add_stock(&code, &name, "default", count as i32)?;
             }
             count += 1;
         }

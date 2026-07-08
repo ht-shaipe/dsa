@@ -72,6 +72,9 @@ pub fn run_migrations(connector: &Connector) {
     }
 
     info!("all migrations completed");
+
+    // Run incremental column rename migrations
+    run_column_migrations(connector);
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +298,35 @@ fn execute_ddl(connector: &Connector, sql: &str) {
         Err(e) => {
             warn!("DDL execution failed: {} — sql: {}", e, sql);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Incremental column migrations (ALTER TABLE)
+// ---------------------------------------------------------------------------
+
+fn run_column_migrations(connector: &Connector) {
+    let migrations: Vec<(&str, &str)> = vec![
+        (
+            "v1_watchlist_stocks_camel_case",
+            "ALTER TABLE `watchlist_stocks` \
+             CHANGE COLUMN `stock_code` `stockCode` VARCHAR(16) NOT NULL COMMENT '股票代码', \
+             CHANGE COLUMN `stock_name` `stockName` VARCHAR(64) DEFAULT '' COMMENT '股票名称', \
+             CHANGE COLUMN `group_name` `groupName` VARCHAR(32) DEFAULT 'default' COMMENT '分组', \
+             CHANGE COLUMN `sort_order` `sortOrder` INT DEFAULT 1 COMMENT '排序权重', \
+             CHANGE COLUMN `create_time` `createTime` DATETIME DEFAULT CURRENT_TIMESTAMP, \
+             CHANGE COLUMN `modify_time` `modifyTime` DATETIME DEFAULT CURRENT_TIMESTAMP",
+        ),
+    ];
+
+    for (version, sql) in &migrations {
+        if is_migration_applied(connector, version) {
+            info!("migration `{}` already applied, skipping", version);
+            continue;
+        }
+        info!("applying migration `{}` …", version);
+        execute_ddl(connector, sql);
+        record_migration(connector, version, &format!("rename columns: {}", version));
     }
 }
 

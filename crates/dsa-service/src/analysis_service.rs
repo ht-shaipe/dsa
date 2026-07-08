@@ -162,14 +162,14 @@ impl AnalysisService {
 
         let (sql, p) = if id > 0 {
             ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
-              analysisSummary, riskWarning, rawResult, contextSnapshot, reportType, \
-              queryId, status, createTime, modifyTime \
+              analysis_summary, risk_warning, report_json, context_snapshot, report_type, \
+              query_id, status, create_time, modify_time \
               FROM analysis_history WHERE id = :id".to_string(),
              vec![("id".to_string(), Value::from(id))])
         } else if !query_id.is_empty() {
             ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
-              analysisSummary, riskWarning, rawResult, contextSnapshot, reportType, \
-              queryId, status, createTime, modifyTime \
+              analysis_summary, risk_warning, report_json, context_snapshot, report_type, \
+              query_id, status, create_time, modify_time \
               FROM analysis_history WHERE query_id = :qid".to_string(),
              vec![("qid".to_string(), Value::from(query_id.as_str()))])
         } else {
@@ -191,14 +191,14 @@ impl AnalysisService {
 
         let (sql, p) = if !code.is_empty() {
             ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
-              analysisSummary, createTime \
+              analysis_summary, create_time \
               FROM analysis_history WHERE stock_code = :code AND status = 1 \
               ORDER BY create_time DESC LIMIT :limit".to_string(),
              vec![("code".to_string(), Value::from(code.as_str())),
                   ("limit".to_string(), Value::from(limit))])
         } else {
             ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
-              analysisSummary, createTime \
+              analysis_summary, create_time \
               FROM analysis_history WHERE status = 1 \
               ORDER BY create_time DESC LIMIT :limit".to_string(),
              vec![("limit".to_string(), Value::from(limit))])
@@ -226,7 +226,7 @@ impl AnalysisService {
 
         let (sql, p) = if !code.is_empty() {
             ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
-              analysisSummary, riskWarning, reportType, queryId, status, createTime, modifyTime \
+              analysis_summary, risk_warning, report_type, query_id, status, create_time, modify_time \
               FROM analysis_history WHERE stock_code = :code AND status = 1 \
               ORDER BY create_time DESC LIMIT :limit OFFSET :offset".to_string(),
              vec![("code".to_string(), Value::from(code.as_str())),
@@ -234,7 +234,7 @@ impl AnalysisService {
                   ("offset".to_string(), Value::from(offset))])
         } else {
             ("SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
-              analysisSummary, riskWarning, reportType, queryId, status, createTime, modifyTime \
+              analysis_summary, risk_warning, report_type, query_id, status, create_time, modify_time \
               FROM analysis_history WHERE status = 1 \
               ORDER BY create_time DESC LIMIT :limit OFFSET :offset".to_string(),
              vec![("limit".to_string(), Value::from(limit)),
@@ -258,8 +258,8 @@ impl AnalysisService {
         let connector = utils::get_db_connector()?;
 
         let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
-              analysisSummary, riskWarning, rawResult, contextSnapshot, reportType, \
-              queryId, status, createTime, modifyTime \
+              analysis_summary, risk_warning, report_json, context_snapshot, report_type, \
+              query_id, status, create_time, modify_time \
               FROM analysis_history WHERE id = :id";
         let rows = deck_mysql::Helper::query_rows(
             sql,
@@ -282,8 +282,8 @@ impl AnalysisService {
         let connector = utils::get_db_connector()?;
 
         let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
-              analysisSummary, riskWarning, rawResult, contextSnapshot, reportType, \
-              queryId, status, createTime, modifyTime \
+              analysis_summary, risk_warning, report_json, context_snapshot, report_type, \
+              query_id, status, create_time, modify_time \
               FROM analysis_history WHERE id IN (:id1, :id2) ORDER BY id";
         let rows = deck_mysql::Helper::query_rows(
             sql,
@@ -309,7 +309,7 @@ impl AnalysisService {
         let connector = utils::get_db_connector()?;
 
         let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
-              analysisSummary, createTime \
+              analysis_summary, create_time \
               FROM analysis_history WHERE status = 1 \
               AND (stock_name LIKE :kw OR analysis_summary LIKE :kw) \
               ORDER BY create_time DESC LIMIT :limit";

@@ -226,8 +226,8 @@ impl Orchestrator {
                 let mut v = r.to_value2();
                 if let Value::Object(ref mut map) = v {
                     if let Some(Value::Text(ref mut s)) = map.get_mut("content") {
-                        let clean: String = s.replace('\n', "\\n").replace('\r', "").replace('\t', " ").chars().map(|c| {
-                            if c.is_control() { ' ' } else { c }
+                        let clean: String = s.replace('\r', "").replace('\t', " ").chars().map(|c| {
+                            if c.is_control() && c != '\n' { ' ' } else { c }
                         }).collect();
                         *s = clean;
                     }

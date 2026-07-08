@@ -38,6 +38,13 @@ onMounted(async () => {
   await authStore.checkStatus()
   if (authStore.isAuthenticated) {
     router.replace('/')
+    return
+  }
+  if (!authStore.authEnabled) {
+    const ok = await authStore.login('')
+    if (ok) {
+      router.replace('/')
+    }
   }
 })
 

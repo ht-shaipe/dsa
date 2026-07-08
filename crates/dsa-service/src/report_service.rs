@@ -252,8 +252,8 @@ impl ReportService {
         let connector = utils::get_db_connector()?;
 
         let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, \
-                   confidenceLevel, operationAdvice, analysisSummary, riskWarning, \
-                   createTime \
+                   confidence_level, operation_advice, analysis_summary, risk_warning, \
+                   create_time \
                    FROM analysis_history WHERE stock_code = :code AND status = 1 \
                    ORDER BY create_time DESC LIMIT :limit";
         let rows = Helper::query_rows(
@@ -321,9 +321,9 @@ impl ReportService {
         let (sql, p) = if analysis_id > 0 {
             (
                 "SELECT id, stock_code, stock_name, sentiment_score, decision_type, \
-                 confidenceLevel, operationAdvice, analysisSummary, riskWarning, \
-                 report_json, marketContext, reportType, queryId, status, \
-                 createTime, modifyTime \
+                 confidence_level, operation_advice, analysis_summary, risk_warning, \
+                 report_json, market_context, report_type, query_id, status, \
+                 create_time, modify_time \
                  FROM analysis_history WHERE id = :id"
                     .to_string(),
                 vec![("id".to_string(), Value::from(analysis_id))],
@@ -331,9 +331,9 @@ impl ReportService {
         } else {
             (
                 "SELECT id, stock_code, stock_name, sentiment_score, decision_type, \
-                 confidenceLevel, operationAdvice, analysisSummary, riskWarning, \
-                 report_json, marketContext, reportType, queryId, status, \
-                 createTime, modifyTime \
+                 confidence_level, operation_advice, analysis_summary, risk_warning, \
+                 report_json, market_context, report_type, query_id, status, \
+                 create_time, modify_time \
                  FROM analysis_history WHERE stock_code = :code AND status = 1 \
                  ORDER BY create_time DESC LIMIT 1"
                     .to_string(),

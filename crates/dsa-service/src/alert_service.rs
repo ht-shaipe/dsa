@@ -87,7 +87,7 @@ impl AlertService {
         // 使用 alert_rules 表 (如果不存在则用 intelligence_source 表临时存储)
         // 实际应使用 alert_rules 表，此处简化用 SQL 直接操作
         let sql = "INSERT INTO alert_rules \
-             (stock_code, stockName, ruleType, condition_json, enabled, trigger_count, status, create_time, modify_time) \
+             (stock_code, stock_name, rule_type, condition_json, enabled, trigger_count, status, create_time, modify_time) \
              VALUES (:code, :name, :type, :cond, 1, 0, 1, NOW(), NOW())";
 
         let result = Helper::execute(
@@ -266,7 +266,7 @@ impl AlertService {
             .unwrap_or(50.0) as i64;
 
         let sql = "SELECT id, rule_id, stock_code, trigger_type, trigger_value, \
-             conditionSnapshot, notified, create_time \
+             condition_snapshot, notified, create_time \
              FROM alert_triggers WHERE status >= 1 \
              ORDER BY create_time DESC LIMIT :limit";
         let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
@@ -286,7 +286,7 @@ impl AlertService {
             .unwrap_or(50.0) as i64;
 
         let sql = "SELECT id, rule_id, stock_code, trigger_type, trigger_value, \
-             conditionSnapshot, create_time \
+             condition_snapshot, create_time \
              FROM alert_triggers WHERE status >= 1 AND notified = 1 \
              ORDER BY create_time DESC LIMIT :limit";
         let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
@@ -305,7 +305,7 @@ impl AlertService {
             .unwrap_or(50.0) as i64;
 
         let sql = "SELECT id, rule_id, rule_key, target, severity, last_triggered_at, \
-             cooldownUntil, reason, state, updatedTime \
+             cooldown_until, reason, state, updated_time \
              FROM alert_cooldowns WHERE state = 'active' \
              ORDER BY cooldown_until ASC LIMIT :limit";
         let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
@@ -335,7 +335,7 @@ impl AlertService {
 
         let connector = utils::get_db_connector()?;
         let sql = "INSERT INTO alert_cooldowns \
-             (ruleId, ruleKey, target, severity, last_triggered_at, cooldownUntil, reason, state, updatedTime) \
+             (rule_id, rule_key, target, severity, last_triggered_at, cooldown_until, reason, state, updated_time) \
              VALUES (:rid, '', :target, :severity, NOW(), DATE_ADD(NOW(), INTERVAL :minutes MINUTE), :reason, 'active', NOW())";
 
         let result = Helper::execute(
@@ -394,7 +394,7 @@ impl AlertService {
             .unwrap_or(50.0) as i64;
 
         let sql = "SELECT id, trigger_id, channel, attempt, success, error_code, \
-             retryable, latencyMs, diagnostics, create_time \
+             retryable, latency_ms, diagnostics, create_time \
              FROM alert_notifications \
              ORDER BY create_time DESC LIMIT :limit";
         let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
@@ -436,7 +436,7 @@ impl AlertService {
 
         let connector = utils::get_db_connector()?;
         let sql = "INSERT INTO alert_notifications \
-             (triggerId, channel, attempt, success, errorCode, retryable, latencyMs, diagnostics, create_time) \
+             (trigger_id, channel, attempt, success, error_code, retryable, latency_ms, diagnostics, create_time) \
              VALUES (:tid, :channel, 1, :success, :ec, :retry, :lat, :diag, NOW())";
 
         let result = Helper::execute(
@@ -544,7 +544,7 @@ impl AlertService {
 
             // 插入触发记录
             let trigger_sql = "INSERT INTO alert_triggers \
-                 (ruleId, stock_code, triggerType, triggerValue, conditionSnapshot, notified, status, create_time) \
+                 (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time) \
                  VALUES (:rid, :code, 'price', :val, :cond, 1, 1, NOW())";
             let trigger_result = Helper::execute(
                 trigger_sql,
@@ -561,7 +561,7 @@ impl AlertService {
                 // 创建通知投递记录
                 let _ = Helper::execute(
                     "INSERT INTO alert_notifications \
-                     (triggerId, channel, attempt, success, errorCode, retryable, latencyMs, diagnostics, create_time) \
+                     (trigger_id, channel, attempt, success, error_code, retryable, latency_ms, diagnostics, create_time) \
                      VALUES (:tid, 'system', 1, 1, '', 0, 0, :diag, NOW())",
                     vec![
                         ("tid".to_string(), Value::from(trigger_id as i64)),
@@ -573,7 +573,7 @@ impl AlertService {
                 // 创建冷却记录
                 let _ = Helper::execute(
                     "INSERT INTO alert_cooldowns \
-                     (ruleId, ruleKey, target, severity, last_triggered_at, cooldownUntil, reason, state, updatedTime) \
+                     (rule_id, rule_key, target, severity, last_triggered_at, cooldown_until, reason, state, updated_time) \
                      VALUES (:rid, '', :code, 'warning', NOW(), DATE_ADD(NOW(), INTERVAL 30 MINUTE), :reason, 'active', NOW())",
                     vec![
                         ("rid".to_string(), Value::from(rule_id)),

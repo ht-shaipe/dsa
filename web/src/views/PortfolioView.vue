@@ -37,8 +37,8 @@
             </div>
           </template>
           <el-table :data="positions" stripe style="width:100%">
-            <el-table-column prop="code" label="代码" width="100" />
-            <el-table-column prop="name" label="名称" width="120" />
+            <el-table-column prop="stockCode" label="代码" width="100" />
+            <el-table-column prop="stockName" label="名称" width="120" />
             <el-table-column prop="quantity" label="数量" width="100" />
             <el-table-column prop="avgCost" label="成本价" width="100">
               <template #default="{ row }">{{ Number(row.avgCost || 0).toFixed(2) }}</template>
@@ -72,8 +72,8 @@
     <el-card shadow="hover" style="margin-bottom: 20px">
       <template #header>交易记录</template>
       <el-table :data="trades" stripe style="width:100%">
-        <el-table-column prop="code" label="代码" width="100" />
-        <el-table-column prop="name" label="名称" width="120" />
+        <el-table-column prop="stockCode" label="代码" width="100" />
+        <el-table-column prop="stockName" label="名称" width="120" />
         <el-table-column label="方向" width="80">
           <template #default="{ row }">
             <el-tag :type="(row.side || row.direction) === 'buy' ? 'success' : 'danger'" size="small">
@@ -89,7 +89,7 @@
           <template #default="{ row }">{{ Number(row.commission || 0).toFixed(2) }}</template>
         </el-table-column>
         <el-table-column prop="tradeTime" label="时间" width="180">
-          <template #default="{ row }">{{ row.tradeTime || row.trade_time || row.createdAt || row.created_at || '-' }}</template>
+          <template #default="{ row }">{{ row.tradeDate || row.tradeTime || row.createdAt || row.createdTime || '-' }}</template>
         </el-table-column>
         <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip />
       </el-table>

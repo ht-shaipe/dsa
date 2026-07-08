@@ -44,7 +44,7 @@ impl PortfolioService {
     async fn accounts(&self, _params: &Value) -> DsaResult<Value> {
         let connector = utils::get_db_connector()?;
         let sql = "SELECT id, name, market, broker, base_currency, initial_capital, \
-             remark, status, creatorId, createTime, modifyTime \
+             remark, status, creator_id, create_time, modify_time \
              FROM portfolio_accounts WHERE status >= 1 ORDER BY id";
         let rows = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询账户列表失败: {}", e)))?;
@@ -94,8 +94,8 @@ impl PortfolioService {
 
         // 1. 插入交易记录
         let trade_sql = "INSERT INTO portfolio_trades \
-             (accountId, stockCode, stockName, direction, price, quantity, \
-              tradeDate, commission, tradeCurrency, dedupHash, remark, status, createTime) \
+             (account_id, stock_code, stock_name, direction, price, quantity, \
+              trade_date, commission, trade_currency, dedup_hash, remark, status, create_time) \
              VALUES (:aid, :code, :name, 'buy', :price, :qty, \
               NOW(), :comm, 'CNY', '', :remark, 1, NOW())";
         Helper::execute(
@@ -129,9 +129,9 @@ impl PortfolioService {
         if existing.is_empty() {
             // 新建持仓
             let insert_sql = "INSERT INTO portfolio_positions \
-                 (accountId, stockCode, stockName, quantity, avgCost, currentPrice, \
-                  marketValue, unrealizedPnl, unrealizedPnlPct, snapshotDate, status, \
-                  createTime, modifyTime) \
+                 (account_id, stock_code, stock_name, quantity, avg_cost, current_price, \
+                  market_value, unrealized_pnl, unrealized_pnl_pct, snapshot_date, status, \
+                  create_time, modify_time) \
                  VALUES (:aid, :code, :name, :qty, :avg_cost, :price, :mv, :pnl, :pnl_pct, \
                   NOW(), 1, NOW(), NOW())";
             let mv = price * quantity as f64;
@@ -173,9 +173,9 @@ impl PortfolioService {
             };
 
             let update_sql = "UPDATE portfolio_positions SET \
-                 quantity = :qty, avgCost = :avg_cost, currentPrice = :price, \
-                 marketValue = :mv, unrealizedPnl = :pnl, unrealizedPnlPct = :pnl_pct, \
-                 snapshotDate = NOW(), modifyTime = NOW() \
+                 quantity = :qty, avg_cost = :avg_cost, current_price = :price, \
+                 market_value = :mv, unrealized_pnl = :pnl, unrealized_pnl_pct = :pnl_pct, \
+                 snapshot_date = NOW(), modify_time = NOW() \
                  WHERE id = :id";
             Helper::execute(
                 update_sql,
@@ -263,8 +263,8 @@ impl PortfolioService {
 
         // 1. 插入交易记录
         let trade_sql = "INSERT INTO portfolio_trades \
-             (accountId, stockCode, stockName, direction, price, quantity, \
-              tradeDate, commission, tradeCurrency, dedupHash, remark, status, createTime) \
+             (account_id, stock_code, stock_name, direction, price, quantity, \
+              trade_date, commission, trade_currency, dedup_hash, remark, status, create_time) \
              VALUES (:aid, :code, :name, 'sell', :price, :qty, \
               NOW(), :comm, 'CNY', '', :remark, 1, NOW())";
         Helper::execute(
@@ -303,8 +303,8 @@ impl PortfolioService {
             };
 
             let update_sql = "UPDATE portfolio_positions SET \
-                 quantity = :qty, currentPrice = :price, marketValue = :mv, \
-                 unrealizedPnl = :pnl, unrealizedPnlPct = :pnl_pct, \
+                 quantity = :qty, current_price = :price, market_value = :mv, \
+                 unrealized_pnl = :pnl, unrealized_pnl_pct = :pnl_pct, \
                  snapshot_date = NOW(), modify_time = NOW() WHERE id = :id";
             Helper::execute(
                 update_sql,
@@ -336,7 +336,7 @@ impl PortfolioService {
         let (sql, p) = if account_id > 0 {
             (
                 "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
-                 currentPrice, marketValue, unrealizedPnl, unrealizedPnlPct \
+                 current_price, market_value, unrealized_pnl, unrealized_pnl_pct \
                  FROM portfolio_positions WHERE account_id = :aid AND status = 1"
                     .to_string(),
                 vec![("aid".to_string(), Value::from(account_id))],
@@ -344,7 +344,7 @@ impl PortfolioService {
         } else {
             (
                 "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
-                 currentPrice, marketValue, unrealizedPnl, unrealizedPnlPct \
+                 current_price, market_value, unrealized_pnl, unrealized_pnl_pct \
                  FROM portfolio_positions WHERE status = 1"
                     .to_string(),
                 vec![],
@@ -427,8 +427,8 @@ impl PortfolioService {
         let (sql, p) = if account_id > 0 {
             (
                 "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
-                 currentPrice, marketValue, unrealizedPnl, unrealizedPnlPct, \
-                 snapshotDate, status, createTime, modifyTime \
+                 current_price, market_value, unrealized_pnl, unrealized_pnl_pct, \
+                 snapshot_date, status, create_time, modify_time \
                  FROM portfolio_positions WHERE account_id = :aid AND status = 1"
                     .to_string(),
                 vec![("aid".to_string(), Value::from(account_id))],
@@ -436,8 +436,8 @@ impl PortfolioService {
         } else {
             (
                 "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
-                 currentPrice, marketValue, unrealizedPnl, unrealizedPnlPct, \
-                 snapshotDate, status, createTime, modifyTime \
+                 current_price, market_value, unrealized_pnl, unrealized_pnl_pct, \
+                 snapshot_date, status, create_time, modify_time \
                  FROM portfolio_positions WHERE status = 1"
                     .to_string(),
                 vec![],
@@ -466,7 +466,7 @@ impl PortfolioService {
         let (sql, p) = if account_id > 0 {
             (
                 "SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
-                 tradeDate, commission, tradeCurrency, dedupHash, remark, status, createTime \
+                 trade_date, commission, trade_currency, dedup_hash, remark, status, create_time \
                  FROM portfolio_trades WHERE account_id = :aid AND status = 1 \
                  ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
@@ -478,7 +478,7 @@ impl PortfolioService {
         } else {
             (
                 "SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
-                 tradeDate, commission, tradeCurrency, dedupHash, remark, status, createTime \
+                 trade_date, commission, trade_currency, dedup_hash, remark, status, create_time \
                  FROM portfolio_trades WHERE status = 1 \
                  ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
@@ -596,8 +596,8 @@ impl PortfolioService {
 
         // 插入快照
         let insert_sql = "INSERT INTO portfolio_daily_snapshots \
-             (accountId, snapshotDate, totalEquity, cashBalance, marketValue, \
-              dailyPnl, dailyPnlPct, totalPnl, totalPnlPct, createTime) \
+             (account_id, snapshot_date, total_equity, cash_balance, market_value, \
+              daily_pnl, daily_pnl_pct, total_pnl, total_pnl_pct, create_time) \
              VALUES (:aid, NOW(), :equity, :cash, :mv, :daily_pnl, :daily_pnl_pct, \
               :total_pnl, :total_pnl_pct, NOW())";
         Helper::execute(
@@ -688,7 +688,7 @@ impl PortfolioService {
         let connector = utils::get_db_connector()?;
 
         let sql = "INSERT INTO portfolio_cash_ledger \
-             (accountId, eventDate, direction, amount, baseCurrency, note, createTime) \
+             (account_id, event_date, direction, amount, base_currency, note, create_time) \
              VALUES (:aid, NOW(), :dir, :amt, 'CNY', :note, NOW())";
         Helper::execute(
             sql,
@@ -766,8 +766,8 @@ impl PortfolioService {
         let connector = utils::get_db_connector()?;
 
         let sql = "INSERT INTO portfolio_corporate_actions \
-             (accountId, symbol, market, baseCurrency, effectiveDate, actionType, \
-              cashDividendPerShare, splitRatio, note, createTime) \
+             (account_id, symbol, market, base_currency, effective_date, action_type, \
+              cash_dividend_per_share, split_ratio, note, create_time) \
              VALUES (:aid, :symbol, 'cn', 'CNY', NOW(), :atype, :cdps, :sr, :note, NOW())";
         Helper::execute(
             sql,
@@ -854,10 +854,10 @@ impl PortfolioService {
         let connector = utils::get_db_connector()?;
 
         let sql = "INSERT INTO portfolio_fx_rates \
-             (fromCurrency, toCurrency, rateDate, rate, source, isStale, updatedTime) \
+             (from_currency, to_currency, rate_date, rate, source, is_stale, updated_time) \
              VALUES (:from, :to, NOW(), :rate, :src, 0, NOW()) \
              ON DUPLICATE KEY UPDATE rate = VALUES(rate), source = VALUES(source), \
-             isStale = 0, updatedTime = NOW()";
+             is_stale = 0, updated_time = NOW()";
         Helper::execute(
             sql,
             vec![
@@ -1041,8 +1041,8 @@ impl PortfolioService {
             let remark = utils::param_string(trade, "remark");
 
             let sql = "INSERT INTO portfolio_trades \
-                 (accountId, stockCode, stockName, direction, price, quantity, \
-                  tradeDate, commission, tradeCurrency, dedupHash, remark, status, createTime) \
+                 (account_id, stock_code, stock_name, direction, price, quantity, \
+                  trade_date, commission, trade_currency, dedup_hash, remark, status, create_time) \
                  VALUES (:aid, :code, :name, :dir, :price, :qty, \
                   NOW(), :comm, 'CNY', '', :remark, 1, NOW())";
 

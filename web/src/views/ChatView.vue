@@ -55,8 +55,7 @@
                   <span class="bubble-time">{{ formatTime(msg.timestamp) }}</span>
                 </div>
                 <div class="bubble-content">
-                  <MarkdownRenderer v-if="msg.role === 'assistant'" :content="msg.content" />
-                  <template v-else>{{ msg.content }}</template>
+                  <MarkdownRenderer :content="msg.content" />
                 </div>
               </div>
             </div>

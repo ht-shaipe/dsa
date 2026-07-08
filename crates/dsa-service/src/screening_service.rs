@@ -45,7 +45,12 @@ impl ScreeningService {
         let data = Complex::get_hot_stock()
             .await
             .map_err(|e| DsaError::StockData(format!("获取热点失败: {}", e)))?;
-        Ok(data)
+        let limited = if let Value::Array(arr) = data {
+            Value::Array(arr.into_iter().take(12).collect())
+        } else {
+            data
+        };
+        Ok(limited)
     }
 
     async fn hotspot_detail(&self, params: &Value) -> DsaResult<Value> {

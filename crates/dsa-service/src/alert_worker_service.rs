@@ -32,7 +32,7 @@ impl AlertWorkerService {
     async fn run(&self, _params: &Value) -> DsaResult<Value> {
         let connector = utils::get_db_connector()?;
 
-        let sql = "SELECT id, stock_code, stock_name, rule_type, conditionJson,              enabled, last_triggered_at, triggerCount, alertType, severity              FROM alert_rules WHERE enabled = 1 AND status >= 1";
+        let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json,              enabled, last_triggered_at, trigger_count, alert_type, severity              FROM alert_rules WHERE enabled = 1 AND status >= 1";
         let rules = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询告警规则失败: {}", e)))?;
 
@@ -88,7 +88,7 @@ impl AlertWorkerService {
 
             if let Ok(trigger_id) = trigger_result {
                 let _ = Helper::execute(
-                    "UPDATE alert_rules SET last_triggered_at = NOW(),                      triggerCount = triggerCount + 1, modify_time = NOW() WHERE id = :id",
+                    "UPDATE alert_rules SET last_triggered_at = NOW(),                      trigger_count = trigger_count + 1, modify_time = NOW() WHERE id = :id",
                     vec![("id".to_string(), Value::from(rule_id))],
                     &connector,
                 );
@@ -122,7 +122,7 @@ impl AlertWorkerService {
         }
 
         let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, stock_code, stock_name, rule_type, conditionJson,              enabled, last_triggered_at, triggerCount, alertType, severity              FROM alert_rules WHERE id = :id AND status >= 1";
+        let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json,              enabled, last_triggered_at, trigger_count, alert_type, severity              FROM alert_rules WHERE id = :id AND status >= 1";
         let rows = Helper::query_rows(
             sql,
             vec![("id".to_string(), Value::from(rule_id))],
@@ -186,7 +186,7 @@ impl AlertWorkerService {
         .map_err(|e| DsaError::Database(format!("创建触发记录失败: {}", e)))?;
 
         let _ = Helper::execute(
-            "UPDATE alert_rules SET last_triggered_at = NOW(), triggerCount = triggerCount + 1,              modify_time = NOW() WHERE id = :id",
+            "UPDATE alert_rules SET last_triggered_at = NOW(), trigger_count = trigger_count + 1,              modify_time = NOW() WHERE id = :id",
             vec![("id".to_string(), Value::from(rule_id))],
             &connector,
         );
