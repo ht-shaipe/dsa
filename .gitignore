@@ -4,6 +4,7 @@
 *.pdb
 **/target/
 **/node_modules/
+/conf/
 
 # Cargo
 Cargo.lock
