@@ -555,13 +555,13 @@ impl Orchestrator {
         };
         let sql = if code.is_empty() {
             "SELECT p.stock_code, p.stock_name, p.quantity, p.avg_cost, p.current_price, \
-             p.market_value, p.profitLoss, p.profitLossPct, a.total_assets \
+             p.market_value, p.unrealized_pnl, p.unrealized_pnl_pct, a.initial_capital \
              FROM portfolio_positions p \
              JOIN portfolio_accounts a ON p.account_id = a.id \
              WHERE p.status >= 1 AND a.status >= 1".to_string()
         } else {
             format!("SELECT p.stock_code, p.stock_name, p.quantity, p.avg_cost, p.current_price, \
-             p.market_value, p.profitLoss, p.profitLossPct, a.total_assets \
+             p.market_value, p.unrealized_pnl, p.unrealized_pnl_pct, a.initial_capital \
              FROM portfolio_positions p \
              JOIN portfolio_accounts a ON p.account_id = a.id \
              WHERE p.status >= 1 AND a.status >= 1 AND p.stock_code = '{}'", code)
@@ -570,10 +570,10 @@ impl Orchestrator {
             Ok(rows) => {
                 let positions: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
                 let total = positions.iter().fold(0.0, |acc, p| {
-                    acc + p.get("marketValue").and_then(|v| v.as_f64()).unwrap_or(0.0)
+                    acc + p.get("market_value").and_then(|v| v.as_f64()).unwrap_or(0.0)
                 });
                 let account_total = rows.first()
-                    .and_then(|r| r.to_value2().get("totalAssets").and_then(|v| v.as_f64()))
+                    .and_then(|r| r.to_value2().get("initial_capital").and_then(|v| v.as_f64()))
                     .unwrap_or(100000.0);
                 (positions, if total > 0.0 { account_total } else { 100000.0 })
             }

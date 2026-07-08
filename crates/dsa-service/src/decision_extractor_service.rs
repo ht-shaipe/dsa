@@ -36,7 +36,7 @@ impl DecisionExtractorService {
         let connector = utils::get_db_connector()?;
 
         // 查询分析历史
-        let sql = "SELECT id, stock_code, stock_name, decision_type, confidence_level,              sentiment_score, ideal_buy, stop_loss, takeProfit, operation_advice,              risk_warning, market_context, analysis_summary, create_time              FROM analysis_history WHERE id = :id AND status >= 1";
+        let sql = "SELECT id, stock_code, stock_name, decision_type, confidence_level,              sentiment_score, ideal_buy, stop_loss, take_profit, operation_advice,              risk_warning, market_context, analysis_summary, create_time              FROM analysis_history WHERE id = :id AND status >= 1";
         let rows = Helper::query_rows(
             sql,
             vec![("id".to_string(), Value::from(analysis_id))],

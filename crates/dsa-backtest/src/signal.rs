@@ -110,8 +110,8 @@ impl SignalTracker {
 
             // 保存评估结果
             let insert_sql = "INSERT INTO decision_signal_outcomes \
-                 (signalId, stockCode, evalHorizon, evalDate, actualReturn, maxDrawdown, \
-                  directionCorrect, hitTarget, hitStopLoss, status, createTime) \
+                 (signal_id, stock_code, eval_horizon, eval_date, actual_return, max_drawdown, \
+                  direction_correct, hit_target, hit_stop_loss, status, create_time) \
                  VALUES (:sid, :code, :horizon, NOW(), :ret, :dd, :dir_correct, :hit_target, :hit_sl, 1, NOW())";
             if let Err(e) = Helper::execute(
                 insert_sql,

@@ -83,6 +83,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import ScoreGauge from '@/components/common/ScoreGauge.vue'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
@@ -116,7 +117,15 @@ async function runAnalysis() {
   analysisStore.setAnalyzing(true)
   try {
     const res: any = await analysisApi.analyze(selectedCode.value, selectedName.value)
-    analysisStore.setReport(res.data)
+    const data = res.data || res
+    if (data) {
+      analysisStore.setReport(data)
+    } else {
+      ElMessage.warning('分析完成但未返回报告数据')
+    }
+  } catch (e: any) {
+    const msg = e?.response?.data?.message || e?.message || '分析失败'
+    ElMessage.error(msg)
   } finally {
     analysisStore.setAnalyzing(false)
   }

@@ -49,8 +49,8 @@ impl BacktestEngine {
         // 查询分析历史记录
         let sql =
             "SELECT id, stock_code, stock_name, sentiment_score, trend_prediction, operation_advice, \
-             decisionType, idealBuy, secondaryBuy, stopLoss, takeProfit, reportJson, \
-             analysisSummary, riskWarning, marketContext, createTime \
+             decision_type, ideal_buy, secondary_buy, stop_loss, take_profit, report_json, \
+             analysis_summary, risk_warning, market_context, create_time \
              FROM analysis_history WHERE id = :id AND status = 1";
         let rows = Helper::query_rows(sql, vec![("id".to_string(), Value::from(analysis_id))], &connector)
             .map_err(|e| DsaError::Database(format!("查询分析历史失败: {}", e)))?;
@@ -137,8 +137,8 @@ impl BacktestEngine {
 
         // 存储回测结果
         let insert_sql = "INSERT INTO backtest_results \
-             (analysisId, stockCode, signalDate, decisionAction, simulatedEntry, simulatedExit, \
-              exitDate, returnPct, maxDrawdown, directionCorrect, scopeType, status, createTime) \
+             (analysis_id, stock_code, signal_date, decision_action, simulated_entry, simulated_exit, \
+              exit_date, return_pct, max_drawdown, direction_correct, scope_type, status, create_time) \
              VALUES (:aid, :code, :sdate, :action, :entry, :exit, NULL, :ret, :dd, :dir_correct, 'watchlist', 1, NOW())";
         let insert_result = Helper::execute(
             insert_sql,
@@ -194,8 +194,8 @@ impl BacktestEngine {
         let (sql, p) = if code.is_empty() {
             (
                 "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
-                 simulatedEntry, simulatedExit, returnPct, maxDrawdown, directionCorrect, \
-                 scopeType, status, createTime \
+                 simulated_entry, simulated_exit, return_pct, max_drawdown, direction_correct, \
+                 scope_type, status, create_time \
                  FROM backtest_results WHERE status = 1 ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![("limit".to_string(), Value::from(limit))],
@@ -203,8 +203,8 @@ impl BacktestEngine {
         } else {
             (
                 "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
-                 simulatedEntry, simulatedExit, returnPct, maxDrawdown, directionCorrect, \
-                 scopeType, status, createTime \
+                 simulated_entry, simulated_exit, return_pct, max_drawdown, direction_correct, \
+                 scope_type, status, create_time \
                  FROM backtest_results WHERE status = 1 AND stock_code = :code ORDER BY create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![
@@ -233,8 +233,8 @@ impl BacktestEngine {
 
         let connector = Self::get_db_connector()?;
         let sql = "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
-             simulatedEntry, simulatedExit, exitDate, returnPct, maxDrawdown, \
-             directionCorrect, scopeType, status, createTime \
+             simulated_entry, simulated_exit, exit_date, return_pct, max_drawdown, \
+             direction_correct, scope_type, status, create_time \
              FROM backtest_results WHERE id = :id AND status = 1";
         let rows = Helper::query_rows(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| DsaError::Database(format!("查询回测详情失败: {}", e)))?;
@@ -264,7 +264,7 @@ impl BacktestEngine {
         let (sql, p) = if signal_id > 0 {
             (
                 "SELECT id, signal_id, stock_code, eval_horizon, eval_date, actual_return, \
-                 maxDrawdown, directionCorrect, hitTarget, hitStopLoss, status, createTime \
+                 max_drawdown, direction_correct, hit_target, hit_stop_loss, status, create_time \
                  FROM decision_signal_outcomes WHERE signal_id = :sid AND status = 1 \
                  ORDER BY eval_date DESC LIMIT :limit"
                     .to_string(),
@@ -276,7 +276,7 @@ impl BacktestEngine {
         } else {
             (
                 "SELECT id, signal_id, stock_code, eval_horizon, eval_date, actual_return, \
-                 maxDrawdown, directionCorrect, hitTarget, hitStopLoss, status, createTime \
+                 max_drawdown, direction_correct, hit_target, hit_stop_loss, status, create_time \
                  FROM decision_signal_outcomes WHERE status = 1 \
                  ORDER BY eval_date DESC LIMIT :limit"
                     .to_string(),
@@ -302,10 +302,10 @@ impl BacktestEngine {
         let (sql, p) = if code.is_empty() {
             (
                 "SELECT COUNT(*) as total_trades, \
-                 SUM(CASE WHEN returnPct > 0 THEN 1 ELSE 0 END) as wins, \
-                 AVG(returnPct) as avg_return, \
-                 SUM(CASE WHEN directionCorrect = 1 THEN 1 ELSE 0 END) as dir_correct, \
-                 MAX(maxDrawdown) as max_drawdown \
+                 SUM(CASE WHEN return_pct > 0 THEN 1 ELSE 0 END) as wins, \
+                 AVG(return_pct) as avg_return, \
+                 SUM(CASE WHEN direction_correct = 1 THEN 1 ELSE 0 END) as dir_correct, \
+                 MAX(max_drawdown) as max_drawdown \
                  FROM backtest_results WHERE status = 1"
                     .to_string(),
                 vec![],
@@ -313,10 +313,10 @@ impl BacktestEngine {
         } else {
             (
                 "SELECT COUNT(*) as total_trades, \
-                 SUM(CASE WHEN returnPct > 0 THEN 1 ELSE 0 END) as wins, \
-                 AVG(returnPct) as avg_return, \
-                 SUM(CASE WHEN directionCorrect = 1 THEN 1 ELSE 0 END) as dir_correct, \
-                 MAX(maxDrawdown) as max_drawdown \
+                 SUM(CASE WHEN return_pct > 0 THEN 1 ELSE 0 END) as wins, \
+                 AVG(return_pct) as avg_return, \
+                 SUM(CASE WHEN direction_correct = 1 THEN 1 ELSE 0 END) as dir_correct, \
+                 MAX(max_drawdown) as max_drawdown \
                  FROM backtest_results WHERE status = 1 AND stock_code = :code"
                     .to_string(),
                 vec![("code".to_string(), Value::from(code.as_str()))],

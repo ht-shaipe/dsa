@@ -69,7 +69,7 @@ impl IntelligenceService {
     async fn sources(&self, _params: &Value) -> DsaResult<Value> {
         let connector = utils::get_db_connector()?;
         let sql = "SELECT id, name, source_type, url_template, config_json, scope_type, \
-             scopeValue, market, enabled, fetchInterval, createTime, modifyTime \
+             scope_value, market, enabled, fetch_interval, create_time, modify_time \
              FROM intelligence_sources ORDER BY id";
         let rows = Helper::query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询情报源失败: {}", e)))?;
@@ -105,8 +105,8 @@ impl IntelligenceService {
             .unwrap_or(1.0) as i8;
 
         let sql = "INSERT INTO intelligence_sources \
-             (name, source_type, url_template, config_json, scopeType, scopeValue, market, \
-              enabled, fetchInterval, createTime, modifyTime) \
+             (name, source_type, url_template, config_json, scope_type, scope_value, market, \
+              enabled, fetch_interval, create_time, modify_time) \
              VALUES (:name, :type, :url, :config, 'all', '', :market, :enabled, :interval, NOW(), NOW())";
 
         let result = Helper::execute(
@@ -172,7 +172,7 @@ impl IntelligenceService {
             p.push(("enabled".to_string(), Value::from(e)));
         }
         if let Some(fi) = fetch_interval {
-            sets.push("fetchInterval = :fi".to_string());
+            sets.push("fetch_interval = :fi".to_string());
             p.push(("fi".to_string(), Value::from(fi)));
         }
 
@@ -180,7 +180,7 @@ impl IntelligenceService {
             return Ok(value!({"message": "无更新内容"}));
         }
 
-        sets.push("modifyTime = NOW()".to_string());
+        sets.push("modify_time = NOW()".to_string());
         let sql = format!(
             "UPDATE intelligence_sources SET {} WHERE id = :id",
             sets.join(", ")
@@ -325,7 +325,7 @@ impl IntelligenceService {
         let (sql, p) = if source_id > 0 {
             (
                 "SELECT id, source_id, title, content, source_url, scope_type, scope_value, \
-                 market, publishedAt, fetchedAt, createTime \
+                 market, published_at, fetched_at, create_time \
                  FROM intelligence_items WHERE source_id = :sid \
                  ORDER BY fetched_at DESC LIMIT :limit"
                     .to_string(),
@@ -337,7 +337,7 @@ impl IntelligenceService {
         } else {
             (
                 "SELECT id, source_id, title, content, source_url, scope_type, scope_value, \
-                 market, publishedAt, fetchedAt, createTime \
+                 market, published_at, fetched_at, create_time \
                  FROM intelligence_items \
                  ORDER BY fetched_at DESC LIMIT :limit"
                     .to_string(),
@@ -454,8 +454,8 @@ impl IntelligenceService {
             }
 
             let insert_sql = "INSERT INTO intelligence_items \
-                 (sourceId, title, content, sourceUrl, scopeType, scopeValue, market, \
-                  publishedAt, fetchedAt, createTime) \
+                 (source_id, title, content, source_url, scope_type, scope_value, market, \
+                  published_at, fetched_at, create_time) \
                  VALUES (:sid, :title, :content, :url, 'all', '', :market, NOW(), NOW(), NOW())";
             if let Err(e) = Helper::execute(
                 insert_sql,
@@ -531,8 +531,8 @@ impl IntelligenceService {
                 }
 
                 let insert_sql = "INSERT INTO intelligence_items \
-                     (sourceId, title, content, sourceUrl, scopeType, scopeValue, market, \
-                      publishedAt, fetchedAt, createTime) \
+                     (source_id, title, content, source_url, scope_type, scope_value, market, \
+                      published_at, fetched_at, create_time) \
                      VALUES (:sid, :title, :content, :url, 'all', '', :market, NOW(), NOW(), NOW())";
                 if let Err(e) = Helper::execute(
                     insert_sql,

@@ -42,8 +42,8 @@ impl BacktestService {
 
         // 查询决策信号
         let sql = "SELECT id, stock_code, stock_name, signal_date, action, \
-             entryPrice, stopLoss, targetPrice, confidenceLevel, \
-             sentimentScore, reasoning, scopeType, analysisId, status \
+             entry_price, stop_loss, target_price, confidence_level, \
+             sentiment_score, reasoning, scope_type, analysis_id, status \
              FROM decision_signals WHERE id = :id AND status >= 1";
         let rows = Helper::query_rows(
             sql,
@@ -171,11 +171,11 @@ impl BacktestService {
 
         // 保存回测结果
         let insert_sql = "INSERT INTO backtest_results \
-             (analysisId, stockCode, signalDate, decisionAction, simulatedEntry, simulatedExit, \
-              returnPct, maxDrawdown, directionCorrect, scopeType, status, createTime, \
-              evalWindowDays, evalStatus, evaluatedAt, startPrice, endClose, maxHigh, minLow, \
-              stockReturnPct, directionExpected, outcome, stopLossPrice, takeProfitPrice, \
-              hitStopLoss, hitTakeProfit, operationAdvice) \
+             (analysis_id, stock_code, signal_date, decision_action, simulated_entry, simulated_exit, \
+              return_pct, max_drawdown, direction_correct, scope_type, status, create_time, \
+              eval_window_days, eval_status, evaluated_at, start_price, end_close, max_high, min_low, \
+              stock_return_pct, direction_expected, outcome, stop_loss_price, take_profit_price, \
+              hit_stop_loss, hit_take_profit, operation_advice) \
              VALUES (:aid, :code, :sdate, :action, :entry, :exit, \
               :ret, :dd, :dir_correct, 'watchlist', 1, NOW(), \
               :ew, 'completed', NOW(), :sp, :ec, :mh, :ml, \
@@ -303,11 +303,11 @@ impl BacktestService {
         let mut p: Vec<(String, Value)> = Vec::new();
 
         if !code.is_empty() {
-            conditions.push("stockCode = :code".to_string());
+            conditions.push("stock_code = :code".to_string());
             p.push(("code".to_string(), Value::from(code.as_str())));
         }
         if !horizon.is_empty() {
-            conditions.push("evalWindowDays = :ew".to_string());
+            conditions.push("eval_window_days = :ew".to_string());
             let ew: i64 = match horizon.as_str() {
                 "short" => 5,
                 "medium" => 10,
@@ -324,11 +324,11 @@ impl BacktestService {
              SUM(CASE WHEN outcome = 'win' THEN 1 ELSE 0 END) as wins, \
              SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END) as losses, \
              SUM(CASE WHEN outcome = 'neutral' THEN 1 ELSE 0 END) as neutrals, \
-             AVG(stockReturnPct) as avg_return, \
-             AVG(CASE WHEN outcome = 'win' THEN stockReturnPct ELSE NULL END) as avg_win, \
-             AVG(CASE WHEN outcome = 'loss' THEN stockReturnPct ELSE NULL END) as avg_loss, \
-             MAX(maxDrawdown) as max_drawdown, \
-             STDDEV(stockReturnPct) as std_return \
+             AVG(stock_return_pct) as avg_return, \
+             AVG(CASE WHEN outcome = 'win' THEN stock_return_pct ELSE NULL END) as avg_win, \
+             AVG(CASE WHEN outcome = 'loss' THEN stock_return_pct ELSE NULL END) as avg_loss, \
+             MAX(max_drawdown) as max_drawdown, \
+             STDDEV(stock_return_pct) as std_return \
              FROM backtest_results WHERE {}",
             where_clause
         );
@@ -389,11 +389,11 @@ impl BacktestService {
 
         let connector = utils::get_db_connector()?;
         let sql = "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
-             simulatedEntry, simulatedExit, exitDate, returnPct, maxDrawdown, \
-             directionCorrect, scopeType, status, createTime, \
-             evalWindowDays, evalStatus, evaluatedAt, startPrice, endClose, \
-             maxHigh, minLow, stockReturnPct, directionExpected, outcome, \
-             stopLossPrice, takeProfitPrice, hitStopLoss, hitTakeProfit \
+             simulated_entry, simulated_exit, exit_date, return_pct, max_drawdown, \
+             direction_correct, scope_type, status, create_time, \
+             eval_window_days, eval_status, evaluated_at, start_price, end_close, \
+             max_high, min_low, stock_return_pct, direction_expected, outcome, \
+             stop_loss_price, take_profit_price, hit_stop_loss, hit_take_profit \
              FROM backtest_results WHERE id = :id AND status >= 1";
         let rows = Helper::query_rows(
             sql,
@@ -421,7 +421,7 @@ impl BacktestService {
         let mut p: Vec<(String, Value)> = Vec::new();
 
         if !code.is_empty() {
-            conditions.push("stockCode = :code".to_string());
+            conditions.push("stock_code = :code".to_string());
             p.push(("code".to_string(), Value::from(code.as_str())));
         }
         if !outcome.is_empty() {
@@ -433,10 +433,10 @@ impl BacktestService {
 
         let sql = format!(
             "SELECT id, analysis_id, stock_code, signal_date, decision_action, \
-             simulatedEntry, simulatedExit, returnPct, maxDrawdown, directionCorrect, \
-             scopeType, status, createTime, evalWindowDays, evalStatus, \
-             startPrice, endClose, maxHigh, minLow, stockReturnPct, \
-             directionExpected, outcome \
+             simulated_entry, simulated_exit, return_pct, max_drawdown, direction_correct, \
+             scope_type, status, create_time, eval_window_days, eval_status, \
+             start_price, end_close, max_high, min_low, stock_return_pct, \
+             direction_expected, outcome \
              FROM backtest_results WHERE {} ORDER BY create_time DESC LIMIT :limit OFFSET :offset",
             where_clause
         );

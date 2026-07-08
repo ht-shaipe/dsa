@@ -1,4 +1,10 @@
-.PHONY: dev dev-server dev-web build build-server build-web clean check install run stop env db-init help
+# 支持 make git <commit message> 直接传入提交信息
+ifneq ($(filter git,$(MAKECMDGOALS)),)
+  GIT_MSG_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+  $(foreach _g,$(GIT_MSG_ARGS),$(eval $(_g):;@:))
+endif
+
+.PHONY: dev dev-server dev-web build build-server build-web clean check install run stop env db-init git help
 
 # 项目配置
 CONFIG     ?= conf/config.toml
@@ -44,6 +50,11 @@ help: ## 显示帮助信息
 	@echo "  make check        类型检查 (cargo check + vue-tsc)"
 	@echo "  make clean        清理构建产物"
 	@echo "  make install      安装前端依赖"
+	@echo ""
+	@echo "$(GREEN)Git 命令:$(NC)"
+	@echo "  make git          提交并推送 (交互输入 message)"
+	@echo "  make git msg      提交并推送 (直接传入 message)"
+	@echo "  make git MSG=xxx  提交并推送 (通过变量传入 message)"
 	@echo ""
 	@echo "$(GREEN)环境变量:$(NC)"
 	@echo "  CONFIG=$(CONFIG)     配置文件路径"
@@ -169,3 +180,23 @@ install: ## 安装前端依赖 (仅在 node_modules 不存在时)
 		echo "$(GREEN)[Frontend] Installing dependencies...$(NC)"; \
 		cd web && npm install; \
 	fi
+
+# ============================================================
+# Git
+# ============================================================
+
+git: ## 提交并推送代码 (make git <message> 或 make git MSG=<message>)
+	@set -e; \
+	msg=''; \
+	if [ -n "$(strip $(MSG))" ]; then \
+		msg='$(subst ','\'\'\'',$(MSG))'; \
+	elif [ -n "$(strip $(GIT_MSG_ARGS))" ]; then \
+		msg='$(subst ','\'\'\'',$(GIT_MSG_ARGS))'; \
+	else \
+		printf 'input commit message: '; read -r msg; \
+	fi; \
+	git add . && \
+	git commit -a -m "$$msg" && \
+	git pull && \
+	git push && \
+	echo "$(GREEN)git commit and push success$(NC)"

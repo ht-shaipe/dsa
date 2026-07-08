@@ -27,13 +27,13 @@ impl PortfolioTools {
             Ok(rows) => {
                 let positions: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
                 let total_mv: f64 = positions.iter()
-                    .filter_map(|p| p.get("marketValue").and_then(|v| v.as_f64()))
+                    .filter_map(|p| p.get("market_value").and_then(|v| v.as_f64()))
                     .sum();
                 let initial: f64 = rows.first()
                     .map(|r| r.get_value(8).as_f64().unwrap_or(100000.0))
                     .unwrap_or(100000.0);
                 let cash = initial - positions.iter()
-                    .filter_map(|p| p.get("avgCost").and_then(|v| v.as_f64()))
+                    .filter_map(|p| p.get("avg_cost").and_then(|v| v.as_f64()))
                     .zip(positions.iter().filter_map(|p| p.get("quantity").and_then(|v| v.as_f64())))
                     .map(|(cost, qty)| cost * qty)
                     .sum::<f64>();
