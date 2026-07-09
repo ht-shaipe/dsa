@@ -1,40 +1,36 @@
-//! 告警工人服务 - 评估告警规则/计算指标/市场信号灯
-
-use dsa_core::{DsaError, DsaResult, utils};
+use dsa_core::utils;
 use deck_mysql::{DataRow, Helper};
 use qta_crawler::Real;
-use tube::Value;
+use tube::{Result, Value};
+use tube_web::RequestParameter;
 
-/// 告警工人服务
-pub struct AlertWorkerService;
+pub struct AlertWorker {
+    request: RequestParameter,
+}
 
-impl AlertWorkerService {
-    /// 创建告警工人服务实例
-    pub fn new() -> Self {
-        Self
+impl AlertWorker {
+    pub fn new(param: &RequestParameter) -> Self {
+        AlertWorker { request: param.clone() }
     }
 
-    /// 请求分发 - 可用方法: run, run_single, indicators, market_light
-    pub async fn dispatch(&self, method: &str, params: &Value) -> DsaResult<Value> {
+    pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
-            "run" => self.run(params).await,
-            "run_single" => self.run_single(params).await,
-            "indicators" => self.indicators(params).await,
-            "market_light" => self.market_light(params).await,
-            _ => Err(DsaError::ApiRouting(format!(
-                "alert_worker不支持方法: {}",
-                method
-            ))),
+            "run" => self.run().await,
+            "run_single" => self.run_single().await,
+            "indicators" => self.indicators().await,
+            "market_light" => self.market_light().await,
+            _ => Err(tube::Error::from(format!("alert_worker不支持方法: {}", method))),
         }
     }
 
-    /// 执行所有启用的告警规则
-    async fn run(&self, _params: &Value) -> DsaResult<Value> {
-        let connector = utils::get_db_connector()?;
+    fn params(&self) -> &Value { &self.request.value }
 
-        let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json,              enabled, last_triggered_at, trigger_count, alert_type, severity              FROM alert_rules WHERE enabled = 1 AND status >= 1";
+    async fn run(&self) -> Result<Value> {
+        let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
+
+        let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json,             enabled, last_triggered_at, trigger_count, alert_type, severity             FROM alert_rules WHERE enabled = 1 AND status >= 1";
         let rules = Helper::query_rows(sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("查询告警规则失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("查询告警规则失败: {}", e)))?;
 
         let mut triggered_count: i64 = 0;
         let real = Real::new();
@@ -73,7 +69,7 @@ impl AlertWorkerService {
 
             let reason = self.describe_trigger(&condition, current_price, change_pct);
 
-            let trigger_sql = "INSERT INTO alert_triggers                  (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time)                  VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
+            let trigger_sql = "INSERT INTO alert_triggers                 (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time)                 VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
             let trigger_result = Helper::execute(
                 trigger_sql,
                 vec![
@@ -88,12 +84,12 @@ impl AlertWorkerService {
 
             if let Ok(trigger_id) = trigger_result {
                 let _ = Helper::execute(
-                    "UPDATE alert_rules SET last_triggered_at = NOW(),                      trigger_count = trigger_count + 1, modify_time = NOW() WHERE id = :id",
+                    "UPDATE alert_rules SET last_triggered_at = NOW(),                     trigger_count = trigger_count + 1, modify_time = NOW() WHERE id = :id",
                     vec![("id".to_string(), Value::from(rule_id))],
                     &connector,
                 );
                 let _ = Helper::execute(
-                    "INSERT INTO alert_notifications                      (trigger_id, channel, attempt, success, error_code, retryable,                       latency_ms, diagnostics, create_time)                      VALUES (:tid, 'system', 1, 1, '', 0, 0, :diag, NOW())",
+                    "INSERT INTO alert_notifications                     (trigger_id, channel, attempt, success, error_code, retryable,                      latency_ms, diagnostics, create_time)                     VALUES (:tid, 'system', 1, 1, '', 0, 0, :diag, NOW())",
                     vec![
                         ("tid".to_string(), Value::from(trigger_id as i64)),
                         ("diag".to_string(), Value::from(reason.as_str())),
@@ -114,24 +110,24 @@ impl AlertWorkerService {
         }))
     }
 
-    /// 执行单个告警规则
-    async fn run_single(&self, params: &Value) -> DsaResult<Value> {
+    async fn run_single(&self) -> Result<Value> {
+        let params = self.params();
         let rule_id = utils::param_i64(params, "ruleId");
         if rule_id == 0 {
-            return Err(DsaError::Validation("请提供ruleId".to_string()));
+            return Err(tube::Error::from("请提供ruleId"));
         }
 
-        let connector = utils::get_db_connector()?;
-        let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json,              enabled, last_triggered_at, trigger_count, alert_type, severity              FROM alert_rules WHERE id = :id AND status >= 1";
+        let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
+        let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json,             enabled, last_triggered_at, trigger_count, alert_type, severity             FROM alert_rules WHERE id = :id AND status >= 1";
         let rows = Helper::query_rows(
             sql,
             vec![("id".to_string(), Value::from(rule_id))],
             &connector,
         )
-        .map_err(|e| DsaError::Database(format!("查询告警规则失败: {}", e)))?;
+        .map_err(|e| tube::Error::from(format!("查询告警规则失败: {}", e)))?;
 
         if rows.is_empty() {
-            return Err(DsaError::Validation(format!("告警规则不存在: {}", rule_id)));
+            return Err(tube::Error::from(format!("告警规则不存在: {}", rule_id)));
         }
 
         let rule_row = &rows[0];
@@ -144,7 +140,7 @@ impl AlertWorkerService {
         let quote = real
             .get_price(&format!("{}{}", prefix, stock_code))
             .await
-            .map_err(|e| DsaError::StockData(format!("获取行情失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
 
         let current_price = quote.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let change_pct = quote
@@ -171,7 +167,7 @@ impl AlertWorkerService {
 
         let reason = self.describe_trigger(&condition, current_price, change_pct);
 
-        let trigger_sql = "INSERT INTO alert_triggers              (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time)              VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
+        let trigger_sql = "INSERT INTO alert_triggers             (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time)             VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
         let trigger_result = Helper::execute(
             trigger_sql,
             vec![
@@ -183,10 +179,10 @@ impl AlertWorkerService {
             ],
             &connector,
         )
-        .map_err(|e| DsaError::Database(format!("创建触发记录失败: {}", e)))?;
+        .map_err(|e| tube::Error::from(format!("创建触发记录失败: {}", e)))?;
 
         let _ = Helper::execute(
-            "UPDATE alert_rules SET last_triggered_at = NOW(), trigger_count = trigger_count + 1,              modify_time = NOW() WHERE id = :id",
+            "UPDATE alert_rules SET last_triggered_at = NOW(), trigger_count = trigger_count + 1,             modify_time = NOW() WHERE id = :id",
             vec![("id".to_string(), Value::from(rule_id))],
             &connector,
         );
@@ -204,21 +200,21 @@ impl AlertWorkerService {
         }))
     }
 
-    /// 计算股票的告警指标
-    async fn indicators(&self, params: &Value) -> DsaResult<Value> {
+    async fn indicators(&self) -> Result<Value> {
+        let params = self.params();
         let code = utils::param_string(params, "code");
         if code.is_empty() {
-            return Err(DsaError::Validation("请提供股票代码".to_string()));
+            return Err(tube::Error::from("请提供股票代码"));
         }
 
-        let connector = utils::get_db_connector()?;
+        let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let real = Real::new();
         let prefix = utils::market_prefix(&code);
 
         let quote = real
             .get_price(&format!("{}{}", prefix, code))
             .await
-            .map_err(|e| DsaError::StockData(format!("获取行情失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
 
         let current_price = quote.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let change_pct = quote
@@ -228,17 +224,15 @@ impl AlertWorkerService {
             .unwrap_or(0.0);
         let current_volume = quote.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-        let hist_sql = "SELECT close, high, low, volume              FROM stock_daily WHERE stock_code = :code AND status = 1              ORDER BY trade_date DESC LIMIT 60";
+        let hist_sql = "SELECT close, high, low, volume             FROM stock_daily WHERE stock_code = :code AND status = 1             ORDER BY trade_date DESC LIMIT 60";
         let hist_rows = Helper::query_rows(
             hist_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
             &connector,
         )
-        .map_err(|e| DsaError::Database(format!("查询K线数据失败: {}", e)))?;
+        .map_err(|e| tube::Error::from(format!("查询K线数据失败: {}", e)))?;
 
         let closes: Vec<f64> = hist_rows.iter().map(|r| r.get_value(0).as_f64().unwrap_or(0.0)).collect();
-        let _highs: Vec<f64> = hist_rows.iter().map(|r| r.get_value(1).as_f64().unwrap_or(0.0)).collect();
-        let _lows: Vec<f64> = hist_rows.iter().map(|r| r.get_value(2).as_f64().unwrap_or(0.0)).collect();
         let volumes: Vec<f64> = hist_rows.iter().map(|r| r.get_value(3).as_f64().unwrap_or(0.0)).collect();
 
         let ma5 = if closes.len() >= 5 { closes[..5].iter().sum::<f64>() / 5.0 } else { 0.0 };
@@ -254,7 +248,6 @@ impl AlertWorkerService {
             "crossing"
         };
 
-        // Bollinger Band
         let (bb_upper, bb_lower, bb_status) = if closes.len() >= 20 {
             let mean = ma20;
             let variance: f64 = closes[..20].iter().map(|&c| (c - mean).powi(2)).sum::<f64>() / 20.0;
@@ -273,7 +266,6 @@ impl AlertWorkerService {
             (0.0, 0.0, "insufficient_data")
         };
 
-        // RSI(14)
         let rsi = if closes.len() >= 15 {
             let mut gains = 0.0_f64;
             let mut losses = 0.0_f64;
@@ -288,7 +280,6 @@ impl AlertWorkerService {
             50.0
         };
 
-        // MACD
         let (macd_line, signal_line, macd_signal) = if closes.len() >= 26 {
             let ema12 = Self::calc_ema(&closes, 12);
             let ema26 = Self::calc_ema(&closes, 26);
@@ -301,7 +292,6 @@ impl AlertWorkerService {
             (0.0, 0.0, "insufficient_data")
         };
 
-        // Volume ratio
         let avg_volume_5: f64 = if volumes.len() >= 5 {
             volumes[..5].iter().sum::<f64>() / 5.0
         } else {
@@ -336,8 +326,7 @@ impl AlertWorkerService {
         }))
     }
 
-    /// 市场信号灯（红黄绿）
-    async fn market_light(&self, _params: &Value) -> DsaResult<Value> {
+    async fn market_light(&self) -> Result<Value> {
         let real = Real::new();
 
         let sh = real.get_price("sh000001").await.ok();
@@ -365,7 +354,6 @@ impl AlertWorkerService {
             "yellow"
         };
 
-        // Finer granularity: deep_red if all < -2%, deep_green if all > 2%
         let severity = if [sh_change, sz_change, cy_change].iter().all(|&c| c < -2.0) {
             "deep_red"
         } else if [sh_change, sz_change, cy_change].iter().all(|&c| c > 2.0) {
@@ -389,7 +377,6 @@ impl AlertWorkerService {
         }))
     }
 
-    /// Evaluate condition against current data
     fn evaluate_condition(
         &self,
         condition: &Value,
@@ -411,7 +398,6 @@ impl AlertWorkerService {
         false
     }
 
-    /// Describe why the trigger fired
     fn describe_trigger(&self, condition: &Value, current_price: f64, change_pct: f64) -> String {
         let mut reasons = Vec::new();
         let price_above = condition.get("priceAbove").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -434,7 +420,6 @@ impl AlertWorkerService {
         reasons.join("; ")
     }
 
-    /// Calculate EMA for MACD
     fn calc_ema(data: &[f64], period: usize) -> f64 {
         if data.len() < period { return 0.0; }
         let k = 2.0 / (period as f64 + 1.0);

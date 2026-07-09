@@ -46,4 +46,8 @@ export function callApi(module: string, method: string, params: Record<string, a
   return api.post(`/${module}/${method}`, params)
 }
 
+export function callApiWithTimeout(module: string, method: string, params: Record<string, any> = {}, timeout: number = 120000): Promise<any> {
+  return api.post(`/${module}/${method}`, params, { timeout })
+}
+
 export default api

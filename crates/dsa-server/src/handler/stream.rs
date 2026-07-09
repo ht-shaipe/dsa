@@ -328,8 +328,8 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
                     &format!("chat_stream{}", if skill_name.is_empty() { "".to_string() } else { format!("/{}", skill_name) }),
                     pt, ct, elapsed, &detected_code,
                 );
-                dsa_core::utils::record_conversation_message(&session_id, "user", &message, &conf.llm.provider, &conf.llm.model, pt, 0);
-                dsa_core::utils::record_conversation_message(&session_id, "assistant", &content, &conf.llm.provider, &conf.llm.model, 0, ct);
+                dsa_core::utils::record_conversation_message(&session_id, "user", &message, &conf.llm.provider, &conf.llm.model, 0, 0);
+                dsa_core::utils::record_conversation_message(&session_id, "assistant", &content, &conf.llm.provider, &conf.llm.model, pt, ct);
 
                 let json_content = serde_json::to_string(&content).unwrap_or_default();
                 let out = serde_json::json!({"type": "message", "content": serde_json::from_str::<serde_json::Value>(&json_content).unwrap_or_default()});

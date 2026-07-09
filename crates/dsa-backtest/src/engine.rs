@@ -46,7 +46,32 @@ impl BacktestEngine {
         let eval_window = conf.backtest.eval_window_days as i64;
         let connector = Self::get_db_connector()?;
 
-        // 查询分析历史记录
+        // 检查是否已有评估结果
+        let check_sql = "SELECT id FROM backtest_results \
+             WHERE analysis_id = :aid AND eval_window_days = :ew AND status >= 1 LIMIT 1";
+        let existing = Helper::query_rows(
+            check_sql,
+            vec![
+                ("aid".to_string(), Value::from(analysis_id)),
+                ("ew".to_string(), Value::from(eval_window)),
+            ],
+            &connector,
+        )
+        .map_err(|e| DsaError::Database(format!("检查已有评估失败: {}", e)))?;
+
+        if !existing.is_empty() {
+            let exist_id: i64 = existing[0].get_value(0).as_f64().unwrap_or(0.0) as i64;
+            return Ok(value!({
+                "status": "ok",
+                "data": {
+                    "id": exist_id,
+                    "analysisId": analysis_id,
+                    "duplicate": true,
+                    "message": "评估结果已存在",
+                }
+            }));
+        }
+
         let sql =
             "SELECT id, stock_code, stock_name, sentiment_score, trend_prediction, operation_advice, \
              decision_type, ideal_buy, secondary_buy, stop_loss, take_profit, report_json, \
@@ -64,25 +89,40 @@ impl BacktestEngine {
 
         let row = &rows[0];
         let stock_code = row.get_string(1);
-        let decision_type = row.get_string(5);
-        let ideal_buy: f64 = row.get_value(6).as_f64().unwrap_or(0.0);
-        let stop_loss: f64 = row.get_value(8).as_f64().unwrap_or(0.0);
-        let take_profit: f64 = row.get_value(9).as_f64().unwrap_or(0.0);
+        // SELECT顺序: id(0), stock_code(1), stock_name(2), sentiment_score(3), trend_prediction(4),
+        //   operation_advice(5), decision_type(6), ideal_buy(7), secondary_buy(8),
+        //   stop_loss(9), take_profit(10), report_json(11), analysis_summary(12),
+        //   risk_warning(13), market_context(14), create_time(15)
+        let decision_type = row.get_string(6);
+        let ideal_buy: f64 = row.get_value(7).as_f64().unwrap_or(0.0);
+        let stop_loss: f64 = row.get_value(9).as_f64().unwrap_or(0.0);
+        let take_profit: f64 = row.get_value(10).as_f64().unwrap_or(0.0);
 
-        // 获取信号日期后的实际K线数据
+        // create_time 作为信号日期
         let signal_date_str = row.get_string(15);
-        let hist_sql = "SELECT close FROM stock_daily \
-             WHERE stock_code = :code AND status = 1 \
-             ORDER BY trade_date DESC LIMIT :limit";
+        let signal_date_only = signal_date_str.split(' ').next().unwrap_or(&signal_date_str);
+
+        // 获取信号日期之后的实际K线数据 (从信号日期开始往后)
+        let hist_sql = "SELECT open, high, low, close, volume FROM stock_daily \
+             WHERE stock_code = :code AND DATE(trade_date) >= :sdate AND status = 1 \
+             ORDER BY trade_date ASC LIMIT :limit";
         let hist_rows = Helper::query_rows(
             hist_sql,
             vec![
                 ("code".to_string(), Value::from(stock_code.as_str())),
+                ("sdate".to_string(), Value::from(signal_date_only)),
                 ("limit".to_string(), Value::from(eval_window + 5)),
             ],
             &connector,
         )
         .map_err(|e| DsaError::Database(format!("查询K线数据失败: {}", e)))?;
+
+        if hist_rows.is_empty() {
+            return Err(DsaError::Validation(format!(
+                "无K线数据: code={}, date={}",
+                stock_code, signal_date_only
+            )));
+        }
 
         let entry_price = if ideal_buy > 0.0 {
             ideal_buy
@@ -93,11 +133,11 @@ impl BacktestEngine {
                 .unwrap_or(0.0)
         };
 
-        // 计算实际回报
+        // 计算实际回报 (取前 eval_window 根K线的收盘价)
         let eval_closes: Vec<f64> = hist_rows
             .iter()
             .take(eval_window as usize)
-            .map(|r| r.get_value(0).as_f64().unwrap_or(0.0))
+            .map(|r| r.get_value(3).as_f64().unwrap_or(0.0))
             .collect();
 
         let (actual_return, max_drawdown, simulated_exit, direction_correct, hit_stop_loss, hit_take_profit) =
@@ -145,7 +185,7 @@ impl BacktestEngine {
             vec![
                 ("aid".to_string(), Value::from(analysis_id)),
                 ("code".to_string(), Value::from(stock_code.as_str())),
-                ("sdate".to_string(), Value::from(signal_date_str.as_str())),
+                ("sdate".to_string(), Value::from(signal_date_only)),
                 (
                     "action".to_string(),
                     Value::from(decision_type.as_str()),

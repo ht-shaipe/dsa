@@ -1,36 +1,79 @@
-//! LLM使用量追踪服务
+use dsa_core::models::db::LlmUsage as LlmUsageModel;
+use dsa_core::utils;
+use deck::{DataRow, DataTable, Helper, SelectExecutor, TableService};
+use deck_connector::get_connector;
+use tube::{Result, Value};
+use tube_web::RequestParameter;
 
-use dsa_core::{DsaError, DsaResult, utils};
-use deck_mysql::{DataRow, Helper};
-use tube::Value;
+pub struct Usage {
+    request: RequestParameter,
+}
 
-/// LLM使用量追踪服务
-pub struct UsageService {}
-
-impl UsageService {
-    /// 创建LLM使用量追踪服务实例
-    pub fn new() -> Self {
-        Self {}
+impl DataTable<LlmUsageModel> for Usage {
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
     }
+}
 
-    /// 请求分发 - 可用方法: summary, dashboard, records, export
-    pub async fn dispatch(&self, method: &str, params: &Value) -> DsaResult<Value> {
-        match method {
-            "summary" => self.summary(params).await,
-            "dashboard" => self.dashboard(params).await,
-            "records" => self.records(params).await,
-            "export" => self.export(params).await,
-            _ => Err(DsaError::ApiRouting(format!(
-                "usage不支持方法: {}",
-                method
-            ))),
+impl TableService<LlmUsageModel> for Usage {
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
+}
+
+impl Usage {
+    pub fn new(param: &RequestParameter) -> Self {
+        Usage {
+            request: param.clone(),
         }
     }
 
-    /// 聚合使用统计
-    async fn summary(&self, params: &Value) -> DsaResult<Value> {
-        let connector = utils::get_db_connector()?;
-        let period = utils::param_string(params, "period");
+    fn connector(&self) -> Result<deck_connector::Connector> {
+        get_connector(&self.datasource_key(), "mysql")
+            .ok_or_else(|| error!("MySQL连接未初始化"))
+    }
+
+    fn price_per_token(model: &str) -> f64 {
+        let m = model.to_lowercase();
+        if m.contains("gpt-4o") || m.contains("gpt4o") {
+            0.000005
+        } else if m.contains("gpt-4") || m.contains("gpt4") {
+            0.00003
+        } else if m.contains("o1") || m.contains("o3") {
+            0.000015
+        } else if m.contains("claude-3.5") || m.contains("claude-3-5") || m.contains("claude3.5") {
+            0.000003
+        } else if m.contains("claude-3") || m.contains("claude3") {
+            0.000015
+        } else if m.contains("deepseek") {
+            0.00000014
+        } else if m.contains("qwen") || m.contains("通义") {
+            0.0000004
+        } else if m.contains("glm") || m.contains("chatglm") {
+            0.000001
+        } else if m.contains("gpt-3.5") || m.contains("gpt3.5") {
+            0.0000015
+        } else {
+            0.000002
+        }
+    }
+
+    pub async fn dispatch(&self, method: &str) -> Result<Value> {
+        match method {
+            "summary" => self.summary().await,
+            "dashboard" => self.dashboard().await,
+            "records" => self.records().await,
+            "export" => self.export().await,
+            _ => Err(error!("usage不支持方法: {}", method)),
+        }
+    }
+
+    async fn summary(&self) -> Result<Value> {
+        let params = self.value();
+        let period = utils::param_string(&params, "period");
         let period_clause = match period.as_str() {
             "day" => "DATE(create_time) = CURDATE()",
             "week" => "YEARWEEK(create_time) = YEARWEEK(NOW())",
@@ -49,33 +92,34 @@ impl UsageService {
             period_clause
         );
 
-        let rows = Helper::query_rows(&sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("查询使用统计失败: {}", e)))?;
-
+        let connector = self.connector()?;
+        let rows = Helper::query_rows(&sql, vec![], &connector)?;
         let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
 
-        // 汇总
-        let total_calls: i64 = results.iter().map(|r| r.get("call_count").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64).sum();
-        let total_tokens: i64 = results.iter().map(|r| r.get("total_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64).sum();
+        let total_calls: i64 = results.iter().map(|r| r.get("callCount").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64).sum();
+        let total_tokens: i64 = results.iter().map(|r| r.get("totalTokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64).sum();
+        let total_cost_estimate: f64 = results.iter().map(|r| {
+            let tokens = r.get("totalTokens").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let model = r.get("llmModel").and_then(|v| v.as_str()).unwrap_or_default();
+            tokens * Self::price_per_token(&model)
+        }).sum();
 
         Ok(value!({
             "period": period,
             "totalCalls": total_calls,
             "totalTokens": total_tokens,
+            "totalCostEstimate": total_cost_estimate,
             "breakdown": results,
         }))
     }
 
-    /// 仪表盘 (汇总+最近记录+聚合统计)
-    async fn dashboard(&self, _params: &Value) -> DsaResult<Value> {
-        let connector = utils::get_db_connector()?;
+    async fn dashboard(&self) -> Result<Value> {
+        let connector = self.connector()?;
 
-        // 总计汇总
         let total_sql = "SELECT COUNT(*) as total_calls, SUM(total_tokens) as total_tokens, \
              AVG(latency_ms) as avg_latency \
              FROM llm_usage";
-        let total_rows = Helper::query_rows(total_sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("查询总计统计失败: {}", e)))?;
+        let total_rows = Helper::query_rows(total_sql, vec![], &connector)?;
 
         let total_calls: i64 = total_rows
             .first()
@@ -86,37 +130,36 @@ impl UsageService {
             .map(|r| r.get_value(1).as_f64().unwrap_or(0.0) as i64)
             .unwrap_or(0);
 
-        // 粗略成本估算: 每千token约0.002元
-        let total_cost_estimate = (total_tokens as f64) * 0.002 / 1000.0;
+        let total_cost_estimate: f64 = {
+            let provider_sql = "SELECT llm_model, SUM(total_tokens) as total_tokens FROM llm_usage GROUP BY llm_model";
+            let provider_rows = Helper::query_rows(provider_sql, vec![], &connector).unwrap_or_default();
+            provider_rows.iter().map(|r| {
+                let tokens = r.get_value(1).as_f64().unwrap_or(0.0);
+                let model = r.get_string(0);
+                tokens * Self::price_per_token(&model)
+            }).sum()
+        };
 
-        // 按Provider聚合
         let provider_sql = "SELECT llm_provider, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
              FROM llm_usage GROUP BY llm_provider";
-        let provider_rows = Helper::query_rows(provider_sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("查询Provider统计失败: {}", e)))?;
+        let provider_rows = Helper::query_rows(provider_sql, vec![], &connector)?;
         let calls_by_provider: Vec<Value> = provider_rows.iter().map(|r| r.to_value2()).collect();
 
-        // 按操作类型聚合
         let type_sql = "SELECT operation_type, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
              FROM llm_usage GROUP BY operation_type";
-        let type_rows = Helper::query_rows(type_sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("查询操作类型统计失败: {}", e)))?;
+        let type_rows = Helper::query_rows(type_sql, vec![], &connector)?;
         let calls_by_type: Vec<Value> = type_rows.iter().map(|r| r.to_value2()).collect();
 
-        // 最近30天每日调用
         let daily_sql = "SELECT DATE(create_time) as date, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
              FROM llm_usage WHERE create_time >= DATE_SUB(NOW(), INTERVAL 30 DAY) \
              GROUP BY DATE(create_time) ORDER BY date";
-        let daily_rows = Helper::query_rows(daily_sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("查询每日统计失败: {}", e)))?;
+        let daily_rows = Helper::query_rows(daily_sql, vec![], &connector)?;
         let daily_calls: Vec<Value> = daily_rows.iter().map(|r| r.to_value2()).collect();
 
-        // 今日汇总
         let summary_sql = "SELECT COUNT(*) as calls, SUM(total_tokens) as tokens, \
              AVG(latency_ms) as avg_latency \
              FROM llm_usage WHERE DATE(create_time) = CURDATE()";
-        let summary_rows = Helper::query_rows(summary_sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("查询今日统计失败: {}", e)))?;
+        let summary_rows = Helper::query_rows(summary_sql, vec![], &connector)?;
 
         let today_calls: i64 = summary_rows
             .first()
@@ -131,14 +174,11 @@ impl UsageService {
             .map(|r| r.get_value(2).as_f64().unwrap_or(0.0))
             .unwrap_or(0.0);
 
-        // 最近记录
         let recent_sql = "SELECT id, llm_provider, llm_model, operation_type, \
              prompt_tokens, completion_tokens, total_tokens, cache_hit, latency_ms, \
              stock_code, create_time \
              FROM llm_usage ORDER BY create_time DESC LIMIT 10";
-        let recent_rows = Helper::query_rows(recent_sql, vec![], &connector)
-            .map_err(|e| DsaError::Database(format!("查询最近记录失败: {}", e)))?;
-
+        let recent_rows = Helper::query_rows(recent_sql, vec![], &connector)?;
         let recent: Vec<Value> = recent_rows.iter().map(|r| r.to_value2()).collect();
 
         Ok(value!({
@@ -155,14 +195,39 @@ impl UsageService {
         }))
     }
 
-    /// 导出LLM使用量数据 - 支持日期范围过滤
-    async fn export(&self, params: &Value) -> DsaResult<Value> {
-        let start_date = utils::param_string(params, "start_date");
-        let end_date = utils::param_string(params, "end_date");
-        let _format = utils::param_string(params, "format");
-        // format参数预留扩展, 当前仅支持json
+    async fn records(&self) -> Result<Value> {
+        let params = self.value();
+        let limit = params
+            .get("limit")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(50.0) as i64;
+        let provider = utils::param_string(&params, "provider");
 
-        let connector = utils::get_db_connector()?;
+        let mut conds = vec![];
+        if !provider.is_empty() {
+            conds.push(cond!("llm_provider" = provider));
+        }
+
+        let results = self.select()
+            .columns(cols![
+                "id", "llm_provider", "llm_model", "operation_type",
+                "prompt_tokens", "completion_tokens", "total_tokens", "cache_hit",
+                "latency_ms", "stock_code", "create_time"
+            ])
+            .r#where(conds)
+            .order(ord!("create_time DESC"))
+            .limit(limit as u64)
+            .query_values()?;
+
+        Ok(Value::Array(results))
+    }
+
+    async fn export(&self) -> Result<Value> {
+        let params = self.value();
+        let start_date = utils::param_string(&params, "start_date");
+        let end_date = utils::param_string(&params, "end_date");
+
+        let connector = self.connector()?;
 
         let (sql, p) = if !start_date.is_empty() && !end_date.is_empty() {
             ("SELECT id, llm_provider, llm_model, operation_type, \
@@ -189,12 +254,9 @@ impl UsageService {
              vec![])
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
-            .map_err(|e| DsaError::Database(format!("导出使用量数据失败: {}", e)))?;
-
+        let rows = Helper::query_rows(&sql, p, &connector)?;
         let records: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
 
-        // 聚合统计
         let total_calls = records.len() as i64;
         let total_tokens: i64 = records.iter()
             .filter_map(|r| r.get("total_tokens").and_then(|v| v.as_f64()))
@@ -202,8 +264,8 @@ impl UsageService {
         let total_cost_estimate: f64 = records.iter()
             .filter_map(|r| {
                 let tokens = r.get("total_tokens").and_then(|v| v.as_f64())?;
-                // 粗略估算: 每千token约0.002元
-                Some(tokens * 0.002 / 1000.0)
+                let model = r.get("llm_model").and_then(|v| v.as_str()).unwrap_or_default();
+                Some(tokens * Self::price_per_token(&model))
             })
             .sum();
 
@@ -217,44 +279,5 @@ impl UsageService {
                 "endDate": end_date,
             },
         }))
-    }
-
-    /// 详细使用记录
-    async fn records(&self, params: &Value) -> DsaResult<Value> {
-        let connector = utils::get_db_connector()?;
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
-        let provider = utils::param_string(params, "provider");
-
-        let (sql, p) = if provider.is_empty() {
-            (
-                "SELECT id, llm_provider, llm_model, operation_type, \
-                 prompt_tokens, completion_tokens, total_tokens, cache_hit, latency_ms, \
-                 stock_code, create_time \
-                 FROM llm_usage ORDER BY create_time DESC LIMIT :limit"
-                    .to_string(),
-                vec![("limit".to_string(), Value::from(limit))],
-            )
-        } else {
-            (
-                "SELECT id, llm_provider, llm_model, operation_type, \
-                 prompt_tokens, completion_tokens, total_tokens, cache_hit, latency_ms, \
-                 stock_code, create_time \
-                 FROM llm_usage WHERE llm_provider = :provider ORDER BY create_time DESC LIMIT :limit"
-                    .to_string(),
-                vec![
-                    ("provider".to_string(), Value::from(provider.as_str())),
-                    ("limit".to_string(), Value::from(limit)),
-                ],
-            )
-        };
-
-        let rows = Helper::query_rows(&sql, p, &connector)
-            .map_err(|e| DsaError::Database(format!("查询使用记录失败: {}", e)))?;
-
-        let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(Value::Array(results))
     }
 }

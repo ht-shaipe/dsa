@@ -1,9 +1,7 @@
-//! Analysis handler - 分发到 analysis_service
-
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
 pub async fn distribute(param: &RequestParameter) -> Result<Value> {
-    let service = dsa_service::AnalysisService::new();
-    service.dispatch(&param.method, &param.value).await.map_err(|e| error!("{}", e))
+    let service = dsa_service::Analysis::new(param);
+    service.dispatch(&param.method).await.map_err(|e| error!("{}", e))
 }

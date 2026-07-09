@@ -73,8 +73,8 @@ pub fn run_migrations(connector: &Connector) {
 
     info!("all migrations completed");
 
-    // Run incremental column rename migrations
     run_column_migrations(connector);
+    run_alter_migrations(connector);
 }
 
 // ---------------------------------------------------------------------------
@@ -364,5 +364,24 @@ mod tests {
         assert!(sql.contains("CREATE TABLE IF NOT EXISTS"));
         assert!(sql.contains("schema_migrations"));
         assert!(sql.contains("PRIMARY KEY"));
+    }
+}
+
+fn run_alter_migrations(connector: &Connector) {
+    let alters: Vec<(&str, &str)> = vec![
+        ("v0_analysis_history_report_json_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN report_json MEDIUMTEXT"),
+        ("v0_news_intel_content_mediumtext", "ALTER TABLE news_intel MODIFY COLUMN content MEDIUMTEXT"),
+        ("v0_analysis_history_context_snapshot_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN context_snapshot MEDIUMTEXT"),
+        ("v0_analysis_history_news_content_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN news_content MEDIUMTEXT"),
+    ];
+
+    for (version, sql) in &alters {
+        if is_migration_applied(connector, version) {
+            info!("migration `{}` already applied, skipping", version);
+            continue;
+        }
+        info!("running alter migration `{}` …", version);
+        execute_ddl(connector, sql);
+        record_migration(connector, version, &format!("alter: {}", version));
     }
 }

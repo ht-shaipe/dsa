@@ -25,22 +25,23 @@
         <el-card shadow="hover">
           <template #header>模型用量分布</template>
           <el-table :data="modelBreakdown" stripe style="width:100%">
-            <el-table-column prop="provider" label="供应商" width="120" />
-            <el-table-column prop="model" label="模型" width="180" />
-            <el-table-column prop="totalTokens" label="总Token" width="140">
+            <el-table-column prop="llmProvider" label="供应商" width="120" />
+            <el-table-column prop="llmModel" label="模型" width="180" />
+            <el-table-column prop="operationType" label="操作类型" width="130" />
+            <el-table-column prop="totalPromptTokens" label="输入Token" width="120">
+              <template #default="{ row }">{{ Number(row.totalPromptTokens || 0).toLocaleString() }}</template>
+            </el-table-column>
+            <el-table-column prop="totalCompletionTokens" label="输出Token" width="120">
+              <template #default="{ row }">{{ Number(row.totalCompletionTokens || 0).toLocaleString() }}</template>
+            </el-table-column>
+            <el-table-column prop="totalTokens" label="总Token" width="120">
               <template #default="{ row }">{{ Number(row.totalTokens || 0).toLocaleString() }}</template>
             </el-table-column>
-            <el-table-column prop="promptTokens" label="输入Token" width="140">
-              <template #default="{ row }">{{ Number(row.promptTokens || 0).toLocaleString() }}</template>
+            <el-table-column prop="callCount" label="调用次数" width="100">
+              <template #default="{ row }">{{ Number(row.callCount || 0).toLocaleString() }}</template>
             </el-table-column>
-            <el-table-column prop="completionTokens" label="输出Token" width="140">
-              <template #default="{ row }">{{ Number(row.completionTokens || 0).toLocaleString() }}</template>
-            </el-table-column>
-            <el-table-column prop="cost" label="费用" width="120">
-              <template #default="{ row }">¥{{ Number(row.cost || 0).toFixed(4) }}</template>
-            </el-table-column>
-            <el-table-column prop="apiCalls" label="API调用" width="100">
-              <template #default="{ row }">{{ Number(row.apiCalls || row.api_calls || 0).toLocaleString() }}</template>
+            <el-table-column prop="avgLatencyMs" label="平均耗时(ms)" width="120">
+              <template #default="{ row }">{{ row.avgLatencyMs != null ? Number(row.avgLatencyMs).toFixed(0) : '-' }}</template>
             </el-table-column>
           </el-table>
           <el-empty v-if="!modelBreakdown.length" description="暂无模型用量数据" />
@@ -52,26 +53,28 @@
       <template #header>最近调用记录</template>
       <el-table :data="records" stripe style="width:100%">
         <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="provider" label="供应商" width="120" />
-        <el-table-column prop="model" label="模型" width="180" />
-        <el-table-column prop="method" label="方法" width="140">
-          <template #default="{ row }">{{ row.method || row.module + '.' + row.action || '-' }}</template>
+        <el-table-column prop="llmProvider" label="供应商" width="100" />
+        <el-table-column prop="llmModel" label="模型" width="150" />
+        <el-table-column prop="operationType" label="操作" width="120" />
+        <el-table-column prop="stockCode" label="股票" width="90">
+          <template #default="{ row }">{{ row.stockCode || '-' }}</template>
         </el-table-column>
-        <el-table-column label="Token用量" width="140">
+        <el-table-column label="输入/输出Token" width="160">
           <template #default="{ row }">
-            {{ Number(row.prompt_tokens || row.prompt_tokens || 0).toLocaleString() }} /
-            {{ Number(row.completion_tokens || row.completion_tokens || 0).toLocaleString() }}
+            {{ Number(row.promptTokens || 0).toLocaleString() }} /
+            {{ Number(row.completionTokens || 0).toLocaleString() }}
           </template>
         </el-table-column>
-        <el-table-column prop="cost" label="费用" width="120">
-          <template #default="{ row }">¥{{ Number(row.cost || 0).toFixed(4) }}</template>
+        <el-table-column prop="totalTokens" label="总Token" width="100">
+          <template #default="{ row }">{{ Number(row.totalTokens || 0).toLocaleString() }}</template>
         </el-table-column>
-        <el-table-column prop="duration" label="耗时(ms)" width="100">
-          <template #default="{ row }">{{ row.duration || '-' }}</template>
+        <el-table-column prop="cacheHit" label="缓存" width="70">
+          <template #default="{ row }">{{ row.cacheHit ? '命中' : '-' }}</template>
         </el-table-column>
-        <el-table-column prop="createdAt" label="时间" width="180">
-          <template #default="{ row }">{{ row.createdAt || row.created_at || '-' }}</template>
+        <el-table-column prop="latencyMs" label="耗时(ms)" width="100">
+          <template #default="{ row }">{{ row.latencyMs != null ? Number(row.latencyMs).toLocaleString() : '-' }}</template>
         </el-table-column>
+        <el-table-column prop="createTime" label="时间" width="170" />
       </el-table>
       <el-empty v-if="!records.length" description="暂无调用记录" />
     </el-card>
@@ -94,14 +97,14 @@ const summaryCards = computed(() => [
     precision: 0,
   },
   {
-    label: '总费用',
-    value: Number(summary.value.totalCost || 0),
+    label: '总费用(估算)',
+    value: Number(summary.value.totalCostEstimate || 0),
     precision: 4,
     prefix: '¥',
   },
   {
     label: 'API调用次数',
-    value: Number(summary.value.apiCalls || summary.value.api_calls || 0),
+    value: Number(summary.value.totalCalls || 0),
     precision: 0,
     suffix: '次',
   },
@@ -110,15 +113,9 @@ const summaryCards = computed(() => [
 async function loadSummary() {
   try {
     const res: any = await usageApi.summary(period.value)
-    summary.value = res.data || {}
-  } catch { /* ignore */ }
-}
-
-async function loadDashboard() {
-  try {
-    const res: any = await usageApi.dashboard()
     const d = res.data || {}
-    modelBreakdown.value = d.models || d.modelBreakdown || d.model_breakdown || []
+    summary.value = d
+    modelBreakdown.value = d.breakdown || []
   } catch { /* ignore */ }
 }
 
@@ -131,7 +128,6 @@ async function loadRecords() {
 
 onMounted(() => {
   loadSummary()
-  loadDashboard()
   loadRecords()
 })
 </script>

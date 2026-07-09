@@ -3,7 +3,7 @@
 use crate::models::KlineBar;
 use crate::DsaError;
 use deck_connector::{get_connector, Connector};
-use qta_crawler::{EastMoney, QQ, Real};
+use qta_crawler::{EastMoney, History, QQ, Real};
 use tube::Value;
 
 /// 从参数中提取字符串值，不存在则返回空字符串
@@ -48,11 +48,18 @@ pub fn get_db_connector() -> Result<Connector, DsaError> {
         .ok_or_else(|| DsaError::Database("MySQL连接未初始化".to_string()))
 }
 
-/// 从东方财富获取K线数据并写入数据库
+/// 从东方财富获取K线数据并写入数据库，失败时回退到新浪接口
 pub async fn fetch_kline(code: &str, period: &str) -> Result<Vec<KlineBar>, DsaError> {
+    match fetch_kline_sina(code, period).await {
+        Ok(bars) if !bars.is_empty() => {
+            save_kline_to_db(code, &bars);
+            return Ok(bars);
+        }
+        _ => {}
+    }
+
     let em = EastMoney::new();
-    let mut last_err = None;
-    for i in 0..3 {
+    for i in 0..2 {
         match em.stock_zh_a_hist(code, Some(period), None, None, Some("qfq")).await {
             Ok(raw) => {
                 let mut bars = Vec::with_capacity(raw.len());
@@ -70,17 +77,48 @@ pub async fn fetch_kline(code: &str, period: &str) -> Result<Vec<KlineBar>, DsaE
                 save_kline_to_db(code, &bars);
                 return Ok(bars);
             }
-            Err(e) => {
-                if i < 2 {
-                    tokio::time::sleep(std::time::Duration::from_millis(500 * (i as u64 + 1))).await;
-                    last_err = Some(e);
-                } else {
-                    return Err(DsaError::StockData(format!("获取K线数据失败: {}", e)));
-                }
+            Err(_) => {
+                tokio::time::sleep(std::time::Duration::from_millis(500 * (i as u64 + 1))).await;
             }
         }
     }
-    Err(DsaError::StockData(format!("获取K线数据失败: {}", last_err.unwrap())))
+
+    Err(DsaError::StockData("获取K线数据失败".to_string()))
+}
+
+/// 从新浪财经获取K线数据（作为东方财富的备选数据源）
+async fn fetch_kline_sina(code: &str, period: &str) -> Result<Vec<KlineBar>, DsaError> {
+    let scale: u32 = match period {
+        "weekly" => 1200,
+        "monthly" => 5200,
+        _ => 240,
+    };
+    let ma = "5,10,20,30,60";
+    let length: u32 = 500;
+
+    match History::get_price(code, scale, ma, length).await {
+        Ok(raw) => {
+            let arr = raw.as_array().ok_or_else(|| DsaError::StockData("新浪K线数据格式异常".to_string()))?;
+            let mut bars = Vec::with_capacity(arr.len());
+            for item in arr {
+                bars.push(KlineBar {
+                    date: item.get("day").and_then(|v| v.as_str()).unwrap_or_default(),
+                    open: item.get("open").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    high: item.get("high").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    low: item.get("low").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    close: item.get("close").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                    volume: item.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64,
+                    amount: 0.0,
+                });
+            }
+            if bars.is_empty() {
+                return Err(DsaError::StockData("新浪K线返回空数据".to_string()));
+            }
+            save_kline_to_db(code, &bars);
+            Ok(bars)
+        }
+        Err(e) => Err(DsaError::StockData(format!("获取K线数据失败(东方财富和新浪均不可用): {}", e))),
+    }
 }
 
 fn save_kline_to_db(code: &str, bars: &[KlineBar]) {
@@ -88,17 +126,27 @@ fn save_kline_to_db(code: &str, bars: &[KlineBar]) {
         Ok(c) => c,
         Err(_) => return,
     };
+    let stock_name = match deck::Helper::query_rows(
+        "SELECT stock_name FROM stock_daily WHERE stock_code = :code AND stock_name != '' AND status >= 1 LIMIT 1",
+        vec![("code".to_string(), Value::from(code.to_string()))],
+        &connector,
+    ) {
+        Ok(rows) => rows.first().map(|r| deck::DataRow::get_string(r, 0)).unwrap_or_default(),
+        Err(_) => String::new(),
+    };
     for bar in bars.iter().rev().take(5) {
         let sql = "INSERT INTO stock_daily \
              (stock_code, stock_name, trade_date, open, high, low, close, volume, amount, status, create_time) \
-             VALUES (:code, '', :date, :open, :high, :low, :close, :vol, :amt, 1, NOW()) \
+             VALUES (:code, :name, :date, :open, :high, :low, :close, :vol, :amt, 1, NOW()) \
              ON DUPLICATE KEY UPDATE \
+             stock_name=IF(VALUES(stock_name)!='', VALUES(stock_name), stock_name), \
              open=VALUES(open), high=VALUES(high), low=VALUES(low), \
              close=VALUES(close), volume=VALUES(volume), amount=VALUES(amount)";
         let _ = deck::Helper::execute(
             sql,
             vec![
                 ("code".to_string(), Value::from(code.to_string())),
+                ("name".to_string(), Value::from(stock_name.as_str())),
                 ("date".to_string(), Value::from(bar.date.as_str())),
                 ("open".to_string(), Value::from(bar.open)),
                 ("high".to_string(), Value::from(bar.high)),
@@ -114,8 +162,9 @@ fn save_kline_to_db(code: &str, bars: &[KlineBar]) {
 
 /// 获取实时行情数据，按配置的数据源优先级依次尝试
 pub async fn fetch_realtime_quote(code: &str) -> Result<Value, DsaError> {
-    let prefix = market_prefix(code);
-    let symbol = format!("{}{}", prefix, code);
+    let pure_code = code.trim_start_matches("sh").trim_start_matches("sz").trim_start_matches("bj");
+    let prefix = market_prefix(pure_code);
+    let symbol = format!("{}{}", prefix, pure_code);
 
     let conf = crate::get_global_config();
     if conf.stock.realtime_source_priority.is_empty() {
@@ -200,6 +249,19 @@ pub fn record_llm_usage(
     latency_ms: i64,
     stock_code: &str,
 ) {
+    record_llm_usage_with_cache(provider, model, operation_type, prompt_tokens, completion_tokens, latency_ms, stock_code, 0)
+}
+
+pub fn record_llm_usage_with_cache(
+    provider: &str,
+    model: &str,
+    operation_type: &str,
+    prompt_tokens: i32,
+    completion_tokens: i32,
+    latency_ms: i64,
+    stock_code: &str,
+    cache_hit: i32,
+) {
     let connector = match get_db_connector() {
         Ok(c) => c,
         Err(_) => return,
@@ -207,7 +269,7 @@ pub fn record_llm_usage(
     let sql = "INSERT INTO llm_usage \
          (llm_provider, llm_model, operation_type, prompt_tokens, completion_tokens, total_tokens, \
           cache_hit, latency_ms, stock_code, create_time) \
-         VALUES (:provider, :model, :op, :pt, :ct, :tt, 0, :latency, :code, NOW())";
+         VALUES (:provider, :model, :op, :pt, :ct, :tt, :cache, :latency, :code, NOW())";
     let total = prompt_tokens + completion_tokens;
     let _ = deck::Helper::execute(
         sql,
@@ -218,6 +280,7 @@ pub fn record_llm_usage(
             ("pt".to_string(), Value::from(prompt_tokens)),
             ("ct".to_string(), Value::from(completion_tokens)),
             ("tt".to_string(), Value::from(total)),
+            ("cache".to_string(), Value::from(cache_hit)),
             ("latency".to_string(), Value::from(latency_ms)),
             ("code".to_string(), Value::from(stock_code.to_string())),
         ],

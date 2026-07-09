@@ -1,14 +1,13 @@
-import { callApi } from './index'
+import { callApi, callApiWithTimeout } from './index'
 
 export const analysisApi = {
-  /** 分析单只股票 */
-  analyze: (code: string, name?: string) => callApi('analysis', 'analyze', { code, name }),
-  /** 批量分析股票 */
-  batch: (codes: string) => callApi('analysis', 'batch', { codes }),
-  /** 获取分析报告 */
+  analyze: (code: string, name?: string) => callApiWithTimeout('analysis', 'analyze', { code, name }, 180000),
+  batch: (codes: string) => callApiWithTimeout('analysis', 'batch', { codes }, 300000),
   report: (params: { id?: number; queryId?: string }) => callApi('analysis', 'report', params),
-  /** 获取分析记录列表 */
   list: (params?: { code?: string; limit?: number }) => callApi('analysis', 'list', params || {}),
-  /** 市场综述分析 */
-  marketReview: (params?: Record<string, any>) => callApi('analysis', 'market-review', params || {}),
+  marketReview: (params?: Record<string, any>) => callApiWithTimeout('analysis', 'market-review', params || {}, 300000),
+  historyList: (params?: { code?: string; limit?: number; offset?: number }) => callApi('analysis', 'history_list', params || {}),
+  historyDetail: (id: number) => callApi('analysis', 'history_detail', { id }),
+  historySearch: (keyword: string, limit?: number) => callApi('analysis', 'history_search', { keyword, limit: limit || 20 }),
+  historyCompare: (id1: number, id2: number) => callApi('analysis', 'history_compare', { id1, id2 }),
 }

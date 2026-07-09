@@ -1,40 +1,36 @@
-//! Name resolver service - stock name/code lookup and fuzzy search
-
-use dsa_core::{DsaError, DsaResult, utils};
+use dsa_core::utils;
 use deck_mysql::{DataRow, Helper};
-use tube::Value;
+use tube::{Result, Value};
+use tube_web::RequestParameter;
 
-/// 名称解析服务
-pub struct NameResolverService;
+pub struct NameResolver {
+    request: RequestParameter,
+}
 
-impl NameResolverService {
-    /// 创建名称解析服务实例
-    pub fn new() -> Self {
-        Self
+impl NameResolver {
+    pub fn new(param: &RequestParameter) -> Self {
+        NameResolver { request: param.clone() }
     }
 
-    /// 请求分发 - 可用方法: resolve, search
-    pub async fn dispatch(&self, method: &str, params: &Value) -> DsaResult<Value> {
+    pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
-            "resolve" => self.resolve(params).await,
-            "search" => self.search(params).await,
-            _ => Err(DsaError::ApiRouting(format!(
-                "name_resolver unsupported method: {}",
-                method
-            ))),
+            "resolve" => self.resolve().await,
+            "search" => self.search().await,
+            _ => Err(tube::Error::from(format!("name_resolver unsupported method: {}", method))),
         }
     }
 
-    /// Resolve name to code or vice versa
-    async fn resolve(&self, params: &Value) -> DsaResult<Value> {
+    fn params(&self) -> &Value { &self.request.value }
+
+    async fn resolve(&self) -> Result<Value> {
+        let params = self.params();
         let query = utils::param_string(params, "query");
         if query.is_empty() {
-            return Err(DsaError::Validation("Please provide query".to_string()));
+            return Err(tube::Error::from("Please provide query"));
         }
 
-        // If it looks like a 6-digit stock code, return directly
         if query.len() == 6 && query.chars().all(|c| c.is_ascii_digit()) {
-            let connector = utils::get_db_connector()?;
+            let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
             let sql = "SELECT stock_code, stock_name, close \
                  FROM stock_daily \
                  WHERE stock_code = :code AND status = 1 \
@@ -44,7 +40,7 @@ impl NameResolverService {
                 vec![("code".to_string(), Value::from(query.as_str()))],
                 &connector,
             )
-            .map_err(|e| DsaError::Database(format!("Query stock by code failed: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("Query stock by code failed: {}", e)))?;
 
             if !rows.is_empty() {
                 let r = &rows[0];
@@ -64,8 +60,7 @@ impl NameResolverService {
             }));
         }
 
-        // Otherwise search by name
-        let connector = utils::get_db_connector()?;
+        let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT DISTINCT stock_code, stock_name, close \
              FROM stock_daily \
              WHERE stock_name LIKE :kw AND status = 1 \
@@ -75,7 +70,7 @@ impl NameResolverService {
             vec![("kw".to_string(), Value::from(format!("%{}%", query)))],
             &connector,
         )
-        .map_err(|e| DsaError::Database(format!("Search stock by name failed: {}", e)))?;
+        .map_err(|e| tube::Error::from(format!("Search stock by name failed: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| {
             let code = r.get_string(0);
@@ -90,17 +85,16 @@ impl NameResolverService {
         }))
     }
 
-    /// Fuzzy search stocks by keyword
-    async fn search(&self, params: &Value) -> DsaResult<Value> {
+    async fn search(&self) -> Result<Value> {
+        let params = self.params();
         let keyword = utils::param_string(params, "keyword");
         if keyword.is_empty() {
-            return Err(DsaError::Validation("Please provide keyword".to_string()));
+            return Err(tube::Error::from("Please provide keyword"));
         }
 
         let limit = utils::param_i64(params, "limit").max(1).min(50) as i64;
-        let connector = utils::get_db_connector()?;
+        let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
-        // Search by code or name
         let sql = "SELECT DISTINCT stock_code, stock_name, close \
              FROM stock_daily \
              WHERE (stock_code LIKE :kw OR stock_name LIKE :kw2) AND status = 1 \
@@ -114,7 +108,7 @@ impl NameResolverService {
             ],
             &connector,
         )
-        .map_err(|e| DsaError::Database(format!("Fuzzy search failed: {}", e)))?;
+        .map_err(|e| tube::Error::from(format!("Fuzzy search failed: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| {
             let code = r.get_string(0);

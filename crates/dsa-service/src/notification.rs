@@ -1,29 +1,16 @@
-//! 通知服务 - 多渠道消息推送
-//!
-//! 支持渠道: 钉钉、飞书、企业微信、Telegram、Bark、邮件
-//!           Discord、Slack、Pushover、PushPlus、ServerChan、ntfy、Gotify、自定义Webhook
-//! 所有渠道均已实现真实 HTTP 推送
-//!
-//! 路由规则:
-//!   critical → 所有已配置渠道
-//!   warning  → 钉钉/飞书/企微 + 邮件
-//!   info     → 仅日志
-//!
-//! 静默规则:
-//!   在静默时段(quiet_hours)内, info/warning 级别通知将被抑制, critical 不受影响
-
-use dsa_core::{DsaError, DsaResult};
-use tube::Value;
 use chrono::Timelike;
+use tube::{Result, Value};
+use tube_web::RequestParameter;
 
-pub struct NotificationService {
+pub struct Notification {
+    request: RequestParameter,
     client: reqwest::Client,
 }
 
-impl NotificationService {
-    /// 创建通知服务实例
-    pub fn new() -> Self {
+impl Notification {
+    pub fn new(param: &RequestParameter) -> Self {
         Self {
+            request: param.clone(),
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
@@ -31,21 +18,23 @@ impl NotificationService {
         }
     }
 
-    /// 请求分发 - 可用方法: send, channels, test, route
-    pub async fn dispatch(&self, method: &str, params: &Value) -> DsaResult<Value> {
+    pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
-            "send" => self.send(params).await,
+            "send" => self.send().await,
             "channels" => self.channels().await,
-            "test" => self.test_channel(params).await,
-            "route" => self.route(params).await,
-            _ => Err(DsaError::ApiRouting(format!(
+            "test" => self.test_channel().await,
+            "route" => self.route().await,
+            _ => Err(tube::Error::from(format!(
                 "notification不支持方法: {}",
                 method
             ))),
         }
     }
 
-    async fn send(&self, params: &Value) -> DsaResult<Value> {
+    fn params(&self) -> &Value { &self.request.value }
+
+    async fn send(&self) -> Result<Value> {
+        let params = self.params();
         let channel = params
             .get("channel")
             .and_then(|v| v.as_str())
@@ -63,7 +52,6 @@ impl NotificationService {
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| "info".to_string());
 
-        // 静默时段检查: info/warning 级别在静默时段内被抑制, critical 不受影响
         if self.should_suppress(&severity) {
             tracing::info!("[通知][静默] 抑制发送 severity={} channel={}", severity, channel);
             return Ok(value!({"status": "suppressed", "reason": "quiet_hours", "channel": channel, "severity": severity}));
@@ -93,7 +81,7 @@ impl NotificationService {
         }
     }
 
-    async fn channels(&self) -> DsaResult<Value> {
+    async fn channels(&self) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         Ok(value!([
             {"id": "dingtalk", "name": "钉钉", "enabled": !conf.notification.dingtalk_webhook.is_empty()},
@@ -113,14 +101,15 @@ impl NotificationService {
         ]))
     }
 
-    async fn test_channel(&self, params: &Value) -> DsaResult<Value> {
+    async fn test_channel(&self) -> Result<Value> {
+        let params = self.params();
         let channel = params
             .get("channel")
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| "log".to_string());
         tracing::info!("[通知测试] 频道: {}", channel);
         let result = self
-            .send(&value!({
+            .send_with_params(&value!({
                 "channel": channel.clone(),
                 "title": "DSA通知测试",
                 "content": "这是一条测试通知, 如果收到说明配置正确。",
@@ -129,11 +118,7 @@ impl NotificationService {
         Ok(value!({"channel": channel, "test": true, "result": result}))
     }
 
-    // -----------------------------------------------------------------------
-    // 钉钉机器人 Webhook
-    // -----------------------------------------------------------------------
-
-    async fn send_dingtalk(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_dingtalk(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let webhook = &conf.notification.dingtalk_webhook;
         if webhook.is_empty() {
@@ -160,11 +145,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 飞书机器人 Webhook
-    // -----------------------------------------------------------------------
-
-    async fn send_feishu(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_feishu(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let webhook = &conf.notification.feishu_webhook;
         if webhook.is_empty() {
@@ -202,11 +183,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 企业微信机器人 Webhook
-    // -----------------------------------------------------------------------
-
-    async fn send_wecom(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_wecom(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let webhook = &conf.notification.wecom_webhook;
         if webhook.is_empty() {
@@ -232,11 +209,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Telegram Bot API
-    // -----------------------------------------------------------------------
-
-    async fn send_telegram(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_telegram(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let bot_token = &conf.notification.telegram_bot_token;
         let chat_id = &conf.notification.telegram_chat_id;
@@ -271,11 +244,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Bark Push (iOS)
-    // -----------------------------------------------------------------------
-
-    async fn send_bark(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_bark(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let bark_url = &conf.notification.bark_url;
         if bark_url.is_empty() {
@@ -304,15 +273,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Email (via SMTP)
-    // 支持三种模式:
-    //   1. email_smtp_host 含 "mailgun" -> Mailgun API
-    //   2. email_smtp_host 含 "resend"  -> Resend API
-    //   3. 其他 -> 通过 lettre crate 直连 SMTP 服务器
-    // -----------------------------------------------------------------------
-
-    async fn send_email(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_email(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let smtp_host = &conf.notification.email_smtp_host;
         if smtp_host.is_empty() {
@@ -343,7 +304,7 @@ impl NotificationService {
         title: &str,
         content: &str,
         conf: &dsa_core::config::AppConfig,
-    ) -> DsaResult<Value> {
+    ) -> Result<Value> {
         use lettre::message::header::ContentType;
         use lettre::transport::smtp::authentication::Credentials;
         use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
@@ -424,7 +385,7 @@ impl NotificationService {
         title: &str,
         content: &str,
         conf: &dsa_core::config::AppConfig,
-    ) -> DsaResult<Value> {
+    ) -> Result<Value> {
         let domain = conf.notification.email_smtp_host.replace("mailgun:", "");
         if domain.is_empty() {
             return Ok(value!({"status": "error", "reason": "Mailgun域名未配置, 格式: mailgun:your-domain.com"}));
@@ -479,7 +440,7 @@ impl NotificationService {
         title: &str,
         content: &str,
         conf: &dsa_core::config::AppConfig,
-    ) -> DsaResult<Value> {
+    ) -> Result<Value> {
         let api_key = Self::resolve_key(
             &conf.notification.email_pass,
             &conf.notification.email_pass_env,
@@ -523,11 +484,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Discord Webhook
-    // -----------------------------------------------------------------------
-
-    async fn send_discord(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_discord(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let webhook = &conf.notification.discord_webhook;
         if webhook.is_empty() {
@@ -550,11 +507,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Slack Webhook
-    // -----------------------------------------------------------------------
-
-    async fn send_slack(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_slack(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let webhook = &conf.notification.slack_webhook;
         if webhook.is_empty() {
@@ -577,11 +530,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Pushover
-    // -----------------------------------------------------------------------
-
-    async fn send_pushover(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_pushover(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let user_key = &conf.notification.pushover_user_key;
         let api_token = &conf.notification.pushover_api_token;
@@ -626,11 +575,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // PushPlus (微信推送)
-    // -----------------------------------------------------------------------
-
-    async fn send_pushplus(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_pushplus(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let token = &conf.notification.pushplus_token;
         if token.is_empty() {
@@ -657,11 +602,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // ServerChan (Server酱)
-    // -----------------------------------------------------------------------
-
-    async fn send_serverchan(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_serverchan(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let token = &conf.notification.serverchan_token;
         if token.is_empty() {
@@ -686,11 +627,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // ntfy
-    // -----------------------------------------------------------------------
-
-    async fn send_ntfy(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_ntfy(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let topic = &conf.notification.ntfy_topic;
         if topic.is_empty() {
@@ -734,11 +671,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Gotify
-    // -----------------------------------------------------------------------
-
-    async fn send_gotify(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_gotify(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let server = &conf.notification.gotify_server;
         let app_token = &conf.notification.gotify_app_token;
@@ -770,11 +703,7 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 自定义 Webhook
-    // -----------------------------------------------------------------------
-
-    async fn send_custom_webhook(&self, title: &str, content: &str) -> DsaResult<Value> {
+    async fn send_custom_webhook(&self, title: &str, content: &str) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let webhook_url = &conf.notification.custom_webhook_url;
         if webhook_url.is_empty() {
@@ -799,12 +728,8 @@ impl NotificationService {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // 路由 & 静默
-    // -----------------------------------------------------------------------
-
-    /// 根据严重程度和类型推荐通知渠道
-    async fn route(&self, params: &Value) -> DsaResult<Value> {
+    async fn route(&self) -> Result<Value> {
+        let params = self.params();
         let severity = params
             .get("severity")
             .and_then(|v| v.as_str())
@@ -818,7 +743,6 @@ impl NotificationService {
 
         let recommended = match severity.as_str() {
             "critical" => {
-                // critical → 所有已配置渠道
                 let mut channels = Vec::new();
                 if !conf.notification.dingtalk_webhook.is_empty() { channels.push("dingtalk"); }
                 if !conf.notification.feishu_webhook.is_empty() { channels.push("feishu"); }
@@ -837,7 +761,6 @@ impl NotificationService {
                 channels
             }
             "warning" => {
-                // warning → 钉钉/飞书/企微 + 邮件
                 let mut channels = Vec::new();
                 if !conf.notification.dingtalk_webhook.is_empty() { channels.push("dingtalk"); }
                 if !conf.notification.feishu_webhook.is_empty() { channels.push("feishu"); }
@@ -846,7 +769,6 @@ impl NotificationService {
                 channels
             }
             _ => {
-                // info → 仅日志
                 vec!["log"]
             }
         };
@@ -858,9 +780,7 @@ impl NotificationService {
         }))
     }
 
-    /// 检查当前是否处于静默时段, 且该严重程度应被抑制
     fn should_suppress(&self, severity: &str) -> bool {
-        // critical 级别永远不抑制
         if severity == "critical" {
             return false;
         }
@@ -869,7 +789,6 @@ impl NotificationService {
         let start = conf.notification.quiet_hours_start;
         let end = conf.notification.quiet_hours_end;
 
-        // 如果 start == end, 说明没有静默时段
         if start == end {
             return false;
         }
@@ -878,15 +797,12 @@ impl NotificationService {
         let hour = now.hour() as i32;
 
         let in_quiet = if start > end {
-            // 跨午夜, 如 23-7 表示 23:00~07:00
             hour >= start || hour < end
         } else {
-            // 同日, 如 1-5 表示 01:00~05:00
             hour >= start && hour < end
         };
 
         if in_quiet {
-            // 静默时段内: 抑制 info 和 warning
             tracing::debug!(
                 "[通知][静默] 当前处于静默时段 {}-{} 当前小时={}, 抑制 severity={}",
                 start, end, hour, severity
@@ -897,11 +813,7 @@ impl NotificationService {
         false
     }
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
-
-    async fn post_json(&self, url: &str, body: &serde_json::Value) -> Result<String, reqwest::Error> {
+    async fn post_json(&self, url: &str, body: &serde_json::Value) -> std::result::Result<String, reqwest::Error> {
         let resp = self
             .client
             .post(url)
@@ -930,5 +842,52 @@ impl NotificationService {
             }
         }
         String::new()
+    }
+
+    async fn send_with_params(&self, params: &Value) -> Result<Value> {
+        let channel = params
+            .get("channel")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| "log".to_string());
+        let title = params
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let content = params
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let severity = params
+            .get("severity")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| "info".to_string());
+
+        if self.should_suppress(&severity) {
+            tracing::info!("[通知][静默] 抑制发送 severity={} channel={}", severity, channel);
+            return Ok(value!({"status": "suppressed", "reason": "quiet_hours", "channel": channel, "severity": severity}));
+        }
+
+        tracing::info!("[通知][{}] {} - {}", channel, title, content);
+
+        match channel.as_str() {
+            "dingtalk" => self.send_dingtalk(&title, &content).await,
+            "feishu" => self.send_feishu(&title, &content).await,
+            "wecom" => self.send_wecom(&title, &content).await,
+            "telegram" => self.send_telegram(&title, &content).await,
+            "bark" => self.send_bark(&title, &content).await,
+            "email" => self.send_email(&title, &content).await,
+            "discord" => self.send_discord(&title, &content).await,
+            "slack" => self.send_slack(&title, &content).await,
+            "pushover" => self.send_pushover(&title, &content).await,
+            "pushplus" => self.send_pushplus(&title, &content).await,
+            "serverchan" => self.send_serverchan(&title, &content).await,
+            "ntfy" => self.send_ntfy(&title, &content).await,
+            "gotify" => self.send_gotify(&title, &content).await,
+            "custom_webhook" => self.send_custom_webhook(&title, &content).await,
+            _ => {
+                tracing::info!("[通知][默认] 标题: {} 内容: {}", title, content);
+                Ok(value!({"status": "ok", "channel": channel, "sent": true}))
+            }
+        }
     }
 }

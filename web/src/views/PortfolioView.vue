@@ -41,7 +41,7 @@
             <el-table-column prop="stockName" label="名称" width="120" />
             <el-table-column prop="quantity" label="数量" width="100" />
             <el-table-column prop="avgCost" label="成本价" width="100">
-              <template #default="{ row }">{{ Number(row.avgCost || 0).toFixed(2) }}</template>
+              <template #default="{ row }">{{ Number(row.avgCost || 0).toFixed(3) }}</template>
             </el-table-column>
             <el-table-column prop="currentPrice" label="现价" width="100">
               <template #default="{ row }">{{ Number(row.currentPrice || 0).toFixed(2) }}</template>

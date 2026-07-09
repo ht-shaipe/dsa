@@ -1,5 +1,7 @@
 import { callApi } from './index'
 
+export const stockSearch = (keyword: string, limit: number = 10) => callApi('name_resolver', 'search', { keyword, limit })
+
 export const alertApi = {
   /** 获取预警规则列表 */
   rules: (code?: string) => callApi('alert', 'rules', { code }),

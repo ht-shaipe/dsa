@@ -50,7 +50,7 @@ impl AnalysisPipeline {
         let prompt = build_analysis_prompt(&context);
 
         let start = std::time::Instant::now();
-        let report = match self.call_llm_and_parse(&prompt).await {
+        let (report, usage_val) = match self.call_llm_and_parse(&prompt).await {
             Ok(r) => r,
             Err(e) => {
                 let conf = dsa_core::get_global_config();
@@ -83,13 +83,18 @@ impl AnalysisPipeline {
         };
         let elapsed = start.elapsed().as_millis() as i64;
 
+        let usage_default = value!({});
+        let usage = usage_val.as_ref().unwrap_or(&usage_default);
+        let prompt_tokens = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+        let completion_tokens = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+
         let conf = dsa_core::get_global_config();
         dsa_core::utils::record_llm_usage(
             &conf.llm.provider,
             &self.model,
             "analyze_stock",
-            0,
-            0,
+            prompt_tokens,
+            completion_tokens,
             elapsed,
             code,
         );
@@ -102,7 +107,7 @@ impl AnalysisPipeline {
         Ok(report)
     }
 
-    async fn call_llm_and_parse(&self, prompt: &AnalysisPrompt) -> DsaResult<AnalysisReport> {
+    async fn call_llm_and_parse(&self, prompt: &AnalysisPrompt) -> DsaResult<(AnalysisReport, Option<Value>)> {
         let body = value!({
             "model": &self.model,
             "messages": [
@@ -120,11 +125,11 @@ impl AnalysisPipeline {
         .map_err(|_| DsaError::LlmAnalysis(format!("LLM 调用超时 ({}秒)", self.timeout_secs)))?
         .map_err(|e| DsaError::LlmAnalysis(format!("LLM 调用失败: {}", e)))?;
 
+        let usage = response.get("usage").cloned();
         let content = self.extract_content(&response)?;
-
         let report = self.parse_report(&content)?;
 
-        Ok(report)
+        Ok((report, usage))
     }
 
     fn extract_content(&self, response: &Value) -> DsaResult<String> {
@@ -188,13 +193,14 @@ impl AnalysisPipeline {
 
     fn find_matching_brace(s: &str) -> Option<usize> {
         let mut depth = 0i32;
-        for (i, ch) in s.chars().enumerate() {
+        for (i, (byte_idx, ch)) in s.char_indices().enumerate() {
             match ch {
                 '{' => depth += 1,
                 '}' => {
                     depth -= 1;
                     if depth == 0 {
-                        return Some(i);
+                        let end_byte = byte_idx + ch.len_utf8() - 1;
+                        return Some(end_byte);
                     }
                 }
                 _ => {}

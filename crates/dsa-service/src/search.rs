@@ -1,20 +1,15 @@
-//! 搜索服务 - Web搜索集成
-//!
-//! 支持多个搜索提供商: Serper、Google Custom Search、Bing Search
-//! 股票新闻搜索支持通过搜索引擎 + 东方财富/新浪财经RSS
+use tube::{Result, Value};
+use tube_web::RequestParameter;
 
-use dsa_core::{DsaError, DsaResult};
-use tube::Value;
-
-/// 搜索服务
-pub struct SearchService {
+pub struct Search {
+    request: RequestParameter,
     client: reqwest::Client,
 }
 
-impl SearchService {
-    /// 创建搜索服务实例
-    pub fn new() -> Self {
-        Self {
+impl Search {
+    pub fn new(param: &RequestParameter) -> Self {
+        Search {
+            request: param.clone(),
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(15))
                 .build()
@@ -22,20 +17,24 @@ impl SearchService {
         }
     }
 
-    /// 请求分发 - 可用方法: search, stock_news, providers
-    pub async fn dispatch(&self, method: &str, params: &Value) -> DsaResult<Value> {
+    pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
-            "search" => self.search(params).await,
-            "stock_news" => self.stock_news(params).await,
+            "search" => self.search().await,
+            "stock_news" => self.stock_news().await,
             "providers" => self.providers().await,
-            _ => Err(DsaError::ApiRouting(format!(
+            _ => Err(tube::Error::from(format!(
                 "search不支持方法: {}",
                 method
             ))),
         }
     }
 
-    async fn search(&self, params: &Value) -> DsaResult<Value> {
+    fn params(&self) -> &Value {
+        &self.request.value
+    }
+
+    async fn search(&self) -> Result<Value> {
+        let params = self.params();
         let query = params
             .get("query")
             .and_then(|v| v.as_str())
@@ -46,7 +45,7 @@ impl SearchService {
             .unwrap_or_default();
 
         if query.is_empty() {
-            return Err(DsaError::Validation("请提供搜索关键词".to_string()));
+            return Err(tube::Error::from("请提供搜索关键词".to_string()));
         }
 
         let conf = dsa_core::get_global_config();
@@ -63,7 +62,7 @@ impl SearchService {
             "google" => self.search_google(&query, &conf).await?,
             "bing" => self.search_bing(&query, &conf).await?,
             _ => {
-                return Err(DsaError::Validation(format!(
+                return Err(tube::Error::from(format!(
                     "不支持的搜索提供商: {}",
                     resolved_provider
                 )));
@@ -77,7 +76,8 @@ impl SearchService {
         }))
     }
 
-    async fn stock_news(&self, params: &Value) -> DsaResult<Value> {
+    async fn stock_news(&self) -> Result<Value> {
+        let params = self.params();
         let code = params
             .get("code")
             .and_then(|v| v.as_str())
@@ -92,7 +92,7 @@ impl SearchService {
             .unwrap_or(10.0) as usize;
 
         if code.is_empty() {
-            return Err(DsaError::Validation("请提供股票代码".to_string()));
+            return Err(tube::Error::from("请提供股票代码".to_string()));
         }
 
         let conf = dsa_core::get_global_config();
@@ -154,8 +154,8 @@ impl SearchService {
                 }
             }
             let sql = "INSERT INTO news_intel \
-                 (stockCode, title, summary, sourceUrl, source, sentimentLabel, sentimentScore, status, createTime) \
-                 VALUES (:code, :title, :summary, :url, :source, 'neutral', 0.0, 1, NOW())";
+                 (stockCode, title, summary, sourceUrl, source, status, createTime) \
+                 VALUES (:code, :title, :summary, :url, :source, 1, NOW())";
             let _ = deck_mysql::Helper::execute(
                 sql,
                 vec![
@@ -170,7 +170,7 @@ impl SearchService {
         }
     }
 
-    async fn providers(&self) -> DsaResult<Value> {
+    async fn providers(&self) -> Result<Value> {
         let conf = dsa_core::get_global_config();
         let serper_key = Self::resolve_key(&conf.search.serper_api_key, &conf.search.serper_api_key_env);
         let google_key = Self::resolve_key(&conf.search.google_api_key, &conf.search.google_api_key_env);
@@ -183,15 +183,11 @@ impl SearchService {
         ]))
     }
 
-    // -----------------------------------------------------------------------
-    // Serper.dev API (Google SERP)
-    // -----------------------------------------------------------------------
-
     async fn search_serper(
         &self,
         query: &str,
         conf: &dsa_core::config::AppConfig,
-    ) -> DsaResult<Vec<Value>> {
+    ) -> Result<Vec<Value>> {
         let api_key = Self::resolve_key(&conf.search.serper_api_key, &conf.search.serper_api_key_env);
         if api_key.is_empty() {
             tracing::warn!("[搜索] Serper API Key 未配置, 跳过");
@@ -206,7 +202,7 @@ impl SearchService {
             .json(&serde_json::json!({ "q": query, "gl": "cn", "hl": "zh-cn" }))
             .send()
             .await
-            .map_err(|e| DsaError::Internal(format!("Serper请求失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("Serper请求失败: {}", e)))?;
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
@@ -218,7 +214,7 @@ impl SearchService {
         let json: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| DsaError::Internal(format!("Serper响应解析失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("Serper响应解析失败: {}", e)))?;
 
         let empty_vec = vec![];
         let organic = json
@@ -246,15 +242,11 @@ impl SearchService {
         Ok(results)
     }
 
-    // -----------------------------------------------------------------------
-    // Google Custom Search API
-    // -----------------------------------------------------------------------
-
     async fn search_google(
         &self,
         query: &str,
         conf: &dsa_core::config::AppConfig,
-    ) -> DsaResult<Vec<Value>> {
+    ) -> Result<Vec<Value>> {
         let api_key = Self::resolve_key(&conf.search.google_api_key, &conf.search.google_api_key_env);
         let cx = &conf.search.google_cx;
         if api_key.is_empty() || cx.is_empty() {
@@ -273,7 +265,7 @@ impl SearchService {
             .get(&url)
             .send()
             .await
-            .map_err(|e| DsaError::Internal(format!("Google搜索请求失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("Google搜索请求失败: {}", e)))?;
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
@@ -285,7 +277,7 @@ impl SearchService {
         let json: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| DsaError::Internal(format!("Google搜索响应解析失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("Google搜索响应解析失败: {}", e)))?;
 
         let empty_vec = vec![];
         let items = json
@@ -314,15 +306,11 @@ impl SearchService {
         Ok(results)
     }
 
-    // -----------------------------------------------------------------------
-    // Bing Web Search API
-    // -----------------------------------------------------------------------
-
     async fn search_bing(
         &self,
         query: &str,
         conf: &dsa_core::config::AppConfig,
-    ) -> DsaResult<Vec<Value>> {
+    ) -> Result<Vec<Value>> {
         let api_key = Self::resolve_key(&conf.search.bing_api_key, &conf.search.bing_api_key_env);
         if api_key.is_empty() {
             tracing::warn!("[搜索] Bing Search API Key 未配置, 跳过");
@@ -340,7 +328,7 @@ impl SearchService {
             .header("Ocp-Apim-Subscription-Key", &api_key)
             .send()
             .await
-            .map_err(|e| DsaError::Internal(format!("Bing搜索请求失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("Bing搜索请求失败: {}", e)))?;
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
@@ -352,7 +340,7 @@ impl SearchService {
         let json: serde_json::Value = resp
             .json()
             .await
-            .map_err(|e| DsaError::Internal(format!("Bing搜索响应解析失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("Bing搜索响应解析失败: {}", e)))?;
 
         let empty_vec = vec![];
         let web_pages = json
@@ -382,11 +370,7 @@ impl SearchService {
         Ok(results)
     }
 
-    // -----------------------------------------------------------------------
-    // 股票新闻RSS源
-    // -----------------------------------------------------------------------
-
-    async fn fetch_eastmoney_news(&self, code: &str) -> DsaResult<Vec<Value>> {
+    async fn fetch_eastmoney_news(&self, code: &str) -> Result<Vec<Value>> {
         let url = format!(
             "https://search-api-web.eastmoney.com/search/jsonp?cb=cb&param=%7B%22uid%22%3A%22%22%2C%22keyword%22%3A%22{}%22%2C%22type%22%3A%5B%22cmsArticleWebOld%22%5D%2C%22client%22%3A%22web%22%2C%22clientVersion%22%3A%22curr%22%2C%22param%22%3A%7B%22cmsArticleWebOld%22%3A%7B%22searchScope%22%3A%22default%22%2C%22sort%22%3A%22default%22%2C%22pageIndex%22%3A1%2C%22pageSize%22%3A10%2C%22preTag%22%3A%22%22%2C%22postTag%22%3A%22%22%7D%7D%7D",
             urlencoding::encode(code)
@@ -460,7 +444,7 @@ impl SearchService {
             .collect()
     }
 
-    async fn fetch_sina_news(&self, code: &str) -> DsaResult<Vec<Value>> {
+    async fn fetch_sina_news(&self, code: &str) -> Result<Vec<Value>> {
         let market_prefix = if code.starts_with('6') || code.starts_with('9') {
             "sh"
         } else {
@@ -483,12 +467,12 @@ impl SearchService {
                     Err(_) => return Ok(vec![]),
                 };
 
-        let empty_vec = vec![];
-        let data = json
-            .get("result")
-            .and_then(|r| r.get("data"))
-            .and_then(|v| v.as_array())
-            .unwrap_or(&empty_vec);
+                let empty_vec = vec![];
+                let data = json
+                    .get("result")
+                    .and_then(|r| r.get("data"))
+                    .and_then(|v| v.as_array())
+                    .unwrap_or(&empty_vec);
 
                 let results: Vec<Value> = data
                     .iter()
@@ -516,10 +500,6 @@ impl SearchService {
             }
         }
     }
-
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
 
     fn resolve_key(direct: &str, env_name: &str) -> String {
         if !direct.is_empty() {

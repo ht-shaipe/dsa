@@ -82,7 +82,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { usePageVisibility } from '@/composables/usePageVisibility'
 import { ElMessage } from 'element-plus'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import ScoreGauge from '@/components/common/ScoreGauge.vue'
@@ -93,10 +94,12 @@ import { analysisApi } from '@/api/analysis'
 import { useAnalysisStore } from '@/stores/analysis'
 
 const analysisStore = useAnalysisStore()
+const { isVisible } = usePageVisibility()
 const marketOverview = ref<any[]>([])
 const watchlist = ref<any[]>([])
 const selectedCode = ref('')
 const selectedName = ref('')
+let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 const actionLabel = computed(() => {
   const dt = analysisStore.currentReport?.decisionType || ''
@@ -155,9 +158,31 @@ function analyzeFromWatchlist(row: any) {
   selectedName.value = row.name || row.stockName || ''
 }
 
+function startAutoRefresh() {
+  stopAutoRefresh()
+  refreshTimer = setInterval(() => {
+    if (isVisible.value) {
+      loadMarketOverview()
+      loadWatchlist()
+    }
+  }, 10000)
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
 onMounted(() => {
   loadMarketOverview()
   loadWatchlist()
+  startAutoRefresh()
+})
+
+onUnmounted(() => {
+  stopAutoRefresh()
 })
 </script>
 

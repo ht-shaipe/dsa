@@ -1,35 +1,39 @@
-//! 报告服务 - 报告模板渲染与i18n标签
-
-use dsa_core::{DsaError, DsaResult, utils, get_global_config};
+use tube::{Result, Value};
+use tube_web::RequestParameter;
+use dsa_core::{utils, get_global_config};
 use deck_mysql::{DataRow, Helper};
-use tube::Value;
 
-/// 报告服务
-pub struct ReportService;
+pub struct Report {
+    request: RequestParameter,
+}
 
-impl ReportService {
-    /// 创建报告服务实例
-    pub fn new() -> Self {
-        Self
+impl Report {
+    pub fn new(param: &RequestParameter) -> Self {
+        Report {
+            request: param.clone(),
+        }
     }
 
-    /// 请求分发 - 可用方法: render, render_brief, render_wechat, history_compare, labels
-    pub async fn dispatch(&self, method: &str, params: &Value) -> DsaResult<Value> {
+    pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
-            "render" => self.render(params).await,
-            "render_brief" => self.render_brief(params).await,
-            "render_wechat" => self.render_wechat(params).await,
-            "history_compare" => self.history_compare(params).await,
-            "labels" => self.labels(params),
-            _ => Err(DsaError::ApiRouting(format!(
+            "render" => self.render().await,
+            "render_brief" => self.render_brief().await,
+            "render_wechat" => self.render_wechat().await,
+            "history_compare" => self.history_compare().await,
+            "labels" => self.labels(),
+            _ => Err(tube::Error::from(format!(
                 "report不支持方法: {}",
                 method
             ))),
         }
     }
 
-    /// 完整报告渲染 - 生成包含所有章节的Markdown报告
-    async fn render(&self, params: &Value) -> DsaResult<Value> {
+    fn params(&self) -> &Value {
+        &self.request.value
+    }
+
+    async fn render(&self) -> Result<Value> {
+        let params = self.params();
         let code = utils::param_string(params, "code");
         let analysis_id = params
             .get("analysis_id")
@@ -37,7 +41,7 @@ impl ReportService {
             .unwrap_or(0.0) as i64;
 
         if code.is_empty() && analysis_id <= 0 {
-            return Err(DsaError::Validation(
+            return Err(tube::Error::from(
                 "请提供code或analysis_id".to_string(),
             ));
         }
@@ -101,8 +105,8 @@ impl ReportService {
         }))
     }
 
-    /// 简要报告 - 仅包含市场概况、决策信号和风险提示
-    async fn render_brief(&self, params: &Value) -> DsaResult<Value> {
+    async fn render_brief(&self) -> Result<Value> {
+        let params = self.params();
         let code = utils::param_string(params, "code");
         let analysis_id = params
             .get("analysis_id")
@@ -110,7 +114,7 @@ impl ReportService {
             .unwrap_or(0.0) as i64;
 
         if code.is_empty() && analysis_id <= 0 {
-            return Err(DsaError::Validation(
+            return Err(tube::Error::from(
                 "请提供code或analysis_id".to_string(),
             ));
         }
@@ -164,8 +168,8 @@ impl ReportService {
         }))
     }
 
-    /// 微信格式报告 - 更短、无HTML、emoji兼容
-    async fn render_wechat(&self, params: &Value) -> DsaResult<Value> {
+    async fn render_wechat(&self) -> Result<Value> {
+        let params = self.params();
         let code = utils::param_string(params, "code");
         let analysis_id = params
             .get("analysis_id")
@@ -173,7 +177,7 @@ impl ReportService {
             .unwrap_or(0.0) as i64;
 
         if code.is_empty() && analysis_id <= 0 {
-            return Err(DsaError::Validation(
+            return Err(tube::Error::from(
                 "请提供code或analysis_id".to_string(),
             ));
         }
@@ -230,11 +234,11 @@ impl ReportService {
         }))
     }
 
-    /// 历史对比 - 比较当前分析与前N次分析
-    async fn history_compare(&self, params: &Value) -> DsaResult<Value> {
+    async fn history_compare(&self) -> Result<Value> {
+        let params = self.params();
         let code = utils::param_string(params, "code");
         if code.is_empty() {
-            return Err(DsaError::Validation("请提供code".to_string()));
+            return Err(tube::Error::from("请提供code".to_string()));
         }
 
         let conf = get_global_config();
@@ -249,7 +253,7 @@ impl ReportService {
         };
         let language = conf.report.report_language.clone();
 
-        let connector = utils::get_db_connector()?;
+        let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let sql = "SELECT id, stock_code, stock_name, sentiment_score, decision_type, \
                    confidence_level, operation_advice, analysis_summary, risk_warning, \
@@ -264,7 +268,7 @@ impl ReportService {
             ],
             &connector,
         )
-        .map_err(|e| DsaError::Database(format!("查询历史对比数据失败: {}", e)))?;
+        .map_err(|e| tube::Error::from(format!("查询历史对比数据失败: {}", e)))?;
 
         let labels = get_labels(&language);
 
@@ -298,8 +302,8 @@ impl ReportService {
         }))
     }
 
-    /// 返回i18n标签集
-    fn labels(&self, params: &Value) -> DsaResult<Value> {
+    fn labels(&self) -> Result<Value> {
+        let params = self.params();
         let language = utils::param_string(params, "language");
         let lang = if language.is_empty() {
             let conf = get_global_config();
@@ -310,13 +314,12 @@ impl ReportService {
         Ok(get_labels(&lang))
     }
 
-    /// 加载分析记录 - 按ID或按股票代码取最新，返回Value
     async fn load_analysis(
         &self,
         code: &str,
         analysis_id: i64,
-    ) -> DsaResult<Value> {
-        let connector = utils::get_db_connector()?;
+    ) -> Result<Value> {
+        let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let (sql, p) = if analysis_id > 0 {
             (
@@ -342,21 +345,19 @@ impl ReportService {
         };
 
         let rows = Helper::query_rows(&sql, p, &connector)
-            .map_err(|e| DsaError::Database(format!("查询分析记录失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("查询分析记录失败: {}", e)))?;
 
         rows.into_iter()
             .next()
             .map(|r| r.to_value2())
-            .ok_or_else(|| DsaError::Validation("未找到分析记录".to_string()))
+            .ok_or_else(|| tube::Error::from("未找到分析记录".to_string()))
     }
 }
 
-/// 从Value中获取字符串值
 fn str_val(v: &Value, key: &str) -> String {
     v.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string()
 }
 
-/// 将decisionType映射为i18n标签
 fn translate_decision(decision: &str, labels: &Value) -> String {
     match decision {
         "buy" => str_val(labels, "buy"),
@@ -367,7 +368,6 @@ fn translate_decision(decision: &str, labels: &Value) -> String {
     }
 }
 
-/// 将confidenceLevel映射为i18n标签
 fn translate_confidence(level: &str, labels: &Value) -> String {
     match level {
         "high" => str_val(labels, "high"),
@@ -377,7 +377,6 @@ fn translate_confidence(level: &str, labels: &Value) -> String {
     }
 }
 
-/// 生成对比摘要
 fn build_compare_summary(comparisons: &[Value], labels: &Value) -> String {
     if comparisons.is_empty() {
         return "-".to_string();
@@ -406,7 +405,6 @@ fn build_compare_summary(comparisons: &[Value], labels: &Value) -> String {
     lines.join("\n")
 }
 
-/// 简易Markdown到HTML预览转换（仅标题和段落）
 fn markdown_to_html_preview(md: &str) -> String {
     let mut html = String::new();
     for line in md.lines() {
@@ -424,7 +422,6 @@ fn markdown_to_html_preview(md: &str) -> String {
     html
 }
 
-/// 获取i18n标签集 - 支持中文和英文
 fn get_labels(language: &str) -> Value {
     match language {
         "en" => value!({

@@ -24,6 +24,7 @@ toml = { workspace = true }
 
 tube = { workspace = true }
 tube_net = { workspace = true }
+tube_web = { workspace = true }
 ai-llm-kit = { workspace = true }
 qta_crawler = { workspace = true }
 qta_tdx = { workspace = true }

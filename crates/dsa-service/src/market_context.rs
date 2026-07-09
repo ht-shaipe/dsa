@@ -1,42 +1,38 @@
-//! 市场上下文服务 - 构建每日市场上下文/阶段判断/护栏检查
-
-use dsa_core::{DsaError, DsaResult, utils};
+use dsa_core::utils;
 use deck_mysql::{DataRow, Helper};
 use qta_crawler::Real;
-use tube::Value;
+use tube::{Result, Value};
+use tube_web::RequestParameter;
 
-/// 市场上下文服务
-pub struct MarketContextService;
+pub struct MarketContext {
+    request: RequestParameter,
+}
 
-impl MarketContextService {
-    /// 创建市场上下文服务实例
-    pub fn new() -> Self {
-        Self
+impl MarketContext {
+    pub fn new(param: &RequestParameter) -> Self {
+        MarketContext { request: param.clone() }
     }
 
-    /// 请求分发 - 可用方法: build, phase, guardrail
-    pub async fn dispatch(&self, method: &str, params: &Value) -> DsaResult<Value> {
+    pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
-            "build" => self.build(params).await,
-            "phase" => self.phase(params).await,
-            "guardrail" => self.guardrail(params).await,
-            _ => Err(DsaError::ApiRouting(format!(
-                "market_context不支持方法: {}",
-                method
-            ))),
+            "build" => self.build().await,
+            "phase" => self.phase().await,
+            "guardrail" => self.guardrail().await,
+            _ => Err(tube::Error::from(format!("market_context不支持方法: {}", method))),
         }
     }
 
-    /// 构建完整市场上下文
-    async fn build(&self, params: &Value) -> DsaResult<Value> {
+    fn params(&self) -> &Value { &self.request.value }
+
+    async fn build(&self) -> Result<Value> {
+        let params = self.params();
         let code = utils::param_string(params, "code");
         if code.is_empty() {
-            return Err(DsaError::Validation("请提供股票代码".to_string()));
+            return Err(tube::Error::from("请提供股票代码"));
         }
 
         let real = Real::new();
 
-        // 3个指数
         let sh = real.get_price("sh000001").await.ok();
         let sz = real.get_price("sz399001").await.ok();
         let cy = real.get_price("sz399006").await.ok();
@@ -51,12 +47,11 @@ impl MarketContextService {
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
 
-        // 股票实时行情
         let prefix = utils::market_prefix(&code);
         let quote = real
             .get_price(&format!("{}{}", prefix, code))
             .await
-            .map_err(|e| DsaError::StockData(format!("获取行情失败: {}", e)))?;
+            .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
 
         let stock_price = quote.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let stock_change = quote
@@ -65,19 +60,17 @@ impl MarketContextService {
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
 
-        // 判断市场阶段
         let market_phase = self.determine_phase_from_changes(sh_change, sz_change, cy_change);
 
-        // 行业表现 (简化: 从stock_daily获取同行业数据)
-        let connector = utils::get_db_connector()?;
-        let sector_sql = "SELECT stock_code, stock_name, close, pct_chg              FROM stock_daily              WHERE trade_date = (SELECT MAX(trade_date) FROM stock_daily WHERE status = 1)              AND stock_code LIKE :sector_prefix AND status = 1              ORDER BY pct_chg DESC LIMIT 10";
+        let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
+        let sector_sql = "SELECT stock_code, stock_name, close, pct_chg             FROM stock_daily             WHERE trade_date = (SELECT MAX(trade_date) FROM stock_daily WHERE status = 1)             AND stock_code LIKE :sector_prefix AND status = 1             ORDER BY pct_chg DESC LIMIT 10";
         let sector_prefix = if code.starts_with('6') { "6%" } else if code.starts_with('0') || code.starts_with('3') { "0%" } else { "%" };
         let sector_rows = Helper::query_rows(
             sector_sql,
             vec![("sector_prefix".to_string(), Value::from(sector_prefix))],
             &connector,
         )
-        .map_err(|e| DsaError::Database(format!("查询行业数据失败: {}", e)))?;
+        .map_err(|e| tube::Error::from(format!("查询行业数据失败: {}", e)))?;
 
         let sector_performance: Vec<Value> = sector_rows.iter().map(|r| r.to_value2()).collect();
 
@@ -98,19 +91,19 @@ impl MarketContextService {
         }))
     }
 
-    /// 判断市场阶段
-    async fn phase(&self, params: &Value) -> DsaResult<Value> {
+    async fn phase(&self) -> Result<Value> {
+        let params = self.params();
         let index_code_raw = utils::param_string(params, "indexCode");
         let index_code = if index_code_raw.is_empty() { "000001".to_string() } else { index_code_raw };
 
-        let connector = utils::get_db_connector()?;
-        let sql = "SELECT close FROM stock_daily              WHERE stock_code = :code AND status = 1              ORDER BY trade_date DESC LIMIT 60";
+        let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
+        let sql = "SELECT close FROM stock_daily             WHERE stock_code = :code AND status = 1             ORDER BY trade_date DESC LIMIT 60";
         let rows = Helper::query_rows(
             sql,
             vec![("code".to_string(), Value::from(index_code.as_str()))],
             &connector,
         )
-        .map_err(|e| DsaError::Database(format!("查询指数K线失败: {}", e)))?;
+        .map_err(|e| tube::Error::from(format!("查询指数K线失败: {}", e)))?;
 
         if rows.is_empty() {
             return Ok(value!({
@@ -128,7 +121,6 @@ impl MarketContextService {
 
         let current = closes.first().copied().unwrap_or(0.0);
 
-        // Determine phase from MA crossovers
         let phase = if ma5 > ma10 && ma10 > ma20 && (ma20 > ma60 || ma60 == 0.0) {
             "bull"
         } else if ma5 < ma10 && ma10 < ma20 && (ma20 < ma60 || ma60 == 0.0) {
@@ -157,17 +149,16 @@ impl MarketContextService {
         }))
     }
 
-    /// 市场护栏检查
-    async fn guardrail(&self, params: &Value) -> DsaResult<Value> {
+    async fn guardrail(&self) -> Result<Value> {
+        let params = self.params();
         let code = utils::param_string(params, "code");
         let action = utils::param_string(params, "action");
         if code.is_empty() || action.is_empty() {
-            return Err(DsaError::Validation("请提供code和action".to_string()));
+            return Err(tube::Error::from("请提供code和action"));
         }
 
         let real = Real::new();
 
-        // 获取3大指数涨跌
         let sh = real.get_price("sh000001").await.ok();
         let sz = real.get_price("sz399001").await.ok();
         let cy = real.get_price("sz399006").await.ok();
@@ -184,7 +175,6 @@ impl MarketContextService {
 
         let market_phase = self.determine_phase_from_changes(sh_change, sz_change, cy_change);
 
-        // Guardrail logic
         let (allowed, reason, severity) = match action.as_str() {
             "buy" | "add" => {
                 if market_phase == "extreme_bear" {
@@ -225,7 +215,6 @@ impl MarketContextService {
         }))
     }
 
-    /// Determine market phase from index changes
     fn determine_phase_from_changes(&self, sh: f64, sz: f64, cy: f64) -> &'static str {
         let all_up = sh > 0.0 && sz > 0.0 && cy > 0.0;
         let all_down = sh < 0.0 && sz < 0.0 && cy < 0.0;

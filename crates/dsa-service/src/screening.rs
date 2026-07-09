@@ -1,38 +1,35 @@
-//! AlphaSift 筛选服务 - 策略筛选、热点追踪
-
-use dsa_core::{DsaError, DsaResult, utils};
+use dsa_core::utils;
 use qta_crawler::{Complex, EastMoney};
-use tube::Value;
+use tube::{Result, Value};
+use tube_web::RequestParameter;
 
-/// AlphaSift筛选服务
-pub struct ScreeningService {}
+pub struct Screening {
+    request: RequestParameter,
+}
 
-impl ScreeningService {
-    /// 创建AlphaSift筛选服务实例
-    pub fn new() -> Self {
-        Self {}
+impl Screening {
+    pub fn new(param: &RequestParameter) -> Self {
+        Screening {
+            request: param.clone(),
+        }
     }
 
-    /// 请求分发 - 可用方法: status, strategies, hotspots, hotspot_detail, screen
-    pub async fn dispatch(&self, method: &str, params: &Value) -> DsaResult<Value> {
+    pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
             "status" => self.status().await,
             "strategies" => self.strategies().await,
             "hotspots" => self.hotspots().await,
-            "hotspot_detail" => self.hotspot_detail(params).await,
-            "screen" => self.screen(params).await,
-            _ => Err(DsaError::ApiRouting(format!(
-                "screening不支持方法: {}",
-                method
-            ))),
+            "hotspot_detail" => self.hotspot_detail().await,
+            "screen" => self.screen().await,
+            _ => Err(error!("screening不支持方法: {}", method)),
         }
     }
 
-    async fn status(&self) -> DsaResult<Value> {
+    async fn status(&self) -> Result<Value> {
         Ok(value!({"enabled": true, "installed": true, "version": "0.1.0"}))
     }
 
-    async fn strategies(&self) -> DsaResult<Value> {
+    async fn strategies(&self) -> Result<Value> {
         Ok(value!([
             {"id": "dual_low", "name": "双低策略", "description": "低价+低市盈率筛选"},
             {"id": "breakout", "name": "突破策略", "description": "价格突破均线压力位"},
@@ -41,10 +38,10 @@ impl ScreeningService {
         ]))
     }
 
-    async fn hotspots(&self) -> DsaResult<Value> {
+    async fn hotspots(&self) -> Result<Value> {
         let data = Complex::get_hot_stock()
             .await
-            .map_err(|e| DsaError::StockData(format!("获取热点失败: {}", e)))?;
+            .map_err(|e| error!("获取热点失败: {}", e))?;
         let limited = if let Value::Array(arr) = data {
             Value::Array(arr.into_iter().take(12).collect())
         } else {
@@ -53,15 +50,16 @@ impl ScreeningService {
         Ok(limited)
     }
 
-    async fn hotspot_detail(&self, params: &Value) -> DsaResult<Value> {
-        let topic_val = utils::param_string(params, "topic");
+    async fn hotspot_detail(&self) -> Result<Value> {
+        let params = self.value();
+        let topic_val = utils::param_string(&params, "topic");
         if topic_val.is_empty() {
-            return Err(DsaError::Validation("请提供热点主题".to_string()));
+            return Err(error!("请提供热点主题"));
         }
 
         let hot_stocks = Complex::get_hot_stock()
             .await
-            .map_err(|e| DsaError::StockData(format!("获取热点数据失败: {}", e)))?;
+            .map_err(|e| error!("获取热点数据失败: {}", e))?;
 
         let matched: Vec<Value> = if let Value::Array(arr) = &hot_stocks {
             arr.iter()
@@ -89,7 +87,8 @@ impl ScreeningService {
         }))
     }
 
-    async fn screen(&self, params: &Value) -> DsaResult<Value> {
+    async fn screen(&self) -> Result<Value> {
+        let params = self.value();
         let strategy = params
             .get("strategy")
             .and_then(|v| v.as_str())
@@ -103,28 +102,28 @@ impl ScreeningService {
         let spot = em
             .stock_zh_a_spot()
             .await
-            .map_err(|e| DsaError::StockData(format!("获取行情失败: {}", e)))?;
+            .map_err(|e| error!("获取行情失败: {}", e))?;
 
         let results: Vec<Value> = match strategy.as_str() {
-            "dual_low" => self.filter_dual_low(&spot, limit),
-            "breakout" => self.filter_breakout(&spot, limit),
-            "value" => self.filter_value(&spot, limit),
-            "momentum" => self.filter_momentum(&spot, limit),
+            "dual_low" => Self::filter_dual_low(&spot, limit),
+            "breakout" => Self::filter_breakout(&spot, limit),
+            "value" => Self::filter_value(&spot, limit),
+            "momentum" => Self::filter_momentum(&spot, limit),
             _ => spot.into_iter().take(limit).collect(),
         };
         let count = results.len() as i64;
         Ok(value!({"strategy": strategy, "count": count, "results": results}))
     }
 
-    fn filter_dual_low(&self, stocks: &[Value], limit: usize) -> Vec<Value> {
+    fn filter_dual_low(stocks: &[Value], limit: usize) -> Vec<Value> {
         stocks
             .iter()
             .filter(|s| {
-                let price = s.get("最新价").or_else(|| s.get("price"))
+                let price = s.get("最新价")
                     .and_then(|v| v.as_f64()).unwrap_or(999.0);
-                let pe = s.get("市盈率-动态").or_else(|| s.get("pe"))
+                let pe = s.get("市盈率动")
                     .and_then(|v| v.as_f64()).unwrap_or(999.0);
-                let code: String = s.get("代码").or_else(|| s.get("code"))
+                let code: String = s.get("代码")
                     .and_then(|v| v.as_str()).unwrap_or_default();
                 price > 0.0 && price < 20.0 && pe > 0.0 && pe < 30.0
                     && !code.starts_with('8') && !code.starts_with('4')
@@ -134,15 +133,15 @@ impl ScreeningService {
             .collect()
     }
 
-    fn filter_breakout(&self, stocks: &[Value], limit: usize) -> Vec<Value> {
+    fn filter_breakout(stocks: &[Value], limit: usize) -> Vec<Value> {
         stocks
             .iter()
             .filter(|s| {
-                let change_pct = s.get("涨跌幅").or_else(|| s.get("change_pct"))
+                let change_pct = s.get("涨跌幅")
                     .and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let turnover = s.get("换手率").or_else(|| s.get("turnover_rate"))
+                let turnover = s.get("换手率")
                     .and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let volume_ratio = s.get("量比").or_else(|| s.get("volume_ratio"))
+                let volume_ratio = s.get("量比")
                     .and_then(|v| v.as_f64()).unwrap_or(0.0);
                 change_pct > 3.0 && change_pct < 9.8 && turnover > 3.0 && volume_ratio > 2.0
             })
@@ -151,15 +150,15 @@ impl ScreeningService {
             .collect()
     }
 
-    fn filter_value(&self, stocks: &[Value], limit: usize) -> Vec<Value> {
+    fn filter_value(stocks: &[Value], limit: usize) -> Vec<Value> {
         stocks
             .iter()
             .filter(|s| {
-                let pb = s.get("市净率").or_else(|| s.get("pb"))
+                let pb = s.get("市净率")
                     .and_then(|v| v.as_f64()).unwrap_or(999.0);
-                let roe = s.get("roe").or_else(|| s.get("ROE"))
+                let roe = s.get("加权净资产收益率")
                     .and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let pe = s.get("市盈率-动态").or_else(|| s.get("pe"))
+                let pe = s.get("市盈率动")
                     .and_then(|v| v.as_f64()).unwrap_or(999.0);
                 pb > 0.0 && pb < 2.0 && roe > 10.0 && pe > 0.0 && pe < 20.0
             })
@@ -168,24 +167,28 @@ impl ScreeningService {
             .collect()
     }
 
-    fn filter_momentum(&self, stocks: &[Value], limit: usize) -> Vec<Value> {
+    fn filter_momentum(stocks: &[Value], limit: usize) -> Vec<Value> {
         let mut ranked: Vec<&Value> = stocks
             .iter()
             .filter(|s| {
-                let change_pct = s.get("涨跌幅").or_else(|| s.get("change_pct"))
+                let change_pct = s.get("涨跌幅")
                     .and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let code: String = s.get("代码").or_else(|| s.get("code"))
+                let code: String = s.get("代码")
                     .and_then(|v| v.as_str()).unwrap_or_default();
                 change_pct > 0.0 && !code.starts_with('8') && !code.starts_with('4')
             })
             .collect();
         ranked.sort_by(|a, b| {
-            let ca = a.get("涨跌幅").or_else(|| a.get("change_pct"))
+            let ca = a.get("涨跌幅")
                 .and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let cb = b.get("涨跌幅").or_else(|| b.get("change_pct"))
+            let cb = b.get("涨跌幅")
                 .and_then(|v| v.as_f64()).unwrap_or(0.0);
             cb.partial_cmp(&ca).unwrap_or(std::cmp::Ordering::Equal)
         });
         ranked.into_iter().take(limit).cloned().collect()
+    }
+
+    fn value(&self) -> Value {
+        self.request.value.clone()
     }
 }

@@ -1,7 +1,7 @@
 import { callApi } from './index'
 
 export const backtestApi = {
-  evaluate: (signal_id: number) => callApi('backtest', 'evaluate', { signalId }),
+  evaluate: (signal_id: number) => callApi('backtest', 'evaluate', { signalId: signal_id }),
   evaluateBatch: (limit?: number) => callApi('backtest', 'evaluate_batch', { limit: limit || 50 }),
   summary: (params?: { code?: string; horizon?: string }) => callApi('backtest', 'summary', params || {}),
   detail: (id: number) => callApi('backtest', 'detail', { id }),

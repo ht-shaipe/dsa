@@ -23,6 +23,10 @@
         <el-icon><ChatDotRound /></el-icon>
         <template #title>Agent 问股</template>
       </el-menu-item>
+      <el-menu-item index="/analysis-history">
+        <el-icon><Document /></el-icon>
+        <template #title>分析历史</template>
+      </el-menu-item>
       <el-menu-item index="/screening">
         <el-icon><Filter /></el-icon>
         <template #title>选股筛选</template>

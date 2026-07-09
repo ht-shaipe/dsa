@@ -126,7 +126,7 @@ impl Orchestrator {
             &message,
             &conf.llm.provider,
             &conf.llm.model,
-            prompt_tokens,
+            0,
             0,
         );
         dsa_core::utils::record_conversation_message(
@@ -135,7 +135,7 @@ impl Orchestrator {
             &content,
             &conf.llm.provider,
             &conf.llm.model,
-            0,
+            prompt_tokens,
             completion_tokens,
         );
 
@@ -325,7 +325,12 @@ impl Orchestrator {
             .and_then(|m| m.get("content").and_then(|c| c.as_str()))
             .unwrap_or_default();
 
-        dsa_core::utils::record_llm_usage(&conf.llm.provider, model, "pipeline_single", 0, 0, elapsed, code);
+        let usage_default = value!({});
+        let usage = response.get("usage").unwrap_or(&usage_default);
+        let pt = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+        let ct = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+
+        dsa_core::utils::record_llm_usage(&conf.llm.provider, model, "pipeline_single", pt, ct, elapsed, code);
 
         Ok(value!({
             "code": code,
@@ -387,9 +392,9 @@ impl Orchestrator {
             .ok()
             .and_then(|q| q.get("chipConcentration").and_then(|v| v.as_f64()))
             .or_else(|| {
-                if conf.stock.enable_chip_distribution { Some(50.0) } else { None }
+                if conf.stock.enable_chip_distribution { None } else { None }
             })
-            .unwrap_or(50.0);
+            .unwrap_or(0.0);
 
         let skill_context = value!({
             "code": &code,
@@ -548,10 +553,10 @@ impl Orchestrator {
         Ok(Value::Array(filtered))
     }
 
-    fn fetch_portfolio_positions(code: &str) -> (Vec<Value>, f64) {
+    fn fetch_portfolio_positions(code: &str) -> (Vec<Value>, Option<f64>) {
         let connector = match dsa_core::utils::get_db_connector() {
             Ok(c) => c,
-            Err(_) => return (vec![], 100000.0),
+            Err(_) => return (vec![], None),
         };
         let sql = if code.is_empty() {
             "SELECT p.stock_code, p.stock_name, p.quantity, p.avg_cost, p.current_price, \
@@ -574,10 +579,10 @@ impl Orchestrator {
                 });
                 let account_total = rows.first()
                     .and_then(|r| r.to_value2().get("initial_capital").and_then(|v| v.as_f64()))
-                    .unwrap_or(100000.0);
-                (positions, if total > 0.0 { account_total } else { 100000.0 })
+                    .filter(|v| *v > 0.0);
+                (positions, if total > 0.0 || account_total.is_some() { account_total } else { None })
             }
-            Err(_) => (vec![], 100000.0),
+            Err(_) => (vec![], None),
         }
     }
 

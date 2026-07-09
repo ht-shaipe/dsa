@@ -46,8 +46,11 @@ impl BaseAgent for PortfolioAgent {
 
         // 获取总资产
         let total_assets = input.get("totalAssets")
-            .and_then(|a| a.as_f64())
-            .unwrap_or(100000.0);
+            .and_then(|a| a.as_f64());
+        let total_assets_str = match total_assets {
+            Some(v) => format!("{:.0}元", v),
+            None => "未知（无持仓数据）".to_string(),
+        };
 
         let positions_summary = if positions.is_empty() {
             "当前无持仓".to_string()
@@ -85,7 +88,7 @@ impl BaseAgent for PortfolioAgent {
              - suggestedWeight: 建议权重(0-100%)\n\
              - rebalanceAdvice: 调仓建议\n\
              - summary: 组合建议总结(200字以内)",
-            code, total_assets, positions_summary, decision
+            code, total_assets_str, positions_summary, decision
         );
 
         let body = value!({

@@ -45,6 +45,8 @@ impl SignalTracker {
             let entry_price: f64 = row.get_value(3).as_f64().unwrap_or(0.0);
             let stop_loss: f64 = row.get_value(4).as_f64().unwrap_or(0.0);
             let target_price: f64 = row.get_value(5).as_f64().unwrap_or(0.0);
+            let signal_date_raw = row.get_string(6);
+            let signal_date_only = signal_date_raw.split(' ').next().unwrap_or(&signal_date_raw);
 
             // 检查是否已有评估结果
             let check_sql = "SELECT id FROM decision_signal_outcomes WHERE signal_id = :sid AND eval_horizon = :horizon LIMIT 1";
@@ -62,14 +64,15 @@ impl SignalTracker {
                 continue;
             }
 
-            // 获取实际K线数据
-            let hist_sql = "SELECT close FROM stock_daily \
-                 WHERE stock_code = :code AND status = 1 \
-                 ORDER BY trade_date DESC LIMIT :limit";
+            // 获取信号日期之后的实际K线数据
+            let hist_sql = "SELECT high, low, close FROM stock_daily \
+                 WHERE stock_code = :code AND DATE(trade_date) >= :sdate AND status = 1 \
+                 ORDER BY trade_date ASC LIMIT :limit";
             let hist_rows = Helper::query_rows(
                 hist_sql,
                 vec![
                     ("code".to_string(), Value::from(code.as_str())),
+                    ("sdate".to_string(), Value::from(signal_date_only)),
                     ("limit".to_string(), Value::from(window + 5)),
                 ],
                 &connector,
@@ -83,7 +86,17 @@ impl SignalTracker {
             let eval_closes: Vec<f64> = hist_rows
                 .iter()
                 .take(window as usize)
+                .map(|r| r.get_value(2).as_f64().unwrap_or(0.0))
+                .collect();
+            let eval_highs: Vec<f64> = hist_rows
+                .iter()
+                .take(window as usize)
                 .map(|r| r.get_value(0).as_f64().unwrap_or(0.0))
+                .collect();
+            let eval_lows: Vec<f64> = hist_rows
+                .iter()
+                .take(window as usize)
+                .map(|r| r.get_value(1).as_f64().unwrap_or(0.0))
                 .collect();
 
             let exit_price = eval_closes.last().copied().unwrap_or(entry_price);
@@ -105,8 +118,8 @@ impl SignalTracker {
             let direction_correct = (predicted_up && actual_return > 0.0)
                 || (!predicted_up && actual_return < 0.0);
 
-            let hit_target = target_price > 0.0 && eval_closes.iter().any(|&c| c >= target_price);
-            let hit_sl = stop_loss > 0.0 && eval_closes.iter().any(|&c| c <= stop_loss);
+            let hit_target = target_price > 0.0 && eval_highs.iter().any(|&h| h >= target_price);
+            let hit_sl = stop_loss > 0.0 && eval_lows.iter().any(|&l| l <= stop_loss);
 
             // 保存评估结果
             let insert_sql = "INSERT INTO decision_signal_outcomes \

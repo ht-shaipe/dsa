@@ -92,7 +92,18 @@
     <el-dialog v-model="createDialogVisible" :title="editingRule ? '编辑规则' : '新建规则'" width="500px">
       <el-form :model="ruleForm" label-width="80px">
         <el-form-item label="股票代码">
-          <el-input v-model="ruleForm.code" placeholder="如 SH600519" />
+          <el-autocomplete
+            v-model="ruleForm.code"
+            :fetch-suggestions="queryStocks"
+            placeholder="输入代码或名称搜索"
+            style="width:100%"
+            @select="onStockSelect"
+          >
+            <template #default="{ item }">
+              <span style="margin-right:8px">{{ item.code }}</span>
+              <span style="color:var(--el-text-color-secondary)">{{ item.name }}</span>
+            </template>
+          </el-autocomplete>
         </el-form-item>
         <el-form-item label="规则名称">
           <el-input v-model="ruleForm.name" placeholder="规则名称" />
@@ -127,7 +138,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { alertApi } from '@/api/alert'
+import { alertApi, stockSearch } from '@/api/alert'
 import { notificationApi } from '@/api/notification'
 
 const rules = ref<any[]>([])
@@ -146,6 +157,25 @@ const ruleForm = ref({
 const submitting = ref(false)
 const testLoading = ref(false)
 const testResult = ref<Record<string, any> | null>(null)
+
+async function queryStocks(queryString: string, cb: (results: any[]) => void) {
+  if (!queryString || queryString.length < 1) {
+    cb([])
+    return
+  }
+  try {
+    const res: any = await stockSearch(queryString, 10)
+    const list = (res.data || res || []) as any[]
+    cb(list.map((s: any) => ({ ...s, value: s.code })))
+  } catch {
+    cb([])
+  }
+}
+
+function onStockSelect(item: any) {
+  ruleForm.value.code = item.code
+  ruleForm.value.name = ruleForm.value.name || item.name
+}
 
 async function loadRules() {
   try {

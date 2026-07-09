@@ -6,7 +6,7 @@
           <template #header>执行回测</template>
           <el-form label-width="80px">
             <el-form-item label="信号ID">
-              <el-input-number v-model="signal_id":min="1" style="width:100%" />
+              <el-input-number v-model="signalId" :min="1" style="width:100%" />
             </el-form-item>
             <el-form-item>
               <el-button type="primary" :loading="evaluating" :disabled="!signalId" @click="runEvaluate">

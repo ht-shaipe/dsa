@@ -16,17 +16,34 @@ impl ChipTools {
     pub fn get_chip_distribution(code: &str) -> Value {
         let connector = match utils::get_db_connector() {
             Ok(c) => c,
-            Err(_) => return value!({"code": code, "concentration": 50.0, "message": "DB连接失败"}),
+            Err(_) => {
+                let mut m = tube::Map::new();
+                m.insert("code".to_string(), Value::from(code.to_string()));
+                m.insert("concentration".to_string(), Value::Null);
+                m.insert("dataAvailable".to_string(), Value::from(false));
+                m.insert("message".to_string(), Value::from("DB连接失败"));
+                return Value::Object(m);
+            }
         };
         let sql = format!("SELECT close, volume FROM stock_daily WHERE stock_code = '{}' AND status >= 1 ORDER BY trade_date DESC LIMIT 20", code);
         match Helper::query_rows(&sql, vec![], &connector) {
             Ok(rows) => {
                 if rows.is_empty() {
-                    return value!({"code": code, "concentration": 50.0});
+                    let mut m = tube::Map::new();
+                    m.insert("code".to_string(), Value::from(code.to_string()));
+                    m.insert("concentration".to_string(), Value::Null);
+                    m.insert("dataAvailable".to_string(), Value::from(false));
+                    m.insert("message".to_string(), Value::from("无K线数据"));
+                    return Value::Object(m);
                 }
                 let total_vol: f64 = rows.iter().map(|r| r.get_value(1).as_f64().unwrap_or(0.0)).sum();
                 if total_vol <= 0.0 {
-                    return value!({"code": code, "concentration": 50.0});
+                    let mut m = tube::Map::new();
+                    m.insert("code".to_string(), Value::from(code.to_string()));
+                    m.insert("concentration".to_string(), Value::Null);
+                    m.insert("dataAvailable".to_string(), Value::from(false));
+                    m.insert("message".to_string(), Value::from("成交量数据为零"));
+                    return Value::Object(m);
                 }
                 let weighted_price: f64 = rows.iter()
                     .map(|r| r.get_value(0).as_f64().unwrap_or(0.0) * r.get_value(1).as_f64().unwrap_or(0.0))
@@ -40,9 +57,17 @@ impl ChipTools {
                     "concentration": concentration,
                     "weightedPrice": weighted_price,
                     "totalVolume": total_vol,
+                    "dataAvailable": true,
                 })
             }
-            Err(_) => value!({"code": code, "concentration": 50.0}),
+            Err(_) => {
+                let mut m = tube::Map::new();
+                m.insert("code".to_string(), Value::from(code.to_string()));
+                m.insert("concentration".to_string(), Value::Null);
+                m.insert("dataAvailable".to_string(), Value::from(false));
+                m.insert("message".to_string(), Value::from("查询失败"));
+                Value::Object(m)
+            }
         }
     }
 }
