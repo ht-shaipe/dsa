@@ -47,7 +47,8 @@ impl TradeTable {
     }
 
     fn insert_trade(&self, account_id: i64, code: &str, name: &str, direction: &str,
-                    price: f64, quantity: i64, commission: f64, remark: &str) -> Result<Value> {
+                    price: f64, quantity: i64, commission: f64, remark: &str, trade_date: Option<chrono::NaiveDateTime>) -> Result<Value> {
+        let trade_date_val = trade_date.unwrap_or_else(|| chrono::Local::now().naive_local());
         let data = value!({
             "account_id": account_id,
             "stock_code": code,
@@ -55,7 +56,7 @@ impl TradeTable {
             "direction": direction,
             "price": price,
             "quantity": quantity,
-            "trade_date": chrono::Local::now().naive_local(),
+            "trade_date": trade_date_val,
             "commission": commission,
             "trade_currency": "CNY",
             "dedup_hash": "",
@@ -82,7 +83,7 @@ impl TradeTable {
 
     fn import_one_trade(&self, account_id: i64, code: &str, name: &str, direction: &str,
                         price: f64, quantity: i64, commission: f64, remark: &str) -> Result<Value> {
-        self.insert_trade(account_id, code, name, direction, price, quantity, commission, remark)
+        self.insert_trade(account_id, code, name, direction, price, quantity, commission, remark, None)
     }
 }
 
@@ -406,8 +407,13 @@ impl Portfolio {
             .unwrap_or(0.0);
         let remark = utils::param_string(params, "remark");
 
+        let trade_date = params.get("tradeDate").and_then(|v| v.as_str())
+            .and_then(|s| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S").ok()
+                .or_else(|| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()
+                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())));
+
         let trade_table = TradeTable::new(&self.request);
-        trade_table.insert_trade(account_id, &code, &name, "buy", price, quantity, commission, &remark)?;
+        trade_table.insert_trade(account_id, &code, &name, "buy", price, quantity, commission, &remark, trade_date)?;
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let check_sql = "SELECT id, quantity, avg_cost FROM portfolio_positions \
@@ -423,12 +429,14 @@ impl Portfolio {
 
         if existing.is_empty() {
             let mv = price * quantity as f64;
+            let cost_with_comm = price * quantity as f64 + commission;
+            let avg = cost_with_comm / quantity as f64;
             let data = value!({
                 "account_id": account_id,
                 "stock_code": code.clone(),
                 "stock_name": name,
                 "quantity": quantity,
-                "avg_cost": price,
+                "avg_cost": avg,
                 "current_price": price,
                 "market_value": mv,
                 "unrealized_pnl": 0.0,
@@ -447,8 +455,9 @@ impl Portfolio {
             let old_cost: f64 = row.get_value(2).as_f64().unwrap_or(0.0);
 
             let new_qty = old_qty + quantity;
+            let buy_total = price * quantity as f64 + commission;
             let new_avg = if new_qty > 0 {
-                (old_cost * old_qty as f64 + price * quantity as f64) / new_qty as f64
+                (old_cost * old_qty as f64 + buy_total) / new_qty as f64
             } else {
                 price
             };
@@ -512,6 +521,11 @@ impl Portfolio {
             .unwrap_or(0.0);
         let remark = utils::param_string(params, "remark");
 
+        let trade_date = params.get("tradeDate").and_then(|v| v.as_str())
+            .and_then(|s| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S").ok()
+                .or_else(|| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()
+                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())));
+
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let check_sql = "SELECT id, quantity, avg_cost, stock_name FROM portfolio_positions \
              WHERE account_id = :aid AND stock_code = :code AND status = 1 LIMIT 1";
@@ -543,7 +557,7 @@ impl Portfolio {
         let sell_price = if price <= 0.0 { avg_cost } else { price };
 
         let trade_table = TradeTable::new(&self.request);
-        trade_table.insert_trade(account_id, &code, &stock_name, "sell", sell_price, sell_qty, commission, &remark)?;
+        trade_table.insert_trade(account_id, &code, &stock_name, "sell", sell_price, sell_qty, commission, &remark, trade_date)?;
 
         let remaining = old_qty - sell_qty;
         if remaining <= 0 {
@@ -563,13 +577,14 @@ impl Portfolio {
             };
 
             let update_sql = "UPDATE portfolio_positions SET \
-                 quantity = :qty, current_price = :price, market_value = :mv, \
+                 quantity = :qty, avg_cost = :avg_cost, current_price = :price, market_value = :mv, \
                  unrealized_pnl = :pnl, unrealized_pnl_pct = :pnl_pct, \
                  snapshot_date = NOW(), modify_time = NOW() WHERE id = :id";
             Helper::execute(
                 update_sql,
                 vec![
                     ("qty".to_string(), Value::from(remaining)),
+                    ("avg_cost".to_string(), Value::from(avg_cost)),
                     ("price".to_string(), Value::from(sell_price)),
                     ("mv".to_string(), Value::from(mv)),
                     ("pnl".to_string(), Value::from(pnl)),

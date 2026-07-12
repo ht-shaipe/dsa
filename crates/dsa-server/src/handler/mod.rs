@@ -26,3 +26,4 @@ pub mod name_resolver;
 pub mod report;
 pub mod bot;
 pub mod stream;
+pub mod indicator;

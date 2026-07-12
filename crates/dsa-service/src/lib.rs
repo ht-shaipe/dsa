@@ -38,6 +38,7 @@ pub mod decision_extractor;
 pub mod market_context;
 pub mod name_resolver;
 pub mod bot;
+pub mod indicator;
 
 pub use auth::Auth;
 pub use usage::Usage;
@@ -61,3 +62,4 @@ pub use decision_extractor::DecisionExtractor;
 pub use market_context::MarketContext;
 pub use name_resolver::NameResolver;
 pub use bot::dispatcher::BotDispatcher;
+pub use indicator::Indicator;

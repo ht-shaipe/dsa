@@ -1,10 +1,11 @@
 <template>
   <el-autocomplete
-    v-model="query"
+    :model-value="modelValue"
+    @update:model-value="onInput"
     :fetch-suggestions="searchStock"
-    placeholder="输入股票代码或名称"
-    clearable
-    style="width: 100%"
+    :placeholder="placeholder"
+    :clearable="clearable"
+    :style="{ width }"
     @select="handleSelect"
   >
     <template #prefix>
@@ -20,14 +21,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
 import { stockApi } from '@/api/stock'
+
+const props = withDefaults(defineProps<{
+  modelValue?: string
+  placeholder?: string
+  width?: string
+  clearable?: boolean
+}>(), {
+  modelValue: '',
+  placeholder: '输入股票代码或名称',
+  width: '100%',
+  clearable: true,
+})
 
 const emit = defineEmits<{
   select: [code: string, name: string]
+  'update:modelValue': [value: string]
 }>()
-
-const query = ref('')
 
 async function searchStock(qs: string, cb: (results: any[]) => void) {
   if (!qs || qs.length < 1) {
@@ -48,7 +59,14 @@ async function searchStock(qs: string, cb: (results: any[]) => void) {
 }
 
 function handleSelect(item: any) {
-  emit('select', item.code, item.name)
+  const code = item.code || ''
+  const name = item.name || ''
+  emit('select', code, name)
+  emit('update:modelValue', code)
+}
+
+function onInput(val: string | number) {
+  emit('update:modelValue', String(val))
 }
 </script>
 

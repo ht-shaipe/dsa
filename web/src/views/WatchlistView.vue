@@ -6,11 +6,11 @@
           <span>自选股管理</span>
           <div style="display:flex;gap:8px;align-items:center">
             <StockAutocomplete
-              @select="(code: string, name: string) => addStock(code, name)"
+              v-model="searchText"
+              @select="(code: string, name: string) => { addStock(code, name); searchText = '' }"
               placeholder="搜索添加股票..."
               style="width:220px"
             />
-            <el-button @click="syncFromConfig" :loading="syncing">从配置同步</el-button>
           </div>
         </div>
       </template>
@@ -26,7 +26,9 @@
         </el-table-column>
         <el-table-column label="现价" width="100">
           <template #default="{ row }">
-            {{ row.price ? Number(row.price).toFixed(2) : '-' }}
+            <span v-if="row.close != null">{{ Number(row.close).toFixed(2) }}</span>
+            <span v-else-if="row.price != null">{{ Number(row.price).toFixed(2) }}</span>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column label="涨跌幅" width="100">
@@ -63,7 +65,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!stocks.length && !loading" description="暂无自选股，搜索股票添加或从配置同步" />
+      <el-empty v-if="!stocks.length && !loading" description="暂无自选股，搜索股票添加" />
     </el-card>
 
     <el-dialog v-model="editVisible" title="编辑自选股" width="440px">
@@ -102,10 +104,10 @@ import { stockApi } from '@/api/stock'
 const router = useRouter()
 const stocks = ref<any[]>([])
 const loading = ref(false)
-const syncing = ref(false)
 const saving = ref(false)
 const editVisible = ref(false)
 const editForm = ref<Record<string, any> | null>(null)
+const searchText = ref('')
 
 async function loadList() {
   loading.value = true
@@ -178,27 +180,6 @@ async function saveEdit() {
     ElMessage.error('更新失败')
   } finally {
     saving.value = false
-  }
-}
-
-async function syncFromConfig() {
-  syncing.value = true
-  try {
-    const conf = await import('@/api/system').then(m => m.systemApi.get())
-    const config = conf.data || conf || {}
-    const wl = config.stock?.watchlist || []
-    if (!wl.length) {
-      ElMessage.info('配置中无自选股')
-      return
-    }
-    const stocksArr = wl.map((code: string) => ({ code, name: '' }))
-    const res: any = await stockApi.watchlistSync(stocksArr)
-    ElMessage.success(`已同步 ${res.data?.count || wl.length} 只股票`)
-    loadList()
-  } catch {
-    ElMessage.error('同步失败')
-  } finally {
-    syncing.value = false
   }
 }
 

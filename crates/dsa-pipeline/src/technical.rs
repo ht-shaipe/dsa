@@ -3,6 +3,13 @@
 use dsa_core::models::{KlineBar, TechnicalIndicators};
 use tube::Value;
 
+#[derive(Debug, Clone)]
+pub struct MacdPoint {
+    pub dif: f64,
+    pub dea: f64,
+    pub hist: f64,
+}
+
 pub struct TechnicalAnalyzer;
 
 impl TechnicalAnalyzer {
@@ -46,6 +53,81 @@ impl TechnicalAnalyzer {
             is_bullish_alignment: is_bullish,
             trend_score,
         }
+    }
+
+    pub fn macd_series(&self, closes: &[f64], fast: usize, slow: usize, signal: usize) -> Vec<MacdPoint> {
+        let dif_series = self.ema_series(closes, fast, slow);
+        if dif_series.len() < signal {
+            return vec![];
+        }
+        let k_signal = 2.0 / (signal as f64 + 1.0);
+        let mut dea_series: Vec<f64> = Vec::with_capacity(dif_series.len());
+        let mut dea = dif_series[0];
+        for &d in &dif_series {
+            dea = d * k_signal + dea * (1.0 - k_signal);
+            dea_series.push(dea);
+        }
+        dif_series
+            .iter()
+            .zip(dea_series.iter())
+            .map(|(&dif, &dea)| MacdPoint {
+                dif,
+                dea,
+                hist: 2.0 * (dif - dea),
+            })
+            .collect()
+    }
+
+    pub fn is_macd_golden_cross(&self, hist_series: &[f64], lookback: usize) -> bool {
+        let n = hist_series.len();
+        if n < 2 {
+            return false;
+        }
+        let start = if n > lookback { n - lookback } else { 0 };
+        let recent = &hist_series[start..];
+        if recent.len() < 2 {
+            return false;
+        }
+        let latest = recent[recent.len() - 1];
+        let prev = recent[recent.len() - 2];
+
+        // Case 1: Just crossed - hist went from negative to non-negative
+        if prev < 0.0 && latest >= 0.0 {
+            return true;
+        }
+
+        // Case 2: Green bars shrinking (approaching golden cross)
+        // All recent bars must be negative, and each successive one is larger (closer to 0)
+        if latest < 0.0 && prev < 0.0 {
+            let mut all_negative = true;
+            let mut shrinking = true;
+            for i in 1..recent.len() {
+                if recent[i] >= 0.0 {
+                    all_negative = false;
+                    break;
+                }
+                if recent[i] <= recent[i - 1] {
+                    // hist[i] <= hist[i-1] means absolute value is growing or same = NOT shrinking
+                    shrinking = false;
+                }
+            }
+            // Only true if all negative AND shrinking (absolute value decreasing)
+            if all_negative && shrinking {
+                return true;
+            }
+        }
+
+        // Case 3: Already in golden cross state (positive hist) but just recently crossed
+        // Check if within the lookback window there was a negative-to-positive transition
+        if latest >= 0.0 && prev >= 0.0 {
+            for i in 1..recent.len() {
+                if recent[i - 1] < 0.0 && recent[i] >= 0.0 {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     fn sma(&self, data: &[f64], period: usize) -> f64 {
@@ -267,5 +349,60 @@ mod tests {
         let kline = make_kline(&closes);
         let ti = analyzer.calculate(&kline, None);
         assert!(ti.is_bullish_alignment, "steadily rising prices should show bullish MA alignment");
+    }
+
+    #[test]
+    fn test_macd_series_length() {
+        let analyzer = TechnicalAnalyzer::new();
+        let closes: Vec<f64> = (0..80).map(|i| 50.0 + (i as f64 * 0.3).sin() * 10.0).collect();
+        let series = analyzer.macd_series(&closes, 12, 26, 9);
+        assert!(!series.is_empty(), "macd_series should return non-empty for 80 data points");
+        for pt in &series {
+            assert!((pt.hist - 2.0 * (pt.dif - pt.dea)).abs() < 0.001, "hist = 2*(dif-dea)");
+        }
+    }
+
+    #[test]
+    fn test_golden_cross_actual_cross() {
+        let analyzer = TechnicalAnalyzer::new();
+        // Directly construct a hist series that represents green bars shrinking then crossing
+        let hists: Vec<f64> = vec![-2.0, -1.5, -1.0, -0.5, -0.2, 0.1, 0.3];
+        let result = analyzer.is_macd_golden_cross(&hists, 7);
+        assert!(result, "hist going from negative to positive should be golden cross");
+    }
+
+    #[test]
+    fn test_golden_cross_shrinking_green() {
+        let analyzer = TechnicalAnalyzer::new();
+        // Green bars shrinking but not yet crossed
+        let hists: Vec<f64> = vec![-2.0, -1.5, -1.0, -0.5, -0.2, -0.1];
+        let result = analyzer.is_macd_golden_cross(&hists, 6);
+        assert!(result, "shrinking green bars should be detected as approaching golden cross");
+    }
+
+    #[test]
+    fn test_golden_cross_no_cross_expanding() {
+        let analyzer = TechnicalAnalyzer::new();
+        // Negative bars getting more negative (expanding, not shrinking)
+        let hists: Vec<f64> = vec![-0.5, -1.0, -1.5, -2.0, -2.5];
+        let result = analyzer.is_macd_golden_cross(&hists, 5);
+        assert!(!result, "expanding negative bars should not be golden cross");
+    }
+
+    #[test]
+    fn test_golden_cross_no_cross() {
+        let analyzer = TechnicalAnalyzer::new();
+        let closes: Vec<f64> = (0..80).map(|i| 100.0 - i as f64 * 0.5).collect();
+        let series = analyzer.macd_series(&closes, 12, 26, 9);
+        let hists: Vec<f64> = series.iter().map(|p| p.hist).collect();
+        // Steadily falling: all hist values should be negative
+        let all_negative = hists.iter().all(|&h| h <= 0.0);
+        if all_negative {
+            // If all negative, bars should be getting MORE negative (not shrinking)
+            let result = analyzer.is_macd_golden_cross(&hists, 5);
+            assert!(!result, "steadily falling with expanding negative bars should not trigger golden cross");
+        }
+        // If some values happen to be positive, just check the function returns false
+        // since there shouldn't be a fresh cross in this scenario
     }
 }

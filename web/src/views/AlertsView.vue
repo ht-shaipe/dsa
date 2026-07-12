@@ -9,13 +9,20 @@
       </template>
       <el-table :data="rules" stripe style="width:100%">
         <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="code" label="代码" width="100" />
-        <el-table-column prop="name" label="规则名称" width="150" />
-        <el-table-column prop="ruleType" label="类型" width="120">
-          <template #default="{ row }">{{ row.rule_type || row.rule_type || '-' }}</template>
+        <el-table-column label="代码" width="100">
+          <template #default="{ row }">{{ row.stockCode || row.code }}</template>
+        </el-table-column>
+        <el-table-column label="股票名称" width="120">
+          <template #default="{ row }">{{ row.stockName || row.name || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="规则名称" width="150">
+          <template #default="{ row }">{{ row.name || row.ruleName || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="类型" width="120">
+          <template #default="{ row }">{{ ruleTypeLabel(row.ruleType || row.rule_type) }}</template>
         </el-table-column>
         <el-table-column label="条件" min-width="200" show-overflow-tooltip>
-          <template #default="{ row }">{{ JSON.stringify(row.condition || {}) }}</template>
+          <template #default="{ row }">{{ formatCondition(row) }}</template>
         </el-table-column>
         <el-table-column label="启用" width="80">
           <template #default="{ row }">
@@ -92,18 +99,7 @@
     <el-dialog v-model="createDialogVisible" :title="editingRule ? '编辑规则' : '新建规则'" width="500px">
       <el-form :model="ruleForm" label-width="80px">
         <el-form-item label="股票代码">
-          <el-autocomplete
-            v-model="ruleForm.code"
-            :fetch-suggestions="queryStocks"
-            placeholder="输入代码或名称搜索"
-            style="width:100%"
-            @select="onStockSelect"
-          >
-            <template #default="{ item }">
-              <span style="margin-right:8px">{{ item.code }}</span>
-              <span style="color:var(--el-text-color-secondary)">{{ item.name }}</span>
-            </template>
-          </el-autocomplete>
+          <StockAutocomplete v-model="ruleForm.code" @select="onStockSelect" />
         </el-form-item>
         <el-form-item label="规则名称">
           <el-input v-model="ruleForm.name" placeholder="规则名称" />
@@ -117,8 +113,27 @@
             <el-option label="自定义" value="custom" />
           </el-select>
         </el-form-item>
-        <el-form-item label="条件(JSON)">
-          <el-input v-model="ruleForm.conditionStr" type="textarea" :rows="4" placeholder='{"field":"price","op":">","value":100}' />
+        <el-form-item v-if="ruleForm.rule_type === 'price_breakout'" label="价格条件">
+          <div style="display:flex;gap:8px;align-items:center;width:100%">
+            <el-input-number v-model="ruleForm.priceAbove" :precision="2" :min="0" placeholder="价格上破" style="flex:1" />
+            <span style="color:var(--el-text-color-secondary)">—</span>
+            <el-input-number v-model="ruleForm.priceBelow" :precision="2" :min="0" placeholder="价格下破" style="flex:1" />
+          </div>
+          <div style="font-size:12px;color:var(--el-text-color-secondary);margin-top:4px">价格上破/下破目标价，0表示不设置</div>
+        </el-form-item>
+        <el-form-item v-if="ruleForm.rule_type === 'change_percent'" label="涨跌幅条件">
+          <div style="display:flex;gap:8px;align-items:center;width:100%">
+            <el-input-number v-model="ruleForm.changeAbove" :precision="2" placeholder="涨幅≥" style="flex:1" />
+            <span style="color:var(--el-text-color-secondary)">%</span>
+            <span style="color:var(--el-text-color-secondary)">—</span>
+            <el-input-number v-model="ruleForm.changeBelow" :precision="2" placeholder="跌幅≤" style="flex:1" />
+            <span style="color:var(--el-text-color-secondary)">%</span>
+          </div>
+          <div style="font-size:12px;color:var(--el-text-color-secondary);margin-top:4px">涨幅超过/跌幅超过阈值，0表示不设置，跌幅用负数</div>
+        </el-form-item>
+        <el-form-item v-if="ruleForm.rule_type === 'custom'" label="条件(JSON)">
+          <el-input v-model="ruleForm.conditionStr" type="textarea" :rows="4" placeholder='{"priceAbove":100,"changeBelow":-5}' />
+          <div style="font-size:12px;color:var(--el-text-color-secondary);margin-top:4px">可选字段: priceAbove, priceBelow, changeAbove, changeBelow</div>
         </el-form-item>
         <el-form-item v-if="!editingRule">
           <el-button @click="testNewRule" :loading="testLoading">测试规则</el-button>
@@ -138,8 +153,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { alertApi, stockSearch } from '@/api/alert'
+import { alertApi } from '@/api/alert'
 import { notificationApi } from '@/api/notification'
+import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 
 const rules = ref<any[]>([])
 const triggers = ref<any[]>([])
@@ -153,28 +169,54 @@ const ruleForm = ref({
   name: '',
   rule_type: 'price_breakout',
   conditionStr: '{}',
+  priceAbove: 0,
+  priceBelow: 0,
+  changeAbove: 0,
+  changeBelow: 0,
 })
 const submitting = ref(false)
 const testLoading = ref(false)
 const testResult = ref<Record<string, any> | null>(null)
 
-async function queryStocks(queryString: string, cb: (results: any[]) => void) {
-  if (!queryString || queryString.length < 1) {
-    cb([])
-    return
-  }
-  try {
-    const res: any = await stockSearch(queryString, 10)
-    const list = (res.data || res || []) as any[]
-    cb(list.map((s: any) => ({ ...s, value: s.code })))
-  } catch {
-    cb([])
-  }
+function onStockSelect(code: string, name: string) {
+  ruleForm.value.code = code
+  ruleForm.value.name = ruleForm.value.name || name
 }
 
-function onStockSelect(item: any) {
-  ruleForm.value.code = item.code
-  ruleForm.value.name = ruleForm.value.name || item.name
+function buildCondition(): Record<string, any> {
+  if (ruleForm.value.rule_type === 'custom') {
+    try { return JSON.parse(ruleForm.value.conditionStr) } catch { return {} }
+  }
+  const cond: Record<string, any> = {}
+  if (ruleForm.value.priceAbove > 0) cond.priceAbove = ruleForm.value.priceAbove
+  if (ruleForm.value.priceBelow > 0) cond.priceBelow = ruleForm.value.priceBelow
+  if (ruleForm.value.changeAbove > 0) cond.changeAbove = ruleForm.value.changeAbove
+  if (ruleForm.value.changeBelow !== 0) cond.changeBelow = ruleForm.value.changeBelow
+  return cond
+}
+
+function ruleTypeLabel(t: string): string {
+  const map: Record<string, string> = {
+    price_breakout: '价格突破',
+    change_percent: '涨跌幅',
+    volume: '成交量',
+    technical: '技术指标',
+    custom: '自定义',
+  }
+  return map[t] || t || '-'
+}
+
+function formatCondition(row: any): string {
+  const cond = row.condition || row.conditionJson || row.condition_json
+  if (!cond) return '-'
+  const obj = typeof cond === 'string' ? (() => { try { return JSON.parse(cond) } catch { return null } })() : cond
+  if (!obj) return String(cond)
+  const parts: string[] = []
+  if (obj.priceAbove) parts.push(`价格≥${obj.priceAbove}`)
+  if (obj.priceBelow) parts.push(`价格≤${obj.priceBelow}`)
+  if (obj.changeAbove) parts.push(`涨幅≥${obj.changeAbove}%`)
+  if (obj.changeBelow) parts.push(`跌幅≤${obj.changeBelow}%`)
+  return parts.length ? parts.join('，') : JSON.stringify(obj)
 }
 
 async function loadRules() {
@@ -224,18 +266,24 @@ async function deleteRule(row: Record<string, any>) {
 
 function openCreateDialog() {
   editingRule.value = null
-  ruleForm.value = { code: '', name: '', rule_type: 'price_breakout', conditionStr: '{}' }
+  ruleForm.value = { code: '', name: '', rule_type: 'price_breakout', conditionStr: '{}', priceAbove: 0, priceBelow: 0, changeAbove: 0, changeBelow: 0 }
   testResult.value = null
   createDialogVisible.value = true
 }
 
 function editRule(row: Record<string, any>) {
   editingRule.value = row
+  const rawCond = row.conditionJson || row.condition_json || row.condition || {}
+  const cond = typeof rawCond === 'string' ? (() => { try { return JSON.parse(rawCond) } catch { return {} } })() : rawCond
   ruleForm.value = {
-    code: row.code || '',
-    name: row.name || '',
-    rule_type: row.rule_type || row.rule_type || 'price_breakout',
-    conditionStr: JSON.stringify(row.condition || {}, null, 2),
+    code: row.stockCode || row.code || '',
+    name: row.ruleName || row.name || '',
+    rule_type: row.ruleType || row.rule_type || 'price_breakout',
+    conditionStr: JSON.stringify(cond, null, 2),
+    priceAbove: Number(cond.priceAbove || 0),
+    priceBelow: Number(cond.priceBelow || 0),
+    changeAbove: Number(cond.changeAbove || 0),
+    changeBelow: Number(cond.changeBelow || 0),
   }
   testResult.value = null
   createDialogVisible.value = true
@@ -244,11 +292,11 @@ function editRule(row: Record<string, any>) {
 async function testNewRule() {
   testLoading.value = true
   try {
-    const condition = JSON.parse(ruleForm.value.conditionStr)
+    const condition = buildCondition()
     const res: any = await alertApi.ruleTest(ruleForm.value.code, condition)
     testResult.value = res.data || { triggered: false }
   } catch (e) {
-    ElMessage.error('测试失败，请检查JSON格式')
+    ElMessage.error('测试失败')
   } finally {
     testLoading.value = false
   }
@@ -265,13 +313,7 @@ async function testRule(row: Record<string, any>) {
 }
 
 async function submitRule() {
-  let condition: Record<string, any>
-  try {
-    condition = JSON.parse(ruleForm.value.conditionStr)
-  } catch {
-    ElMessage.error('条件JSON格式错误')
-    return
-  }
+  const condition = buildCondition()
   submitting.value = true
   try {
     if (editingRule.value) {
@@ -280,7 +322,7 @@ async function submitRule() {
     } else {
       await alertApi.ruleCreate({
         code: ruleForm.value.code,
-        rule_type: ruleForm.value.rule_type,
+        ruleType: ruleForm.value.rule_type,
         name: ruleForm.value.name,
         condition,
       })

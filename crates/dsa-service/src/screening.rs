@@ -1,5 +1,6 @@
 use dsa_core::utils;
-use qta_crawler::{Complex, EastMoney};
+use dsa_pipeline::technical::TechnicalAnalyzer;
+use qta_crawler::EastMoney;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
@@ -26,7 +27,7 @@ impl Screening {
     }
 
     async fn status(&self) -> Result<Value> {
-        Ok(value!({"enabled": true, "installed": true, "version": "0.1.0"}))
+        Ok(value!({"enabled": true, "installed": true, "version": "0.2.0"}))
     }
 
     async fn strategies(&self) -> Result<Value> {
@@ -35,19 +36,30 @@ impl Screening {
             {"id": "breakout", "name": "突破策略", "description": "价格突破均线压力位"},
             {"id": "value", "name": "价值策略", "description": "低PB+高ROE筛选"},
             {"id": "momentum", "name": "动量策略", "description": "近期涨幅领先股票"},
+            {"id": "macd_golden_cross", "name": "MACD零上金叉", "description": "股价60日线上+DIF/DEA零上+绿柱缩短金叉"},
         ]))
     }
 
     async fn hotspots(&self) -> Result<Value> {
-        let data = Complex::get_hot_stock()
-            .await
-            .map_err(|e| error!("获取热点失败: {}", e))?;
-        let limited = if let Value::Array(arr) = data {
-            Value::Array(arr.into_iter().take(12).collect())
-        } else {
-            data
-        };
-        Ok(limited)
+        let em = EastMoney::new();
+        let industry = em.sector_rank("industry").await
+            .map_err(|e| error!("获取行业热点失败: {}", e))?;
+        let concept = em.sector_rank("concept").await
+            .map_err(|e| error!("获取概念热点失败: {}", e))?;
+
+        let mut all: Vec<Value> = Vec::new();
+        all.extend(industry.into_iter().take(10));
+        all.extend(concept.into_iter().take(10));
+
+        let mut ranked: Vec<Value> = all;
+        ranked.sort_by(|a, b| {
+            let ca = a.get("changePercent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let cb = b.get("changePercent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            cb.partial_cmp(&ca).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        ranked.truncate(12);
+
+        Ok(Value::Array(ranked))
     }
 
     async fn hotspot_detail(&self) -> Result<Value> {
@@ -57,33 +69,24 @@ impl Screening {
             return Err(error!("请提供热点主题"));
         }
 
-        let hot_stocks = Complex::get_hot_stock()
-            .await
-            .map_err(|e| error!("获取热点数据失败: {}", e))?;
+        let em = EastMoney::new();
+        let mut matched: Vec<Value> = Vec::new();
 
-        let matched: Vec<Value> = if let Value::Array(arr) = &hot_stocks {
-            arr.iter()
-                .filter(|item| {
+        for sector_type in &["industry", "concept"] {
+            if let Ok(sectors) = em.sector_rank(sector_type).await {
+                for item in &sectors {
                     let name = item.get("name").and_then(|v| v.as_str()).unwrap_or_default();
-                    let desc = item.get("description").and_then(|v| v.as_str()).unwrap_or_default();
-                    let reason = item.get("reason").and_then(|v| v.as_str()).unwrap_or_default();
-                    name.contains(topic_val.as_str())
-                        || desc.contains(topic_val.as_str())
-                        || reason.contains(topic_val.as_str())
-                })
-                .cloned()
-                .collect()
-        } else {
-            vec![]
-        };
-
-        let total_stocks = matched.len() as i64;
+                    if name.contains(topic_val.as_str()) || topic_val.contains(name.as_str()) {
+                        matched.push(item.clone());
+                    }
+                }
+            }
+        }
 
         Ok(value!({
             "topic": topic_val.clone(),
-            "description": format!("{}相关热门股票", topic_val),
-            "stocks": matched,
-            "totalStocks": total_stocks,
+            "description": format!("{}相关热门板块", topic_val),
+            "sectors": matched,
         }))
     }
 
@@ -97,6 +100,10 @@ impl Screening {
             .get("limit")
             .and_then(|v| v.as_f64())
             .unwrap_or(20.0) as usize;
+
+        if strategy == "macd_golden_cross" {
+            return self.filter_macd_golden_cross(limit).await;
+        }
 
         let em = EastMoney::new();
         let spot = em
@@ -113,6 +120,99 @@ impl Screening {
         };
         let count = results.len() as i64;
         Ok(value!({"strategy": strategy, "count": count, "results": results}))
+    }
+
+    async fn filter_macd_golden_cross(&self, limit: usize) -> Result<Value> {
+        let connector = utils::get_db_connector()
+            .map_err(|e| error!("DB连接失败: {}", e))?;
+
+        let sql = "SELECT sd.stock_code, sd.stock_name, sd.close, sd.ma60, sd.dif, sd.dea, sd.macd_hist, \
+             sd.trade_date, sd.pct_chg, sd.volume, sd.amount, sd.turnover_rate, sd.volume_ratio \
+             FROM stock_daily sd \
+             INNER JOIN ( \
+                 SELECT stock_code, MAX(trade_date) AS max_date \
+                 FROM stock_daily WHERE status >= 1 AND ma60 > 0 \
+                 GROUP BY stock_code \
+             ) latest ON sd.stock_code = latest.stock_code AND sd.trade_date = latest.max_date \
+             WHERE sd.status >= 1 AND sd.ma60 > 0 AND sd.close > sd.ma60 AND sd.dif > 0 AND sd.dea > 0 \
+             ORDER BY sd.macd_hist DESC";
+
+        let rows = deck::Helper::query_rows(sql, vec![], &connector)
+            .map_err(|e| error!("查询MACD零上金叉候选失败: {}", e))?;
+
+        let analyzer = TechnicalAnalyzer::new();
+        let mut results: Vec<Value> = Vec::new();
+        let mut checked = 0u32;
+
+        for row in &rows {
+            if results.len() >= limit {
+                break;
+            }
+            let code = deck::DataRow::get_string(row, 0);
+            let code_val: &str = &code;
+
+            let hist_sql = "SELECT macd_hist FROM stock_daily \
+                 WHERE stock_code = :code AND status >= 1 AND macd_hist != 0 \
+                 ORDER BY trade_date DESC LIMIT 10";
+            let hist_rows = deck::Helper::query_rows(
+                hist_sql,
+                vec![("code".to_string(), Value::from(code_val.to_string()))],
+                &connector,
+            )
+            .map_err(|e| error!("查询MACD历史失败: {}", e))?;
+
+            if hist_rows.len() < 2 {
+                checked += 1;
+                continue;
+            }
+
+            let hist_series: Vec<f64> = hist_rows.iter()
+                .map(|r| deck::DataRow::get_value(r, 0).as_f64().unwrap_or(0.0))
+                .collect();
+            let mut hist_asc = hist_series;
+            hist_asc.reverse();
+
+            if !analyzer.is_macd_golden_cross(&hist_asc, 5) {
+                checked += 1;
+                continue;
+            }
+
+            let name = deck::DataRow::get_string(row, 1);
+            let close = deck::DataRow::get_value(row, 2).as_f64().unwrap_or(0.0);
+            let ma60 = deck::DataRow::get_value(row, 3).as_f64().unwrap_or(0.0);
+            let dif = deck::DataRow::get_value(row, 4).as_f64().unwrap_or(0.0);
+            let dea = deck::DataRow::get_value(row, 5).as_f64().unwrap_or(0.0);
+            let macd_hist = deck::DataRow::get_value(row, 6).as_f64().unwrap_or(0.0);
+            let pct_chg = deck::DataRow::get_value(row, 8).as_f64().unwrap_or(0.0);
+            let turnover_rate = deck::DataRow::get_value(row, 11).as_f64().unwrap_or(0.0);
+            let volume_ratio = deck::DataRow::get_value(row, 12).as_f64().unwrap_or(0.0);
+
+            let above_ma60_pct = if ma60 > 0.0 { (close - ma60) / ma60 * 100.0 } else { 0.0 };
+
+            results.push(value!({
+                "code": code_val,
+                "name": name,
+                "close": close,
+                "ma60": ma60,
+                "dif": dif,
+                "dea": dea,
+                "macd_hist": macd_hist,
+                "pct_chg": pct_chg,
+                "turnover_rate": turnover_rate,
+                "volume_ratio": volume_ratio,
+                "above_ma60_pct": (above_ma60_pct * 100.0).round() / 100.0,
+                "strategy": "macd_golden_cross",
+            }));
+
+            checked += 1;
+        }
+
+        Ok(value!({
+            "strategy": "macd_golden_cross",
+            "count": results.len() as i64,
+            "checked": checked as i64,
+            "results": results,
+        }))
     }
 
     fn filter_dual_low(stocks: &[Value], limit: usize) -> Vec<Value> {

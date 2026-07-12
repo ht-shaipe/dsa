@@ -237,15 +237,21 @@ impl Analysis {
         let report_json = serde_json::to_value(&report)
             .map_err(|e| error!("报告序列化失败: {}", e))?;
 
+        let mut report_json_for_db = report_json.clone();
+        if let serde_json::Value::Object(ref mut map) = report_json_for_db {
+            map.insert("markdown".to_string(), serde_json::Value::String(markdown.clone()));
+            map.insert("text".to_string(), serde_json::Value::String(text.clone()));
+        }
+
         let result = value!({
-            "report": report_json.clone(),
+            "report": report_json,
             "markdown": markdown,
             "text": text,
             "code": code.clone(),
             "name": stock_name.clone(),
         });
 
-        self.save_report_to_db(&code, &stock_name, &report, &report_json);
+        self.save_report_to_db(&code, &stock_name, &report, &report_json_for_db);
 
         Ok(result)
     }

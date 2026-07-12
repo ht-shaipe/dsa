@@ -16,7 +16,7 @@
       <el-col :span="8">
         <el-card shadow="hover">
           <template #header>股票分析</template>
-          <StockAutocomplete @select="onStockSelect" />
+          <StockAutocomplete v-model="searchText" @select="onStockSelect" />
           <div style="margin-top: 12px">
             <el-button type="primary" :loading="analysisStore.isAnalyzing" @click="runAnalysis" :disabled="!selectedCode">
               开始分析
@@ -55,19 +55,32 @@
             </div>
           </template>
           <el-table :data="watchlist" stripe style="width:100%">
-            <el-table-column prop="code" label="代码" width="100" />
-            <el-table-column prop="name" label="名称" width="120" />
-            <el-table-column prop="price" label="现价" width="100">
-              <template #default="{ row }">{{ Number(row.price || row.trade || 0).toFixed(2) }}</template>
+            <el-table-column label="代码" width="100">
+              <template #default="{ row }">
+                <span style="font-weight:500">{{ row.stockCode || row.code }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="名称" width="120">
+              <template #default="{ row }">{{ row.name || row.stockName || '-' }}</template>
+            </el-table-column>
+            <el-table-column label="现价" width="100">
+              <template #default="{ row }">
+                <span v-if="row.close != null">{{ Number(row.close).toFixed(2) }}</span>
+                <span v-else-if="row.price != null">{{ Number(row.price).toFixed(2) }}</span>
+                <span v-else>-</span>
+              </template>
             </el-table-column>
             <el-table-column label="涨跌幅" width="100">
               <template #default="{ row }">
-                <span :class="Number(row.changePercent || row.change_pct || 0) >= 0 ? 'up' : 'down'">
-                  {{ Number(row.changePercent || row.change_pct || 0).toFixed(2) }}%
+                <span v-if="row.changePercent != null" :class="Number(row.changePercent) >= 0 ? 'up' : 'down'">
+                  {{ Number(row.changePercent) >= 0 ? '+' : '' }}{{ Number(row.changePercent).toFixed(2) }}%
                 </span>
+                <span v-else>-</span>
               </template>
             </el-table-column>
-            <el-table-column prop="volume" label="成交量" width="120" />
+            <el-table-column label="成交量" width="120">
+              <template #default="{ row }">{{ row.volume ?? '-' }}</template>
+            </el-table-column>
             <el-table-column label="操作" width="80">
               <template #default="{ row }">
                 <el-button link type="primary" @click="analyzeFromWatchlist(row)">分析</el-button>
@@ -83,7 +96,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { usePageVisibility } from '@/composables/usePageVisibility'
+import { useTradingInterval } from '@/composables/useTradingInterval'
 import { ElMessage } from 'element-plus'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import ScoreGauge from '@/components/common/ScoreGauge.vue'
@@ -94,12 +107,16 @@ import { analysisApi } from '@/api/analysis'
 import { useAnalysisStore } from '@/stores/analysis'
 
 const analysisStore = useAnalysisStore()
-const { isVisible } = usePageVisibility()
 const marketOverview = ref<any[]>([])
 const watchlist = ref<any[]>([])
 const selectedCode = ref('')
 const selectedName = ref('')
-let refreshTimer: ReturnType<typeof setInterval> | null = null
+const searchText = ref('')
+
+const tradingTimer = useTradingInterval(() => {
+  loadMarketOverview()
+  loadWatchlist()
+}, 10000)
 
 const actionLabel = computed(() => {
   const dt = analysisStore.currentReport?.decisionType || ''
@@ -113,6 +130,7 @@ const actionType = computed(() => {
 function onStockSelect(code: string, name: string) {
   selectedCode.value = code
   selectedName.value = name
+  searchText.value = code
 }
 
 async function runAnalysis() {
@@ -154,35 +172,17 @@ async function loadWatchlist() {
 }
 
 function analyzeFromWatchlist(row: any) {
-  selectedCode.value = row.code || row.stockCode || ''
+  selectedCode.value = row.stockCode || row.code || ''
   selectedName.value = row.name || row.stockName || ''
-}
-
-function startAutoRefresh() {
-  stopAutoRefresh()
-  refreshTimer = setInterval(() => {
-    if (isVisible.value) {
-      loadMarketOverview()
-      loadWatchlist()
-    }
-  }, 10000)
-}
-
-function stopAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
+  searchText.value = selectedCode.value
 }
 
 onMounted(() => {
-  loadMarketOverview()
-  loadWatchlist()
-  startAutoRefresh()
+  tradingTimer.start()
 })
 
 onUnmounted(() => {
-  stopAutoRefresh()
+  tradingTimer.stop()
 })
 </script>
 

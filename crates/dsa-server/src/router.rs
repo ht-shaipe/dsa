@@ -117,6 +117,7 @@ async fn api_handler_inner(req: HttpRequest, payload: web::Payload) -> Result<Ht
         "name_resolver" => crate::handler::name_resolver::distribute(&param).await,
         "report" => crate::handler::report::distribute(&param).await,
         "bot" => crate::handler::bot::distribute(&param).await,
+        "indicator" => crate::handler::indicator::distribute(&param).await,
         _ => Err(error!("请求方法{}.{}系统未提供。", param.module, param.method)),
     };
 

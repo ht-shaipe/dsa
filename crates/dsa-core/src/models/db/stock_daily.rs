@@ -49,6 +49,18 @@ pub struct StockDaily {
     #[field(rename = "ma20", comment = "20日均线")]
     pub ma20: f64,
 
+    #[field(rename = "ma60", default_value = "0", comment = "60日均线")]
+    pub ma60: f64,
+
+    #[field(rename = "dif", default_value = "0", comment = "MACD DIF值")]
+    pub dif: f64,
+
+    #[field(rename = "dea", default_value = "0", comment = "MACD DEA值")]
+    pub dea: f64,
+
+    #[field(rename = "macd_hist", default_value = "0", comment = "MACD柱状值")]
+    pub macd_hist: f64,
+
     #[field(rename = "volume_ratio", comment = "量比")]
     pub volume_ratio: f64,
 

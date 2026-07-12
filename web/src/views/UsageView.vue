@@ -5,6 +5,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span>用量概览</span>
           <el-radio-group v-model="period" @change="loadSummary">
+            <el-radio-button value="">全部</el-radio-button>
             <el-radio-button value="day">日</el-radio-button>
             <el-radio-button value="week">周</el-radio-button>
             <el-radio-button value="month">月</el-radio-button>
@@ -85,7 +86,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { usageApi } from '@/api/usage'
 
-const period = ref('day')
+const period = ref('')
 const summary = ref<Record<string, any>>({})
 const modelBreakdown = ref<any[]>([])
 const records = ref<any[]>([])

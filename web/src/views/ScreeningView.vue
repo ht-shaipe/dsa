@@ -37,12 +37,21 @@
           <el-card shadow="hover">
             <template #header>市场热点</template>
             <el-row :gutter="16">
-              <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="h in hotspots" :key="h.code || h.topic || h.name">
+              <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="h in hotspots" :key="h.code || h.name">
                 <el-card shadow="hover" class="hotspot-card" @click="showHotspotDetail(h)">
-                  <div class="hotspot-topic">{{ h.name || h.topic }}</div>
+                  <div class="hotspot-topic">{{ h.name }}</div>
                   <div class="hotspot-code" v-if="h.code">{{ h.code }}</div>
-                  <div class="hotspot-heat">热度: {{ h.heat || h.score || h.hits || '-' }}</div>
-                  <el-tag v-if="h.category" size="small" style="margin-top:8px">{{ h.category }}</el-tag>
+                  <div class="hotspot-stats">
+                    <span :class="Number(h.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
+                      {{ Number(h.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(h.changePercent || 0).toFixed(2) }}%
+                    </span>
+                    <span v-if="h.upCount != null && h.downCount != null" class="hotspot-counts">
+                      {{ h.upCount }}涨 / {{ h.downCount }}跌
+                    </span>
+                  </div>
+                  <el-tag v-if="h.sectorType" :type="h.sectorType === 'concept' ? 'warning' : 'primary'" size="small" style="margin-top:6px">
+                    {{ h.sectorType === 'concept' ? '概念' : '行业' }}
+                  </el-tag>
                 </el-card>
               </el-col>
             </el-row>
@@ -55,10 +64,13 @@
         <template #header>筛选结果</template>
         <el-table :data="screenResults" stripe style="width:100%" v-loading="screening">
           <el-table-column :prop="colKey" :label="colLabel" v-for="{key: colKey, label: colLabel} in resultColumns" :key="colKey" :width="colKey === '代码' || colKey === 'code' ? 100 : colKey === '名称' || colKey === 'name' ? 120 : undefined">
-            <template #default="{ row }" v-if="colKey === '涨跌幅' || colKey === 'change_pct'">
+            <template #default="{ row }" v-if="colKey === '涨跌幅' || colKey === 'change_pct' || colKey === 'pct_chg'">
               <span :style="{ color: (row[colKey] || 0) >= 0 ? '#f56c6c' : '#67c23a' }">
-                {{ row[colKey] }}{{ typeof row[colKey] === 'number' ? '%' : '' }}
+                {{ typeof row[colKey] === 'number' ? row[colKey].toFixed(2) : row[colKey] }}{{ typeof row[colKey] === 'number' ? '%' : '' }}
               </span>
+            </template>
+            <template #default="{ row }" v-else-if="['ma60','dif','dea','macd_hist','close','above_ma60_pct'].includes(colKey)">
+              {{ typeof row[colKey] === 'number' ? row[colKey].toFixed(3) : row[colKey] }}
             </template>
           </el-table-column>
           <el-table-column label="策略" width="120" v-if="screenResults.length">
@@ -69,19 +81,41 @@
       </el-card>
     </template>
 
-    <el-dialog v-model="hotspotDialogVisible" :title="'热点详情 - ' + (currentHotspot.name || currentHotspot.topic)" width="600px">
-      <el-descriptions :column="1" border v-if="hotspotDetail">
-        <el-descriptions-item label="名称">{{ hotspotDetail.name || hotspotDetail.topic }}</el-descriptions-item>
-        <el-descriptions-item v-if="hotspotDetail.code" label="代码">{{ hotspotDetail.code }}</el-descriptions-item>
-        <el-descriptions-item label="热度">{{ hotspotDetail.heat || hotspotDetail.score || hotspotDetail.hits || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="分类">{{ hotspotDetail.category || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="相关股票">
-          <el-tag v-for="s in (hotspotDetail.stocks || hotspotDetail.related_stocks || [])" :key="s.code || s" size="small" style="margin:2px">
-            {{ s.code || s }} {{ s.name || '' }}
+    <el-dialog v-model="hotspotDialogVisible" :title="'热点详情 - ' + (currentHotspot.name || '')" width="600px">
+      <el-descriptions :column="2" border v-if="hotspotDetail">
+        <el-descriptions-item label="板块名称">{{ hotspotDetail.name || '-' }}</el-descriptions-item>
+        <el-descriptions-item v-if="hotspotDetail.code" label="板块代码">{{ hotspotDetail.code }}</el-descriptions-item>
+        <el-descriptions-item label="涨跌幅">
+          <span :class="Number(hotspotDetail.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
+            {{ Number(hotspotDetail.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(hotspotDetail.changePercent || 0).toFixed(2) }}%
+          </span>
+        </el-descriptions-item>
+        <el-descriptions-item label="换手率">{{ hotspotDetail.turnoverRate != null ? Number(hotspotDetail.turnoverRate).toFixed(2) + '%' : '-' }}</el-descriptions-item>
+        <el-descriptions-item label="上涨家数">{{ hotspotDetail.upCount ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="下跌家数">{{ hotspotDetail.downCount ?? '-' }}</el-descriptions-item>
+        <el-descriptions-item label="板块类型">
+          <el-tag :type="hotspotDetail.sectorType === 'concept' ? 'warning' : 'primary'" size="small">
+            {{ hotspotDetail.sectorType === 'concept' ? '概念板块' : '行业板块' }}
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="描述">{{ hotspotDetail.description || '-' }}</el-descriptions-item>
       </el-descriptions>
+      <div v-if="hotspotDetail?.sectors?.length" style="margin-top:12px">
+        <el-divider content-position="left">相关板块</el-divider>
+        <el-table :data="hotspotDetail.sectors" size="small" stripe>
+          <el-table-column prop="name" label="板块名称" min-width="120" />
+          <el-table-column label="涨跌幅" width="100">
+            <template #default="{ row }">
+              <span :class="Number(row.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
+                {{ Number(row.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(row.changePercent || 0).toFixed(2) }}%
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="涨跌家数" width="120">
+            <template #default="{ row }">{{ row.upCount ?? '-' }} / {{ row.downCount ?? '-' }}</template>
+          </el-table-column>
+        </el-table>
+      </div>
     </el-dialog>
   </div>
 </template>
@@ -92,13 +126,19 @@ import { ref, onMounted, computed } from 'vue'
 const COLUMN_MAP: Record<string, string> = {
   '代码': '代码', 'code': '代码',
   '名称': '名称', 'name': '名称',
-  '最新价': '最新价', 'price': '最新价',
-  '涨跌幅': '涨跌幅', 'change_pct': '涨跌幅',
+  '最新价': '最新价', 'price': '最新价', 'close': '收盘价',
+  '涨跌幅': '涨跌幅', 'change_pct': '涨跌幅', 'pct_chg': '涨跌幅',
   '换手率': '换手率', 'turnover_rate': '换手率',
   '市盈率-动态': '市盈率', 'pe': '市盈率',
   '市净率': '市净率', 'pb': '市净率',
   '量比': '量比', 'volume_ratio': '量比',
   '成交额': '成交额', 'amount': '成交额',
+  'ma60': 'MA60',
+  'dif': 'DIF',
+  'dea': 'DEA',
+  'macd_hist': 'MACD柱',
+  'above_ma60_pct': '高于MA60%',
+  'strategy': '',
 }
 
 const resultColumns = computed(() => {
@@ -107,7 +147,7 @@ const resultColumns = computed(() => {
   const seen = new Set<string>()
   return Object.keys(first).map(k => {
     const label = COLUMN_MAP[k] || k
-    if (seen.has(label)) return null
+    if (seen.has(label) || label === '') return null
     seen.add(label)
     return { key: k, label }
   }).filter(Boolean) as { key: string; label: string }[]
@@ -162,8 +202,9 @@ async function runScreen() {
   screening.value = true
   try {
     const res: any = await screeningApi.screen(activeStrategy.value || undefined)
-    screenResults.value = res.data || []
-    ElMessage.success(`筛选完成，找到 ${screenResults.value.length} 只股票`)
+    screenResults.value = res.data?.results || res.data || []
+    const count = res.data?.count ?? screenResults.value.length
+    ElMessage.success(`筛选完成，找到 ${count} 只股票`)
   } catch {
     ElMessage.error('筛选执行失败')
   } finally {
@@ -219,4 +260,16 @@ onMounted(async () => {
   font-size: 14px;
   color: var(--el-color-primary);
 }
+.hotspot-stats {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+.hotspot-counts {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.pnl-up { color: #f56c6c; font-weight: 500; }
+.pnl-down { color: #67c23a; font-weight: 500; }
 </style>

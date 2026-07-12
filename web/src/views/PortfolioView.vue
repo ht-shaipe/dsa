@@ -33,6 +33,7 @@
               <div>
                 <el-button type="success" @click="openTradeDialog('buy')">买入</el-button>
                 <el-button type="danger" @click="openTradeDialog('sell')">卖出</el-button>
+                <el-button type="primary" @click="openBatchDialog">批量录入</el-button>
               </div>
             </div>
           </template>
@@ -99,10 +100,13 @@
     <el-dialog v-model="tradeDialogVisible" :title="tradeDirection === 'buy' ? '买入股票' : '卖出股票'" width="500px">
       <el-form :model="tradeForm" label-width="80px">
         <el-form-item label="股票代码">
-          <StockAutocomplete @select="onTradeStockSelect" />
+          <StockAutocomplete v-model="tradeForm.code" @select="onTradeStockSelect" />
         </el-form-item>
         <el-form-item label="股票名称">
           <el-input v-model="tradeForm.name" disabled />
+        </el-form-item>
+        <el-form-item label="交易时间">
+          <el-date-picker v-model="tradeForm.tradeDate" type="datetime" placeholder="实际交易时间" style="width:100%" value-format="YYYY-MM-DD HH:mm:ss" />
         </el-form-item>
         <el-form-item label="价格">
           <el-input-number v-model="tradeForm.price" :precision="2" :min="0" style="width:100%" />
@@ -124,13 +128,72 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="batchDialogVisible" title="批量录入交易" width="720px" @close="resetBatchForm">
+      <el-form label-width="90px" style="margin-bottom:12px">
+        <el-form-item label="股票代码">
+          <StockAutocomplete v-model="batchForm.code" @select="onBatchStockSelect" style="width:220px" />
+        </el-form-item>
+        <el-form-item label="股票名称">
+          <el-input v-model="batchForm.name" disabled style="width:220px" />
+        </el-form-item>
+      </el-form>
+
+      <el-table :data="batchForm.rows" border size="small" style="width:100%">
+        <el-table-column label="方向" width="90">
+          <template #default="{ row }">
+            <el-select v-model="row.direction" size="small">
+              <el-option label="买入" value="buy" />
+              <el-option label="卖出" value="sell" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="日期" width="150">
+          <template #default="{ row }">
+            <el-date-picker v-model="row.tradeDate" type="date" size="small" style="width:100%" value-format="YYYY-MM-DD" placeholder="交易日期" />
+          </template>
+        </el-table-column>
+        <el-table-column label="价格" width="130">
+          <template #default="{ row }">
+            <el-input-number v-model="row.price" :precision="2" :min="0" size="small" style="width:100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="数量" width="130">
+          <template #default="{ row }">
+            <el-input-number v-model="row.quantity" :min="1" :step="100" size="small" style="width:100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="佣金" width="120">
+          <template #default="{ row }">
+            <el-input-number v-model="row.commission" :precision="2" :min="0" size="small" style="width:100%" />
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="60" fixed="right">
+          <template #default="{ $index }">
+            <el-button link type="danger" size="small" @click="removeBatchRow($index)">删</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <el-button size="small" @click="addBatchRow('buy')">+ 买入行</el-button>
+        <el-button size="small" @click="addBatchRow('sell')">+ 卖出行</el-button>
+      </div>
+
+      <template #footer>
+        <el-button @click="batchDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="batchSubmitting" :disabled="!batchForm.code || !batchForm.rows.length" @click="submitBatch">
+          提交 {{ batchForm.rows.length }} 笔交易
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { portfolioApi } from '@/api/portfolio'
+import { useTradingInterval } from '@/composables/useTradingInterval'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 
 const summary = ref<Record<string, any>>({})
@@ -144,11 +207,24 @@ const tradeSubmitting = ref(false)
 const tradeForm = ref({
   code: '',
   name: '',
+  tradeDate: '',
   price: 0,
   quantity: 100,
   commission: 0,
   remark: '',
 })
+
+const batchDialogVisible = ref(false)
+const batchSubmitting = ref(false)
+const batchForm = ref({
+  code: '',
+  name: '',
+  rows: [] as { direction: string; tradeDate: string; price: number; quantity: number; commission: number }[],
+})
+
+const tradingTimer = useTradingInterval(() => {
+  loadData()
+}, 10000)
 
 const pnlPercent = computed(() => {
   const tv = summary.value.totalValue || 0
@@ -177,7 +253,7 @@ function positionPnlPercent(row: any) {
 
 function openTradeDialog(dir: 'buy' | 'sell') {
   tradeDirection.value = dir
-  tradeForm.value = { code: '', name: '', price: 0, quantity: 100, commission: 0, remark: '' }
+  tradeForm.value = { code: '', name: '', tradeDate: '', price: 0, quantity: 100, commission: 0, remark: '' }
   tradeDialogVisible.value = true
 }
 
@@ -194,12 +270,14 @@ async function submitTrade() {
   tradeSubmitting.value = true
   try {
     const accountId = accounts.value[0]?.id || 1
-    const { code, price, quantity, name, commission, remark } = tradeForm.value
+    const { code, price, quantity, name, commission, remark, tradeDate } = tradeForm.value
+    const tradeParams: Record<string, any> = { accountId, code, price, quantity, name, commission, remark }
+    if (tradeDate) tradeParams.tradeDate = tradeDate
     if (tradeDirection.value === 'buy') {
-      await portfolioApi.add({ accountId, code, price, quantity, name, commission, remark })
+      await portfolioApi.add(tradeParams as any)
       ElMessage.success('买入成功')
     } else {
-      await portfolioApi.remove({ accountId, code, price, quantity, commission, remark })
+      await portfolioApi.remove(tradeParams as any)
       ElMessage.success('卖出成功')
     }
     tradeDialogVisible.value = false
@@ -208,6 +286,80 @@ async function submitTrade() {
     ElMessage.error(tradeDirection.value === 'buy' ? '买入失败' : '卖出失败')
   } finally {
     tradeSubmitting.value = false
+  }
+}
+
+function openBatchDialog() {
+  batchForm.value = { code: '', name: '', rows: [] }
+  addBatchRow('buy')
+  addBatchRow('buy')
+  addBatchRow('buy')
+  batchDialogVisible.value = true
+}
+
+function resetBatchForm() {
+  batchForm.value = { code: '', name: '', rows: [] }
+}
+
+function addBatchRow(direction: string) {
+  batchForm.value.rows.push({ direction, tradeDate: '', price: 0, quantity: 100, commission: 0 })
+}
+
+function removeBatchRow(index: number) {
+  batchForm.value.rows.splice(index, 1)
+}
+
+function onBatchStockSelect(code: string, name: string) {
+  batchForm.value.code = code
+  batchForm.value.name = name
+}
+
+async function submitBatch() {
+  if (!batchForm.value.code) {
+    ElMessage.warning('请选择股票')
+    return
+  }
+  const validRows = batchForm.value.rows.filter(r => r.price > 0 && r.quantity > 0)
+  if (!validRows.length) {
+    ElMessage.warning('请至少填写一行有效的交易（价格和数量大于0）')
+    return
+  }
+  batchSubmitting.value = true
+  const accountId = accounts.value[0]?.id || 1
+  let successCount = 0
+  let failCount = 0
+  try {
+    for (const row of validRows) {
+      const params: Record<string, any> = {
+        accountId,
+        code: batchForm.value.code,
+        name: batchForm.value.name,
+        price: row.price,
+        quantity: row.quantity,
+        commission: row.commission,
+        remark: '',
+      }
+      if (row.tradeDate) params.tradeDate = row.tradeDate
+      try {
+        if (row.direction === 'buy') {
+          await portfolioApi.add(params as any)
+        } else {
+          await portfolioApi.remove(params as any)
+        }
+        successCount++
+      } catch {
+        failCount++
+      }
+    }
+    if (failCount === 0) {
+      ElMessage.success(`全部 ${successCount} 笔交易录入成功`)
+    } else {
+      ElMessage.warning(`${successCount} 笔成功，${failCount} 笔失败`)
+    }
+    batchDialogVisible.value = false
+    loadData()
+  } finally {
+    batchSubmitting.value = false
   }
 }
 
@@ -227,7 +379,11 @@ async function loadData() {
 }
 
 onMounted(() => {
-  loadData()
+  tradingTimer.start()
+})
+
+onUnmounted(() => {
+  tradingTimer.stop()
 })
 </script>
 

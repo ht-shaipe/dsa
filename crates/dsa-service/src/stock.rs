@@ -300,6 +300,11 @@ impl Stock {
             return Ok(Value::Array(merged));
         }
 
+        let has_any_rows = self.count_all()?;
+        if has_any_rows > 0 {
+            return Ok(value!([]));
+        }
+
         let conf = dsa_core::get_global_config();
         let watchlist = &conf.stock.watchlist;
         if watchlist.is_empty() {
@@ -369,7 +374,11 @@ impl Stock {
 
         let code = utils::param_string(&params, "stockCode");
         if !code.is_empty() {
-            self.hard_remove_by_code(&code)?;
+            if let Some(_) = self.find_existing_by_code(&code)? {
+                self.soft_remove_by_code(&code)?;
+            } else {
+                self.hard_remove_by_code(&code)?;
+            }
             return Ok(value!({"stockCode": code}));
         }
 
@@ -480,13 +489,24 @@ impl Stock {
     fn query_enabled_list(&self) -> Result<Vec<Value>> {
         self.select()
             .r#where(conds![{ "enabled" = 1 }])
-            .order(ord!("sortOrder ASC, id ASC"))
+            .order(ord!("sort_order ASC, id ASC"))
             .query_values()
+    }
+
+    fn count_all(&self) -> Result<i64> {
+        let connector = self.get_connector()
+            .ok_or_else(|| error!("MySQL连接未初始化"))?;
+        let sql = "SELECT COUNT(*) FROM watchlist_stocks";
+        let rows = deck::Helper::query_rows(sql, vec![], &connector)
+            .map_err(|e| error!("查询watchlist总数失败: {}", e))?;
+        Ok(rows.first()
+            .and_then(|r| r.get::<i64, _>(0))
+            .unwrap_or(0))
     }
 
     fn find_by_code(&self, code: &str) -> Result<Option<Value>> {
         let res = self.select()
-            .r#where(conds![{ "stockCode" = code }, { "enabled" = 1 }])
+            .r#where(conds![{ "stock_code" = code }, { "enabled" = 1 }])
             .one()?;
         Ok(if res.is_null() { None } else { Some(res) })
     }
@@ -514,6 +534,13 @@ impl Stock {
     fn hard_remove_by_code(&self, code: &str) -> Result<Value> {
         self.delete()
             .r#where(conds![{ "stockCode" = code }])
+            .execute()
+    }
+
+    fn soft_remove_by_code(&self, code: &str) -> Result<Value> {
+        self.update()
+            .data(&value!({ "enabled": 0, "modifyTime": chrono::Local::now().naive_local() }))
+            .r#where(conds![{ "stock_code" = code }])
             .execute()
     }
 
@@ -549,7 +576,7 @@ impl Stock {
                 "sortOrder": sort,
                 "modifyTime": chrono::Local::now().naive_local()
             }))
-            .r#where(conds![{ "stockCode" = code }])
+            .r#where(conds![{ "stock_code" = code }])
             .execute()
     }
 }
