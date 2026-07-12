@@ -121,7 +121,15 @@ async fn fetch_kline_sina(code: &str, period: &str) -> Result<Vec<KlineBar>, Dsa
     }
 }
 
-fn save_kline_to_db(code: &str, bars: &[KlineBar]) {
+pub fn save_kline_to_db(code: &str, bars: &[KlineBar]) {
+    save_kline_to_db_impl(code, bars, 5)
+}
+
+pub fn save_all_kline_to_db(code: &str, bars: &[KlineBar]) {
+    save_kline_to_db_impl(code, bars, bars.len())
+}
+
+fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
     let connector = match get_db_connector() {
         Ok(c) => c,
         Err(_) => return,
@@ -134,7 +142,7 @@ fn save_kline_to_db(code: &str, bars: &[KlineBar]) {
         Ok(rows) => rows.first().map(|r| deck::DataRow::get_string(r, 0)).unwrap_or_default(),
         Err(_) => String::new(),
     };
-    for bar in bars.iter().rev().take(5) {
+    for bar in bars.iter().rev().take(max_count) {
         let sql = "INSERT INTO stock_daily \
              (stock_code, stock_name, trade_date, open, high, low, close, volume, amount, status, create_time) \
              VALUES (:code, :name, :date, :open, :high, :low, :close, :vol, :amt, 1, NOW()) \

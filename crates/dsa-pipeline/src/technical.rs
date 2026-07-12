@@ -130,7 +130,7 @@ impl TechnicalAnalyzer {
         false
     }
 
-    fn sma(&self, data: &[f64], period: usize) -> f64 {
+    pub fn sma(&self, data: &[f64], period: usize) -> f64 {
         if data.len() < period || period == 0 {
             return 0.0;
         }
@@ -138,7 +138,7 @@ impl TechnicalAnalyzer {
         sum / period as f64
     }
 
-    fn macd(&self, closes: &[f64], fast: usize, slow: usize, signal: usize) -> (f64, f64, f64) {
+    pub fn macd(&self, closes: &[f64], fast: usize, slow: usize, signal: usize) -> (f64, f64, f64) {
         let ema_fast = self.ema(closes, fast);
         let ema_slow = self.ema(closes, slow);
         let dif = ema_fast - ema_slow;

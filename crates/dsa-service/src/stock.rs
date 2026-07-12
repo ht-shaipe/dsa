@@ -513,11 +513,11 @@ impl Stock {
 
     fn add_stock(&self, code: &str, name: &str, group: &str, sort: i32) -> Result<Value> {
         let data = value!({
-            "stockCode": code,
-            "stockName": name,
+            "stock_code": code,
+            "stock_name": name,
             "market": "cn",
-            "groupName": group,
-            "sortOrder": sort,
+            "group_name": group,
+            "sort_order": sort,
             "enabled": 1,
             "remark": "",
         });

@@ -95,11 +95,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import { stockApi } from '@/api/stock'
+import { useTradingInterval } from '@/composables/useTradingInterval'
 
 const router = useRouter()
 const stocks = ref<any[]>([])
@@ -108,6 +109,8 @@ const saving = ref(false)
 const editVisible = ref(false)
 const editForm = ref<Record<string, any> | null>(null)
 const searchText = ref('')
+
+const quoteTimer = useTradingInterval(refreshQuotes, 10000)
 
 async function loadList() {
   loading.value = true
@@ -125,6 +128,33 @@ async function loadList() {
   } finally {
     loading.value = false
   }
+  refreshQuotes()
+  quoteTimer.start()
+}
+
+async function refreshQuotes() {
+  if (!stocks.value.length) return
+  const codes = stocks.value.map(s => s.stockCode || s.code).join(',')
+  if (!codes) return
+  try {
+    const res: any = await stockApi.quotes(codes)
+    const list = res.data || []
+    const map = new Map<string, any>()
+    for (const q of list) {
+      map.set(q.code || q.symbol, q)
+    }
+    for (const s of stocks.value) {
+      const code = s.stockCode || s.code
+      const q = map.get(code)
+      if (!q) continue
+      s.close = q.close ?? q.price ?? s.close
+      s.price = q.price ?? q.close ?? s.price
+      if (q.changePercent != null) s.changePercent = q.changePercent
+      if (q.change != null) s.change = q.change
+      if (q.volume != null) s.volume = q.volume
+      if (q.turnoverRate != null) s.turnoverRate = q.turnoverRate
+    }
+  } catch { /* ignore */ }
 }
 
 async function addStock(code: string, name: string) {
@@ -191,6 +221,10 @@ function analyzeStock(row: Record<string, any>) {
 
 onMounted(() => {
   loadList()
+})
+
+onBeforeUnmount(() => {
+  quoteTimer.stop()
 })
 </script>
 

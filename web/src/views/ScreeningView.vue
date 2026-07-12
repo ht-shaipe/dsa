@@ -14,7 +14,28 @@
           <el-descriptions-item label="状态">{{ statusData.status || '正常' }}</el-descriptions-item>
           <el-descriptions-item label="策略数">{{ strategies.length }}</el-descriptions-item>
           <el-descriptions-item label="热点数">{{ hotspots.length }}</el-descriptions-item>
+          <el-descriptions-item label="日线数据">
+            <template v-if="dailyDataReady">
+              <el-tag type="success" size="small">已就绪</el-tag>
+            </template>
+            <template v-else>
+              <el-tag type="warning" size="small">未同步</el-tag>
+              <el-button type="primary" size="small" :loading="syncing" @click="startSync" style="margin-left:8px">
+                同步日线数据
+              </el-button>
+            </template>
+          </el-descriptions-item>
         </el-descriptions>
+        <div v-if="syncProgress.running" style="margin-top:12px">
+          <el-progress
+            :percentage="syncProgress.total > 0 ? Math.round(syncProgress.done / syncProgress.total * 100) : 0"
+            :status="syncProgress.phase === 'done' ? 'success' : undefined"
+            :format="() => `${syncProgress.done} / ${syncProgress.total} (失败: ${syncProgress.failed})`"
+          />
+          <div style="font-size:12px;color:var(--el-text-color-secondary);margin-top:4px">
+            {{ syncProgress.phase === 'fetching' ? '正在拉取日线数据...' : syncProgress.phase === 'calculating_indicators' ? '正在计算技术指标...' : syncProgress.phase === 'done' ? '同步完成' : syncProgress.phase }}
+          </div>
+        </div>
       </div>
       <el-empty v-else description="AlphaSift 筛选引擎未启用，请在设置中配置" />
     </el-card>
@@ -29,6 +50,14 @@
           <el-button type="primary" :loading="screening" @click="runScreen">
             执行筛选
           </el-button>
+          <el-alert
+            v-if="activeStrategy === 'macd_golden_cross' && !dailyDataReady"
+            type="warning"
+            :closable="false"
+            style="margin-top:8px"
+          >
+            MACD策略需要历史日线数据，请先点击上方「同步日线数据」按钮
+          </el-alert>
         </div>
       </el-card>
 
@@ -121,7 +150,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 
 const COLUMN_MAP: Record<string, string> = {
   '代码': '代码', 'code': '代码',
@@ -162,20 +191,25 @@ import { screeningApi } from '@/api/screening'
 
 const statusData = ref<Record<string, any>>({})
 const statusEnabled = ref(false)
+const dailyDataReady = ref(false)
 const strategies = ref<any[]>([])
 const hotspots = ref<any[]>([])
 const screenResults = ref<any[]>([])
 const activeStrategy = ref('')
 const screening = ref(false)
+const syncing = ref(false)
+const syncProgress = ref<Record<string, any>>({ running: false, total: 0, done: 0, failed: 0, phase: '' })
 const hotspotDialogVisible = ref(false)
 const currentHotspot = ref<Record<string, any>>({})
 const hotspotDetail = ref<Record<string, any> | null>(null)
+let progressTimer: ReturnType<typeof setInterval> | null = null
 
 async function loadStatus() {
   try {
     const res: any = await screeningApi.status()
     statusData.value = res.data || {}
     statusEnabled.value = !!(res.data?.enabled || res.data?.alphaSift?.enabled)
+    dailyDataReady.value = !!(res.data?.dailyDataReady)
   } catch {
     statusEnabled.value = false
   }
@@ -205,11 +239,41 @@ async function runScreen() {
     screenResults.value = res.data?.results || res.data || []
     const count = res.data?.count ?? screenResults.value.length
     ElMessage.success(`筛选完成，找到 ${count} 只股票`)
-  } catch {
-    ElMessage.error('筛选执行失败')
+  } catch(e: any) {
+    ElMessage.error(e?.message || '筛选执行失败')
   } finally {
     screening.value = false
   }
+}
+
+async function startSync() {
+  syncing.value = true
+  try {
+    await screeningApi.syncDaily()
+    ElMessage.success('日线数据同步已启动')
+    startProgressPolling()
+  } catch(e: any) {
+    ElMessage.error(e?.message || '同步启动失败')
+    syncing.value = false
+  }
+}
+
+function startProgressPolling() {
+  if (progressTimer) clearInterval(progressTimer)
+  progressTimer = setInterval(async () => {
+    try {
+      const res: any = await screeningApi.syncProgress()
+      syncProgress.value = res.data || {}
+      if (!res.data?.running) {
+        if (progressTimer) { clearInterval(progressTimer); progressTimer = null }
+        syncing.value = false
+        dailyDataReady.value = true
+        if (res.data?.phase === 'done') {
+          ElMessage.success('日线数据同步完成')
+        }
+      }
+    } catch { /* ignore */ }
+  }, 3000)
 }
 
 function onStrategyChange() {
@@ -233,7 +297,17 @@ onMounted(async () => {
   if (statusEnabled.value) {
     loadStrategies()
     loadHotspots()
+    const res: any = await screeningApi.syncProgress().catch(() => ({ data: {} }))
+    if (res.data?.running) {
+      syncing.value = true
+      syncProgress.value = res.data
+      startProgressPolling()
+    }
   }
+})
+
+onBeforeUnmount(() => {
+  if (progressTimer) { clearInterval(progressTimer); progressTimer = null }
 })
 </script>
 

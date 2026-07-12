@@ -4,6 +4,19 @@ use qta_crawler::EastMoney;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
+lazy_static::lazy_static! {
+    static ref SYNC_STATUS: std::sync::Mutex<SyncStatus> = std::sync::Mutex::new(SyncStatus::default());
+}
+
+#[derive(Default)]
+struct SyncStatus {
+    running: bool,
+    total: u32,
+    done: u32,
+    failed: u32,
+    phase: String,
+}
+
 pub struct Screening {
     request: RequestParameter,
 }
@@ -22,12 +35,222 @@ impl Screening {
             "hotspots" => self.hotspots().await,
             "hotspot_detail" => self.hotspot_detail().await,
             "screen" => self.screen().await,
+            "sync_daily" => self.sync_daily().await,
+            "sync_progress" => self.sync_progress().await,
             _ => Err(error!("screening不支持方法: {}", method)),
         }
     }
 
     async fn status(&self) -> Result<Value> {
-        Ok(value!({"enabled": true, "installed": true, "version": "0.2.0"}))
+        let has_daily = self.check_daily_data().await;
+        Ok(value!({
+            "enabled": true,
+            "installed": true,
+            "version": "0.2.0",
+            "dailyDataReady": has_daily,
+        }))
+    }
+
+    async fn check_daily_data(&self) -> bool {
+        let connector = match utils::get_db_connector() {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let sql = "SELECT COUNT(*) FROM stock_daily WHERE status >= 1";
+        match deck::Helper::query_rows(sql, vec![], &connector) {
+            Ok(rows) => {
+                if let Some(row) = rows.first() {
+                    let count = deck::DataRow::get_value(row, 0).as_u64().unwrap_or(0);
+                    return count > 0;
+                }
+                false
+            }
+            Err(_) => false,
+        }
+    }
+
+    async fn sync_daily(&self) -> Result<Value> {
+        {
+            let st = SYNC_STATUS.lock().unwrap();
+            if st.running {
+                return Ok(value!({"message": "同步已在进行中", "progress": st.done, "total": st.total}));
+            }
+        }
+
+        let em = EastMoney::new();
+        let spot = em
+            .stock_zh_a_spot()
+            .await
+            .map_err(|e| error!("获取行情失败: {}", e))?;
+
+        let codes: Vec<String> = spot
+            .iter()
+            .filter_map(|s| {
+                let code: String = s.get("代码").and_then(|v| v.as_str()).unwrap_or_default();
+                if code.starts_with('8') || code.starts_with('4') {
+                    None
+                } else {
+                    Some(code)
+                }
+            })
+            .collect();
+
+        let total = codes.len() as u32;
+        {
+            let mut st = SYNC_STATUS.lock().unwrap();
+            st.running = true;
+            st.total = total;
+            st.done = 0;
+            st.failed = 0;
+            st.phase = "fetching".to_string();
+        }
+
+        let codes_clone = codes.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to build tokio runtime for sync_daily");
+
+            rt.block_on(async {
+                let em = EastMoney::new();
+
+                for code in &codes_clone {
+                    if !SYNC_STATUS.lock().unwrap().running {
+                        break;
+                    }
+
+                    match em.stock_zh_a_hist(code, Some("daily"), None, None, Some("qfq")).await {
+                        Ok(raw) => {
+                            let bars: Vec<dsa_core::models::KlineBar> = raw.iter().map(|item| {
+                                dsa_core::models::KlineBar {
+                                    date: item.get("日期").and_then(|v| v.as_str()).unwrap_or_default(),
+                                    open: item.get("开盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                    high: item.get("最高").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                    low: item.get("最低").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                    close: item.get("收盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                    volume: item.get("成交量").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64,
+                                    amount: item.get("成交额").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                                }
+                            }).collect();
+
+                            if !bars.is_empty() {
+                                dsa_core::utils::save_all_kline_to_db(code, &bars);
+                            }
+                        }
+                        Err(_) => {
+                            SYNC_STATUS.lock().unwrap().failed += 1;
+                        }
+                    }
+
+                    {
+                        let mut st = SYNC_STATUS.lock().unwrap();
+                        st.done += 1;
+                    }
+
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                }
+
+                {
+                    let mut st = SYNC_STATUS.lock().unwrap();
+                    st.phase = "calculating_indicators".to_string();
+                }
+
+                let connector = match dsa_core::utils::get_db_connector() {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!("指标计算DB连接失败: {}", e);
+                        let mut st = SYNC_STATUS.lock().unwrap();
+                        st.running = false;
+                        st.phase = "done".to_string();
+                        return;
+                    }
+                };
+
+                let sql = "SELECT DISTINCT stock_code, stock_name FROM stock_daily WHERE status = 1 ORDER BY stock_code";
+                let rows = match deck::Helper::query_rows(sql, vec![], &connector) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::error!("查询股票列表失败: {}", e);
+                        let mut st = SYNC_STATUS.lock().unwrap();
+                        st.running = false;
+                        st.phase = "done".to_string();
+                        return;
+                    }
+                };
+
+                let analyzer = TechnicalAnalyzer::new();
+                for row in &rows {
+                    let code = deck::DataRow::get_string(row, 0);
+                    let hist_sql = "SELECT close, trade_date FROM stock_daily \
+                         WHERE stock_code = :code AND status >= 1 ORDER BY trade_date ASC";
+                    let hist_rows = match deck::Helper::query_rows(
+                        hist_sql,
+                        vec![("code".to_string(), Value::from(code.to_string()))],
+                        &connector,
+                    ) {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
+
+                    let closes: Vec<f64> = hist_rows.iter()
+                        .map(|r| deck::DataRow::get_value(r, 0).as_f64().unwrap_or(0.0))
+                        .collect();
+
+                    if closes.len() < 60 {
+                        continue;
+                    }
+
+                    let ma5 = analyzer.sma(&closes, 5);
+                    let ma10 = analyzer.sma(&closes, 10);
+                    let ma20 = analyzer.sma(&closes, 20);
+                    let ma60 = analyzer.sma(&closes, 60);
+                    let (dif, dea, macd_hist) = analyzer.macd(&closes, 12, 26, 9);
+
+                    let last_date_row = hist_rows.last().unwrap();
+                    let last_date = deck::DataRow::get_string(last_date_row, 1);
+
+                    let update_sql = "UPDATE stock_daily SET \
+                         ma5 = :ma5, ma10 = :ma10, ma20 = :ma20, ma60 = :ma60, \
+                         dif = :dif, dea = :dea, macd_hist = :macd_hist \
+                         WHERE stock_code = :code AND trade_date = :date AND status >= 1";
+                    let _ = deck::Helper::execute(
+                        update_sql,
+                        vec![
+                            ("ma5".to_string(), Value::from(ma5)),
+                            ("ma10".to_string(), Value::from(ma10)),
+                            ("ma20".to_string(), Value::from(ma20)),
+                            ("ma60".to_string(), Value::from(ma60)),
+                            ("dif".to_string(), Value::from(dif)),
+                            ("dea".to_string(), Value::from(dea)),
+                            ("macd_hist".to_string(), Value::from(macd_hist)),
+                            ("code".to_string(), Value::from(code.to_string())),
+                            ("date".to_string(), Value::from(last_date.as_str())),
+                        ],
+                        &connector,
+                    );
+                }
+
+                {
+                    let mut st = SYNC_STATUS.lock().unwrap();
+                    st.running = false;
+                    st.phase = "done".to_string();
+                }
+            });
+        });
+
+        Ok(value!({"message": "同步已启动", "total": total}))
+    }
+
+    async fn sync_progress(&self) -> Result<Value> {
+        let st = SYNC_STATUS.lock().unwrap();
+        Ok(value!({
+            "running": st.running,
+            "total": st.total,
+            "done": st.done,
+            "failed": st.failed,
+            "phase": st.phase.clone(),
+        }))
     }
 
     async fn strategies(&self) -> Result<Value> {
@@ -36,7 +259,7 @@ impl Screening {
             {"id": "breakout", "name": "突破策略", "description": "价格突破均线压力位"},
             {"id": "value", "name": "价值策略", "description": "低PB+高ROE筛选"},
             {"id": "momentum", "name": "动量策略", "description": "近期涨幅领先股票"},
-            {"id": "macd_golden_cross", "name": "MACD零上金叉", "description": "股价60日线上+DIF/DEA零上+绿柱缩短金叉"},
+            {"id": "macd_golden_cross", "name": "MACD零上金叉", "description": "股价60日线上+DIF/DEA零上+绿柱缩短金叉", "requiresDailyData": true},
         ]))
     }
 
@@ -102,6 +325,9 @@ impl Screening {
             .unwrap_or(20.0) as usize;
 
         if strategy == "macd_golden_cross" {
+            if !self.check_daily_data().await {
+                return Err(error!("MACD策略需要历史日线数据，请先执行「同步日线数据」"));
+            }
             return self.filter_macd_golden_cross(limit).await;
         }
 
