@@ -52,11 +52,8 @@ impl Auth {
             || !expected.is_empty();
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "authEnabled": has_password,
-                "requireLogin": has_password,
-            }
+            "authEnabled": has_password,
+            "requireLogin": has_password,
         }))
     }
 
@@ -66,12 +63,9 @@ impl Auth {
 
         if expected.is_empty() {
             return Ok(value!({
-                "status": "ok",
-                "data": {
-                    "authenticated": true,
-                    "token": "no-auth-required",
-                    "message": "未配置密码，免登录",
-                }
+                "authenticated": true,
+                "token": "no-auth-required",
+                "message": "未配置密码，免登录",
             }));
         }
 
@@ -79,19 +73,13 @@ impl Auth {
             let token = uuid::Uuid::new_v4().to_string();
             dsa_core::set_auth_token(token.clone());
             Ok(value!({
-                "status": "ok",
-                "data": {
-                    "authenticated": true,
-                    "token": token,
-                }
+                "authenticated": true,
+                "token": token,
             }))
         } else {
             Ok(value!({
-                "status": "ok",
-                "data": {
-                    "authenticated": false,
-                    "message": "密码错误",
-                }
+                "authenticated": false,
+                "message": "密码错误",
             }))
         }
     }
@@ -112,21 +100,18 @@ impl Auth {
 
         dsa_core::set_password_override(new_password);
 
-        Ok(value!({"status": "ok", "message": "密码已更新"}))
+        Ok(value!({"message": "密码已更新"}))
     }
 
     async fn logout(&self) -> Result<Value> {
         dsa_core::clear_auth_token();
-        Ok(value!({"status": "ok", "message": "已登出"}))
+        Ok(value!({"message": "已登出"}))
     }
 
     async fn settings(&self) -> Result<Value> {
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "authMode": "password",
-                "sessionTimeout": 3600,
-            }
+            "authMode": "password",
+            "sessionTimeout": 3600,
         }))
     }
 }

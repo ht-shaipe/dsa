@@ -4,7 +4,7 @@ import { authApi } from '@/api/auth'
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     token: localStorage.getItem('dsa_token') || '',
-    authEnabled: true,
+    authEnabled: false,
   }),
   getters: {
     isAuthenticated: (state) => !!state.token,
@@ -12,11 +12,11 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async checkStatus() {
       try {
-        const res: any = await authApi.status()
-        this.authEnabled = res.authEnabled ?? true
-        if (!res.authEnabled) {
-          this.token = ''
-          localStorage.removeItem('dsa_token')
+        const data: any = await authApi.status()
+        this.authEnabled = data?.authEnabled ?? false
+        if (!this.authEnabled && !this.token) {
+          this.token = 'no-auth-required'
+          localStorage.setItem('dsa_token', this.token)
         }
       } catch {
         this.authEnabled = false
@@ -24,9 +24,9 @@ export const useAuthStore = defineStore('auth', {
     },
     async login(password: string): Promise<boolean> {
       try {
-        const res: any = await authApi.login(password)
-        if (res.authenticated) {
-          this.token = res.token
+        const data: any = await authApi.login(password)
+        if (data?.authenticated) {
+          this.token = data.token || 'no-auth-required'
           localStorage.setItem('dsa_token', this.token)
           return true
         }

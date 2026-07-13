@@ -116,12 +116,12 @@ async function loadList() {
   loading.value = true
   try {
     const res: any = await stockApi.watchlist()
-    stocks.value = res.data || []
+    stocks.value = Array.isArray(res) ? res : []
     if (stocks.value.length > 0 && stocks.value[0].id === 0) {
       const codes = stocks.value.map((s: any) => ({ code: s.stockCode || s.code, name: s.stockName || s.name || '' }))
       await stockApi.watchlistSync(codes)
       const res2: any = await stockApi.watchlist()
-      stocks.value = res2.data || []
+      stocks.value = Array.isArray(res2) ? res2 : []
     }
   } catch {
     stocks.value = []
@@ -138,7 +138,7 @@ async function refreshQuotes() {
   if (!codes) return
   try {
     const res: any = await stockApi.quotes(codes)
-    const list = res.data || []
+    const list = Array.isArray(res) ? res : []
     const map = new Map<string, any>()
     for (const q of list) {
       map.set(q.code || q.symbol, q)

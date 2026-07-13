@@ -1,7 +1,6 @@
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 use ai_llm_kit::{LlmFactory, LlmProvider, LlmService};
-use deck_connector::Connector;
 
 pub struct System { request: RequestParameter }
 
@@ -44,14 +43,8 @@ impl System {
         let conf = dsa_core::config::AppConfig::load(path).map_err(|e| tube::Error::msg(e.to_string()))?;
         dsa_core::set_global_config(conf.clone());
 
-        let password = conf.resolve_db_password();
-        Connector::new("mysql")
-            .server(&conf.database.host)
-            .port(conf.database.port as u16)
-            .user(&conf.database.user)
-            .password(&password)
-            .db(&conf.database.name)
-            .set_cache("default");
+        let connector = conf.build_connector();
+        connector.set_cache("default");
 
         Ok(value!({"message": "配置已重新加载"}))
     }

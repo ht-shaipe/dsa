@@ -25,7 +25,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    proxy: {
+    proxy: process.env.DSA_STANDALONE ? {
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
@@ -36,6 +36,6 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
-    },
+    } : {},
   },
 })

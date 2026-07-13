@@ -144,7 +144,7 @@ impl Search {
                 continue;
             }
             let check = "SELECT id FROM news_intel WHERE source_url = :url LIMIT 1";
-            if let Ok(existing) = deck_mysql::Helper::query_rows(
+            if let Ok(existing) = dsa_core::db::query_rows(
                 check,
                 vec![("url".to_string(), Value::from(url.to_string()))],
                 &connector,
@@ -156,7 +156,7 @@ impl Search {
             let sql = "INSERT INTO news_intel \
                  (stockCode, title, summary, sourceUrl, source, status, createTime) \
                  VALUES (:code, :title, :summary, :url, :source, 1, NOW())";
-            let _ = deck_mysql::Helper::execute(
+            let _ = dsa_core::db::execute(
                 sql,
                 vec![
                     ("code".to_string(), Value::from(code.to_string())),

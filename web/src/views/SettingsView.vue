@@ -272,7 +272,7 @@ const importing = ref(false)
 async function loadConfig() {
   try {
     const res: any = await systemApi.get()
-    const config = res.data || res || {}
+    const config = res || {}
     const llm = config.llm || {}
     llmForm.value = {
       provider: llm.provider || 'openai',
@@ -361,7 +361,7 @@ async function testLlm() {
   testResult.value = null
   try {
     const res: any = await systemApi.testLlm()
-    testResult.value = { success: true, message: res.data?.message || '连接正常' }
+    testResult.value = { success: true, message: res?.message || '连接正常' }
   } catch (e: any) {
     testResult.value = { success: false, message: e.message || '连接失败' }
   } finally {
@@ -373,7 +373,7 @@ async function discoverModels() {
   discovering.value = true
   try {
     const res: any = await systemApi.discoverModels()
-    discoveredModels.value = res.data || []
+    discoveredModels.value = Array.isArray(res) ? res : []
     ElMessage.success(`发现 ${discoveredModels.value.length} 个模型`)
   } catch {
     ElMessage.error('发现模型失败')
@@ -399,14 +399,14 @@ async function testNotifChannel(key: string) {
 async function loadSchedulerStatus() {
   try {
     const res: any = await schedulerApi.status()
-    schedulerStatus.value = res.data || {}
+    schedulerStatus.value = res || {}
   } catch { /* ignore */ }
 }
 
 async function loadSchedulerJobs() {
   try {
     const res: any = await schedulerApi.jobs()
-    schedulerJobs.value = res.data || []
+    schedulerJobs.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 
@@ -462,7 +462,7 @@ async function changePassword() {
 async function loadSources() {
   try {
     const res: any = await intelligenceApi.sources()
-    sources.value = res.data || []
+    sources.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 
@@ -510,7 +510,7 @@ async function submitSource() {
 async function testSource(row: Record<string, any>) {
   try {
     const res: any = await intelligenceApi.sourceTest(row.url)
-    ElMessage.success(res.data?.success !== false ? '测试通过' : '测试未通过')
+    ElMessage.success(res?.success !== false ? '测试通过' : '测试未通过')
   } catch {
     ElMessage.error('测试失败')
   }
@@ -538,8 +538,8 @@ async function deleteSource(row: Record<string, any>) {
 async function loadTemplates() {
   try {
     const res: any = await intelligenceApi.templates()
-    const data = res.data || []
-    if (data.length) {
+    const data = res || []
+    if (Array.isArray(data) && data.length) {
       ElMessage.info(`发现 ${data.length} 个模板`)
     }
   } catch {
@@ -584,7 +584,7 @@ async function exportConfig() {
   exporting.value = true
   try {
     const res: any = await systemApi.exportConfig()
-    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+    const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url

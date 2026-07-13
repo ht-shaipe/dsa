@@ -219,11 +219,11 @@ impl Orchestrator {
             ("SELECT session_id, role, content, create_time FROM conversation_messages WHERE session_id = :sid ORDER BY create_time ASC LIMIT 500".to_string(),
              vec![("sid".to_string(), Value::from(session_id.as_str()))])
         };
-        let messages: Vec<Value> = deck_mysql::Helper::query_rows(&sql, p, &connector)
+        let messages: Vec<Value> = dsa_core::db::query_rows(&sql, p, &connector)
             .unwrap_or_default()
             .iter()
             .map(|r| {
-                let mut v = r.to_value2();
+                let mut v = r.clone();
                 if let Value::Object(ref mut map) = v {
                     if let Some(Value::Text(ref mut s)) = map.get_mut("content") {
                         let clean: String = s.replace('\r', "").replace('\t', " ").chars().map(|c| {
@@ -571,16 +571,15 @@ impl Orchestrator {
              JOIN portfolio_accounts a ON p.account_id = a.id \
              WHERE p.status >= 1 AND a.status >= 1 AND p.stock_code = '{}'", code)
         };
-        match deck_mysql::Helper::query_rows(&sql, vec![], &connector) {
+        match dsa_core::db::query_rows(&sql, vec![], &connector) {
             Ok(rows) => {
-                let positions: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-                let total = positions.iter().fold(0.0, |acc, p| {
-                    acc + p.get("market_value").and_then(|v| v.as_f64()).unwrap_or(0.0)
+                let total = rows.iter().fold(0.0, |acc, p| {
+                    acc + p.get("marketValue").and_then(|v| v.as_f64()).unwrap_or(0.0)
                 });
                 let account_total = rows.first()
-                    .and_then(|r| r.to_value2().get("initial_capital").and_then(|v| v.as_f64()))
+                    .and_then(|r| r.get("initialCapital").and_then(|v| v.as_f64()))
                     .filter(|v| *v > 0.0);
-                (positions, if total > 0.0 || account_total.is_some() { account_total } else { None })
+                (rows, if total > 0.0 || account_total.is_some() { account_total } else { None })
             }
             Err(_) => (vec![], None),
         }

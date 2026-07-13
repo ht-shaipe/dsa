@@ -564,6 +564,8 @@ pub struct LlmConfig {
 /// 数据库连接配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
+    #[serde(default = "default_db_type")]
+    pub db_type: String,
     pub host: String,
     pub port: u16,
     pub name: String,
@@ -572,6 +574,14 @@ pub struct DatabaseConfig {
     pub password_env: String,
     #[serde(default)]
     pub password: String,
+}
+
+fn default_db_type() -> String { "mysql".to_string() }
+
+impl DatabaseConfig {
+    pub fn is_sqlite(&self) -> bool {
+        self.db_type.to_lowercase() == "sqlite"
+    }
 }
 
 /// 定时调度配置
@@ -680,6 +690,7 @@ impl Default for AppConfig {
                 prompt_cache_diagnostics_level: String::new(),
             },
             database: DatabaseConfig {
+                db_type: default_db_type(),
                 host: "127.0.0.1".to_string(),
                 port: 3306,
                 name: "dsa".to_string(),
@@ -776,6 +787,37 @@ impl AppConfig {
             "mysql://{}:{}@{}:{}/{}",
             self.database.user, pwd, self.database.host, self.database.port, self.database.name
         )
+    }
+
+    /// 生成SQLite数据库文件路径
+    /// 如果 name 是绝对路径则直接使用，否则相对于当前目录下的 data/ 目录
+    /// 自动创建 data/ 目录（如果不存在）
+    pub fn sqlite_path(&self) -> String {
+        let name = &self.database.name;
+        let path = if name.starts_with('/') || name.starts_with("./") || name.contains('/') {
+            name.clone()
+        } else {
+            format!("data/{}.db", name)
+        };
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        path
+    }
+
+    /// 根据配置构建数据库连接器
+    pub fn build_connector(&self) -> deck_connector::Connector {
+        if self.database.is_sqlite() {
+            deck_connector::Connector::new("sqlite").db(&self.sqlite_path())
+        } else {
+            let password = self.resolve_db_password();
+            deck_connector::Connector::new("mysql")
+                .server(&self.database.host)
+                .port(self.database.port)
+                .user(&self.database.user)
+                .password(&password)
+                .db(&self.database.name)
+        }
     }
 }
 

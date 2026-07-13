@@ -1,5 +1,5 @@
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_string, row_get_value};
 use dsa_core::utils;
-use deck_mysql::{DataRow, Helper};
 use qta_crawler::Real;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
@@ -29,18 +29,18 @@ impl AlertWorker {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json,             enabled, last_triggered_at, trigger_count, alert_type, severity             FROM alert_rules WHERE enabled = 1 AND status >= 1";
-        let rules = Helper::query_rows(sql, vec![], &connector)
+        let rules = query_rows(sql, vec![], &connector)
             .map_err(|e| tube::Error::from(format!("查询告警规则失败: {}", e)))?;
 
         let mut triggered_count: i64 = 0;
         let real = Real::new();
 
         for rule_row in &rules {
-            let rule_id: i64 = rule_row.get_value(0).as_f64().unwrap_or(0.0) as i64;
-            let stock_code = rule_row.get_string(1);
-            let condition_json = rule_row.get_string(4);
-            let alert_type = rule_row.get_string(8);
-            let _severity = rule_row.get_string(9);
+            let rule_id: i64 = row_get_f64(rule_row, "id") as i64;
+            let stock_code = row_get_string(rule_row, "stockCode");
+            let condition_json = row_get_string(rule_row, "conditionJson");
+            let alert_type = row_get_string(rule_row, "alertType");
+            let _severity = row_get_string(rule_row, "severity");
 
             if stock_code.is_empty() {
                 continue;
@@ -70,7 +70,7 @@ impl AlertWorker {
             let reason = self.describe_trigger(&condition, current_price, change_pct);
 
             let trigger_sql = "INSERT INTO alert_triggers                 (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time)                 VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
-            let trigger_result = Helper::execute(
+            let trigger_result = execute(
                 trigger_sql,
                 vec![
                     ("rid".to_string(), Value::from(rule_id)),
@@ -83,12 +83,12 @@ impl AlertWorker {
             );
 
             if let Ok(trigger_id) = trigger_result {
-                let _ = Helper::execute(
+                let _ = execute(
                     "UPDATE alert_rules SET last_triggered_at = NOW(),                     trigger_count = trigger_count + 1, modify_time = NOW() WHERE id = :id",
                     vec![("id".to_string(), Value::from(rule_id))],
                     &connector,
                 );
-                let _ = Helper::execute(
+                let _ = execute(
                     "INSERT INTO alert_notifications                     (trigger_id, channel, attempt, success, error_code, retryable,                      latency_ms, diagnostics, create_time)                     VALUES (:tid, 'system', 1, 1, '', 0, 0, :diag, NOW())",
                     vec![
                         ("tid".to_string(), Value::from(trigger_id as i64)),
@@ -102,11 +102,8 @@ impl AlertWorker {
         }
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "totalRules": rules.len() as i64,
-                "triggeredCount": triggered_count,
-            }
+            "totalRules": rules.len() as i64,
+            "triggeredCount": triggered_count,
         }))
     }
 
@@ -119,7 +116,7 @@ impl AlertWorker {
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json,             enabled, last_triggered_at, trigger_count, alert_type, severity             FROM alert_rules WHERE id = :id AND status >= 1";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("id".to_string(), Value::from(rule_id))],
             &connector,
@@ -131,9 +128,9 @@ impl AlertWorker {
         }
 
         let rule_row = &rows[0];
-        let stock_code = rule_row.get_string(1);
-        let condition_json = rule_row.get_string(4);
-        let alert_type = rule_row.get_string(8);
+        let stock_code = row_get_string(rule_row, "stockCode");
+        let condition_json = row_get_string(rule_row, "conditionJson");
+        let alert_type = row_get_string(rule_row, "alertType");
 
         let real = Real::new();
         let prefix = utils::market_prefix(&stock_code);
@@ -155,20 +152,17 @@ impl AlertWorker {
 
         if !triggered {
             return Ok(value!({
-                "status": "ok",
-                "data": {
-                    "rule_id": rule_id,
-                    "triggered": false,
-                    "current_price": current_price,
-                    "changePct": change_pct,
-                }
+                "rule_id": rule_id,
+                "triggered": false,
+                "current_price": current_price,
+                "changePct": change_pct,
             }));
         }
 
         let reason = self.describe_trigger(&condition, current_price, change_pct);
 
         let trigger_sql = "INSERT INTO alert_triggers             (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time)             VALUES (:rid, :code, :ttype, :val, :cond, 1, 1, NOW())";
-        let trigger_result = Helper::execute(
+        let trigger_result = execute(
             trigger_sql,
             vec![
                 ("rid".to_string(), Value::from(rule_id)),
@@ -181,22 +175,19 @@ impl AlertWorker {
         )
         .map_err(|e| tube::Error::from(format!("创建触发记录失败: {}", e)))?;
 
-        let _ = Helper::execute(
+        let _ = execute(
             "UPDATE alert_rules SET last_triggered_at = NOW(), trigger_count = trigger_count + 1,             modify_time = NOW() WHERE id = :id",
             vec![("id".to_string(), Value::from(rule_id))],
             &connector,
         );
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "rule_id": rule_id,
-                "triggered": true,
-                "triggerId": trigger_result as i64,
-                "current_price": current_price,
-                "changePct": change_pct,
-                "reason": reason,
-            }
+            "rule_id": rule_id,
+            "triggered": true,
+            "triggerId": trigger_result as i64,
+            "current_price": current_price,
+            "changePct": change_pct,
+            "reason": reason,
         }))
     }
 
@@ -225,15 +216,15 @@ impl AlertWorker {
         let current_volume = quote.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
         let hist_sql = "SELECT close, high, low, volume             FROM stock_daily WHERE stock_code = :code AND status = 1             ORDER BY trade_date DESC LIMIT 60";
-        let hist_rows = Helper::query_rows(
+        let hist_rows = query_rows(
             hist_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
             &connector,
         )
         .map_err(|e| tube::Error::from(format!("查询K线数据失败: {}", e)))?;
 
-        let closes: Vec<f64> = hist_rows.iter().map(|r| r.get_value(0).as_f64().unwrap_or(0.0)).collect();
-        let volumes: Vec<f64> = hist_rows.iter().map(|r| r.get_value(3).as_f64().unwrap_or(0.0)).collect();
+        let closes: Vec<f64> = hist_rows.iter().map(|r| row_get_f64(r, "close")).collect();
+        let volumes: Vec<f64> = hist_rows.iter().map(|r| row_get_f64(r, "volume")).collect();
 
         let ma5 = if closes.len() >= 5 { closes[..5].iter().sum::<f64>() / 5.0 } else { 0.0 };
         let ma10 = if closes.len() >= 10 { closes[..10].iter().sum::<f64>() / 10.0 } else { 0.0 };
@@ -300,29 +291,26 @@ impl AlertWorker {
         let volume_ratio = if avg_volume_5 > 0.0 { current_volume / avg_volume_5 } else { 1.0 };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "code": code,
-                "current_price": current_price,
-                "changePct": change_pct,
-                "volume_ratio": volume_ratio,
-                "maPosition": ma_position,
-                "ma5": ma5,
-                "ma10": ma10,
-                "ma20": ma20,
-                "ma60": ma60,
-                "bollingerBand": {
-                    "upper": bb_upper,
-                    "lower": bb_lower,
-                    "status": bb_status,
-                },
-                "rsi": rsi,
-                "macd": {
-                    "dif": macd_line,
-                    "dea": signal_line,
-                    "signal": macd_signal,
-                },
-            }
+            "code": code,
+            "current_price": current_price,
+            "changePct": change_pct,
+            "volume_ratio": volume_ratio,
+            "maPosition": ma_position,
+            "ma5": ma5,
+            "ma10": ma10,
+            "ma20": ma20,
+            "ma60": ma60,
+            "bollingerBand": {
+                "upper": bb_upper,
+                "lower": bb_lower,
+                "status": bb_status,
+            },
+            "rsi": rsi,
+            "macd": {
+                "dif": macd_line,
+                "dea": signal_line,
+                "signal": macd_signal,
+            },
         }))
     }
 
@@ -363,17 +351,14 @@ impl AlertWorker {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "light": severity,
-                "indices": {
-                    "上证指数": { "changePercent": sh_change },
-                    "深证成指": { "changePercent": sz_change },
-                    "创业板指": { "changePercent": cy_change },
-                },
-                "upCount": up_count as i64,
-                "downCount": down_count as i64,
-            }
+            "light": severity,
+            "indices": {
+                "上证指数": { "changePercent": sh_change },
+                "深证成指": { "changePercent": sz_change },
+                "创业板指": { "changePercent": cy_change },
+            },
+            "upCount": up_count as i64,
+            "downCount": down_count as i64,
         }))
     }
 

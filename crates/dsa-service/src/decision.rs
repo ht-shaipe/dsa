@@ -4,12 +4,15 @@
 //! 辅助模型: DecisionSignalOutcome, DecisionSignalFeedback
 //! 使用 deck DataTable/TableService 模式
 
+use dsa_core::db::{query_rows, row_get_f64, row_get_i64, row_get_string, row_get_value};
 use dsa_core::models::db::DecisionSignal as DecisionSignalModel;
 use dsa_core::models::db::DecisionSignalFeedback as DecisionSignalFeedbackModel;
 use dsa_core::models::db::DecisionSignalOutcome as DecisionSignalOutcomeModel;
 use dsa_core::utils;
-use deck::{DataTable, Helper, QueryExecutor, SelectExecutor, TableService};
-use deck_mysql::DataRow;
+use deck::sqlite::{DataTable, SelectExecutor};
+use deck::QueryExecutor;
+use deck::TableService;
+
 use qta_crawler::Real;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
@@ -344,11 +347,10 @@ impl Decision {
         );
         p.push(("limit".to_string(), Value::from(limit)));
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| error!("查询决策信号列表失败: {}", e))?;
 
-        let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(Value::Array(results))
+        Ok(Value::Array(rows))
     }
 
     async fn latest(&self) -> Result<Value> {
@@ -476,17 +478,17 @@ impl Decision {
         // Find active signals older than 1 day
         let sql = "SELECT id, stock_code, action, entry_price, stop_loss, target_price, create_time \
              FROM decision_signals WHERE status = 1 AND create_time < DATE_SUB(NOW(), INTERVAL 1 DAY)";
-        let rows = Helper::query_rows(sql, vec![], &connector)
+        let rows = query_rows(sql, vec![], &connector)
             .map_err(|e| error!("查询活跃信号失败: {}", e))?;
 
         let mut reassessed = 0i64;
         let real = Real::new();
 
         for row in &rows {
-            let id: i64 = row.get_value(0).as_f64().unwrap_or(0.0) as i64;
-            let code: String = row.get_value(1).as_str().unwrap_or_default().to_string();
-            let stop_loss: f64 = row.get_value(4).as_f64().unwrap_or(0.0);
-            let target_price: f64 = row.get_value(5).as_f64().unwrap_or(0.0);
+            let id: i64 = row_get_i64(row, "id");
+            let code: String = row_get_string(row, "stockCode");
+            let stop_loss: f64 = row_get_f64(row, "stopLoss");
+            let target_price: f64 = row_get_f64(row, "targetPrice");
 
             if code.is_empty() {
                 continue;
@@ -509,7 +511,7 @@ impl Decision {
             }
 
             // Determine new status
-            let action: String = row.get_value(2).as_str().unwrap_or_default().to_string();
+            let action: String = row_get_string(row, "action");
             let is_bearish = matches!(action.as_str(), "sell" | "reduce" | "avoid");
 
             let (hit_stop, hit_target) = if is_bearish {
@@ -546,7 +548,7 @@ impl Decision {
             .ok_or_else(|| error!("MySQL连接未初始化"))?;
         let sql = "SELECT id, stock_code, reasoning, evidence, entry_price, stop_loss, target_price \
              FROM decision_signals WHERE id = :id";
-        let rows = Helper::query_rows(sql, vec![("id".to_string(), Value::from(signal_id))], &connector)
+        let rows = query_rows(sql, vec![("id".to_string(), Value::from(signal_id))], &connector)
             .map_err(|e| error!("查询信号详情失败: {}", e))?;
 
         if rows.is_empty() {
@@ -554,11 +556,11 @@ impl Decision {
         }
 
         let row = &rows[0];
-        let has_reasoning = !row.get_value(2).as_str().unwrap_or_default().is_empty();
-        let has_evidence = !row.get_value(3).as_str().unwrap_or_default().is_empty();
-        let entry_price = row.get_value(4).as_f64().unwrap_or(0.0);
-        let stop_loss = row.get_value(5).as_f64().unwrap_or(0.0);
-        let target_price = row.get_value(6).as_f64().unwrap_or(0.0);
+        let has_reasoning = !row_get_string(row, "reasoning").is_empty();
+        let has_evidence = !row_get_string(row, "evidence").is_empty();
+        let entry_price = row_get_f64(row, "entryPrice");
+        let stop_loss = row_get_f64(row, "stopLoss");
+        let target_price = row_get_f64(row, "targetPrice");
         let has_entry = entry_price > 0.0;
         let has_stop = stop_loss > 0.0;
         let has_target = target_price > 0.0;
@@ -670,7 +672,7 @@ impl Decision {
              vec![("code".to_string(), Value::from(code.as_str()))])
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| error!("查询信号统计失败: {}", e))?;
 
         if rows.is_empty() {
@@ -681,11 +683,11 @@ impl Decision {
 
         let row = &rows[0];
         Ok(value!({
-            "total": row.get_value(0).as_f64().unwrap_or(0.0) as i64,
-            "bullish": row.get_value(1).as_f64().unwrap_or(0.0) as i64,
-            "bearish": row.get_value(2).as_f64().unwrap_or(0.0) as i64,
-            "neutral": row.get_value(3).as_f64().unwrap_or(0.0) as i64,
-            "avgScore": row.get_value(4).as_f64().unwrap_or(0.0),
+            "total": row_get_f64(row, "total") as i64,
+            "bullish": row_get_f64(row, "bullish") as i64,
+            "bearish": row_get_f64(row, "bearish") as i64,
+            "neutral": row_get_f64(row, "neutral") as i64,
+            "avgScore": row_get_f64(row, "avgScore"),
         }))
     }
 }

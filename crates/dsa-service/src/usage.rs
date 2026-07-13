@@ -1,6 +1,9 @@
+use dsa_core::db;
 use dsa_core::models::db::LlmUsage as LlmUsageModel;
 use dsa_core::utils;
-use deck::{DataRow, DataTable, Helper, SelectExecutor, TableService};
+use deck::sqlite::{DataTable, SelectExecutor};
+use deck::TableService;
+
 use deck_connector::get_connector;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
@@ -93,8 +96,7 @@ impl Usage {
         );
 
         let connector = self.connector()?;
-        let rows = Helper::query_rows(&sql, vec![], &connector)?;
-        let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
+        let results = db::query_rows(&sql, vec![], &connector)?;
 
         let total_calls: i64 = results.iter().map(|r| r.get("callCount").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64).sum();
         let total_tokens: i64 = results.iter().map(|r| r.get("totalTokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64).sum();
@@ -119,67 +121,55 @@ impl Usage {
         let total_sql = "SELECT COUNT(*) as total_calls, SUM(total_tokens) as total_tokens, \
              AVG(latency_ms) as avg_latency \
              FROM llm_usage";
-        let total_rows = Helper::query_rows(total_sql, vec![], &connector)?;
+        let total_rows = db::query_rows(total_sql, vec![], &connector)?;
 
-        let total_calls: i64 = total_rows
-            .first()
-            .map(|r| r.get_value(0).as_f64().unwrap_or(0.0) as i64)
-            .unwrap_or(0);
-        let total_tokens: i64 = total_rows
-            .first()
-            .map(|r| r.get_value(1).as_f64().unwrap_or(0.0) as i64)
-            .unwrap_or(0);
+        let total_calls: i64 = db::first_row_i64(&total_rows, "totalCalls");
+        let total_tokens: i64 = db::first_row_i64(&total_rows, "totalTokens");
 
         let total_cost_estimate: f64 = {
             let provider_sql = "SELECT llm_model, SUM(total_tokens) as total_tokens FROM llm_usage GROUP BY llm_model";
-            let provider_rows = Helper::query_rows(provider_sql, vec![], &connector).unwrap_or_default();
+            let provider_rows = db::query_rows(provider_sql, vec![], &connector).unwrap_or_default();
             provider_rows.iter().map(|r| {
-                let tokens = r.get_value(1).as_f64().unwrap_or(0.0);
-                let model = r.get_string(0);
+                let tokens = db::row_get_f64(&r, "totalTokens");
+                let model = db::row_get_string(&r, "llmModel");
                 tokens * Self::price_per_token(&model)
             }).sum()
         };
 
         let provider_sql = "SELECT llm_provider, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
              FROM llm_usage GROUP BY llm_provider";
-        let provider_rows = Helper::query_rows(provider_sql, vec![], &connector)?;
-        let calls_by_provider: Vec<Value> = provider_rows.iter().map(|r| r.to_value2()).collect();
+        let provider_rows = db::query_rows(provider_sql, vec![], &connector)?;
+        let calls_by_provider: Vec<Value> = provider_rows;
 
         let type_sql = "SELECT operation_type, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
              FROM llm_usage GROUP BY operation_type";
-        let type_rows = Helper::query_rows(type_sql, vec![], &connector)?;
-        let calls_by_type: Vec<Value> = type_rows.iter().map(|r| r.to_value2()).collect();
+        let type_rows = db::query_rows(type_sql, vec![], &connector)?;
+        let calls_by_type: Vec<Value> = type_rows;
 
         let daily_sql = "SELECT DATE(create_time) as date, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
              FROM llm_usage WHERE create_time >= DATE_SUB(NOW(), INTERVAL 30 DAY) \
              GROUP BY DATE(create_time) ORDER BY date";
-        let daily_rows = Helper::query_rows(daily_sql, vec![], &connector)?;
-        let daily_calls: Vec<Value> = daily_rows.iter().map(|r| r.to_value2()).collect();
+        let daily_rows = db::query_rows(daily_sql, vec![], &connector)?;
+        let daily_calls: Vec<Value> = daily_rows;
 
         let summary_sql = "SELECT COUNT(*) as calls, SUM(total_tokens) as tokens, \
              AVG(latency_ms) as avg_latency \
              FROM llm_usage WHERE DATE(create_time) = CURDATE()";
-        let summary_rows = Helper::query_rows(summary_sql, vec![], &connector)?;
+        let summary_rows = db::query_rows(summary_sql, vec![], &connector)?;
 
-        let today_calls: i64 = summary_rows
-            .first()
-            .map(|r| r.get_value(0).as_f64().unwrap_or(0.0) as i64)
-            .unwrap_or(0);
-        let today_tokens: i64 = summary_rows
-            .first()
-            .map(|r| r.get_value(1).as_f64().unwrap_or(0.0) as i64)
-            .unwrap_or(0);
+        let today_calls: i64 = db::first_row_i64(&summary_rows, "calls");
+        let today_tokens: i64 = db::first_row_i64(&summary_rows, "tokens");
         let avg_latency: f64 = summary_rows
             .first()
-            .map(|r| r.get_value(2).as_f64().unwrap_or(0.0))
+            .map(|r| r.get("avgLatency").and_then(|v| v.as_f64()).unwrap_or(0.0))
             .unwrap_or(0.0);
 
         let recent_sql = "SELECT id, llm_provider, llm_model, operation_type, \
              prompt_tokens, completion_tokens, total_tokens, cache_hit, latency_ms, \
              stock_code, create_time \
              FROM llm_usage ORDER BY create_time DESC LIMIT 10";
-        let recent_rows = Helper::query_rows(recent_sql, vec![], &connector)?;
-        let recent: Vec<Value> = recent_rows.iter().map(|r| r.to_value2()).collect();
+        let recent_rows = db::query_rows(recent_sql, vec![], &connector)?;
+        let recent: Vec<Value> = recent_rows;
 
         Ok(value!({
             "totalCalls": total_calls,
@@ -254,17 +244,17 @@ impl Usage {
              vec![])
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)?;
-        let records: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
+        let rows = db::query_rows(&sql, p, &connector)?;
+        let records: Vec<Value> = rows;
 
         let total_calls = records.len() as i64;
         let total_tokens: i64 = records.iter()
-            .filter_map(|r| r.get("total_tokens").and_then(|v| v.as_f64()))
+            .filter_map(|r| r.get("totalTokens").and_then(|v| v.as_f64()))
             .sum::<f64>() as i64;
         let total_cost_estimate: f64 = records.iter()
             .filter_map(|r| {
-                let tokens = r.get("total_tokens").and_then(|v| v.as_f64())?;
-                let model = r.get("llm_model").and_then(|v| v.as_str()).unwrap_or_default();
+                let tokens = r.get("totalTokens").and_then(|v| v.as_f64())?;
+                let model = r.get("llmModel").and_then(|v| v.as_str()).unwrap_or_default();
                 Some(tokens * Self::price_per_token(&model))
             })
             .sum();

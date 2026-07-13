@@ -1,5 +1,5 @@
+use dsa_core::db::{query_rows, row_get_f64, row_get_string};
 use dsa_core::utils;
-use deck_mysql::{DataRow, Helper};
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
@@ -35,7 +35,7 @@ impl NameResolver {
                  FROM stock_daily \
                  WHERE stock_code = :code AND status = 1 \
                  ORDER BY trade_date DESC LIMIT 1";
-            let rows = Helper::query_rows(
+            let rows = query_rows(
                 sql,
                 vec![("code".to_string(), Value::from(query.as_str()))],
                 &connector,
@@ -44,9 +44,9 @@ impl NameResolver {
 
             if !rows.is_empty() {
                 let r = &rows[0];
-                let code = r.get_string(0);
-                let name = r.get_string(1);
-                let price: f64 = r.get_value(2).as_f64().unwrap_or(0.0);
+                let code = row_get_string(r, "stockCode");
+                let name = row_get_string(r, "stockName");
+                let price: f64 = row_get_f64(r, "close");
                 return Ok(value!({
                     "code": code,
                     "name": name,
@@ -65,7 +65,7 @@ impl NameResolver {
              FROM stock_daily \
              WHERE stock_name LIKE :kw AND status = 1 \
              ORDER BY trade_date DESC LIMIT 10";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("kw".to_string(), Value::from(format!("%{}%", query)))],
             &connector,
@@ -73,9 +73,9 @@ impl NameResolver {
         .map_err(|e| tube::Error::from(format!("Search stock by name failed: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| {
-            let code = r.get_string(0);
-            let name = r.get_string(1);
-            let price: f64 = r.get_value(2).as_f64().unwrap_or(0.0);
+            let code = row_get_string(r, "stockCode");
+            let name = row_get_string(r, "stockName");
+            let price: f64 = row_get_f64(r, "close");
             value!({"code": code, "name": name, "price": price})
         }).collect();
 
@@ -99,7 +99,7 @@ impl NameResolver {
              FROM stock_daily \
              WHERE (stock_code LIKE :kw OR stock_name LIKE :kw2) AND status = 1 \
              ORDER BY trade_date DESC LIMIT :limit";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![
                 ("kw".to_string(), Value::from(format!("%{}%", keyword))),
@@ -111,9 +111,9 @@ impl NameResolver {
         .map_err(|e| tube::Error::from(format!("Fuzzy search failed: {}", e)))?;
 
         let results: Vec<Value> = rows.iter().map(|r| {
-            let code = r.get_string(0);
-            let name = r.get_string(1);
-            let price: f64 = r.get_value(2).as_f64().unwrap_or(0.0);
+            let code = row_get_string(r, "stockCode");
+            let name = row_get_string(r, "stockName");
+            let price: f64 = row_get_f64(r, "close");
             value!({"code": code, "name": name, "price": price})
         }).collect();
 

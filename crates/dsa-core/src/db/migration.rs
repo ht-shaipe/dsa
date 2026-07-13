@@ -1,14 +1,34 @@
 //! Database schema migration utility
 //!
+//! Supports both MySQL and SQLite via `Dialect` enum.
 //! Uses DataModel trait metadata (Class, Attribute) to generate
 //! `CREATE TABLE IF NOT EXISTS` SQL and tracks applied migrations
 //! in a `schema_migrations` table.
 
 use deck_connector::Connector;
+use deck_connector::DatabaseType;
 use deck_model::{Attribute, Class, DataModel};
 use tracing::{info, warn};
 
 use crate::models::db::*;
+
+#[cfg(feature = "sqlite")]
+use rusqlite::Connection;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Dialect {
+    Mysql,
+    Sqlite,
+}
+
+impl Dialect {
+    pub fn from_connector(connector: &Connector) -> Self {
+        match connector.db_type {
+            DatabaseType::Sqlite => Dialect::Sqlite,
+            _ => Dialect::Mysql,
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -17,12 +37,97 @@ use crate::models::db::*;
 /// Run all pending migrations. Creates the `schema_migrations` tracking table
 /// first, then iterates every model and ensures its table exists.
 pub fn run_migrations(connector: &Connector) {
-    // 1. Ensure the migration tracking table itself exists
-    let migration_sql = create_table_sql(&SchemaMigration::class());
-    execute_ddl(connector, &migration_sql);
+    let dialect = Dialect::from_connector(connector);
+    tube::log!("run_migrations called, dialect={:?}", dialect);
 
-    // 2. Collect all model tables in a stable order
-    let models: Vec<(&str, Class)> = vec![
+    match dialect {
+        Dialect::Mysql => run_migrations_mysql(connector),
+        Dialect::Sqlite => run_migrations_sqlite(connector),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MySQL migration path
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "mysql")]
+fn run_migrations_mysql(connector: &Connector) {
+    let migration_sql = create_table_sql(&SchemaMigration::class(), Dialect::Mysql);
+    execute_ddl_mysql(connector, &migration_sql);
+
+    let models: Vec<(&str, Class)> = collect_models();
+
+    for (label, cls) in &models {
+        if *label == "schema_migrations" {
+            continue;
+        }
+        let version = format!("v0_{}_create", label);
+        if is_migration_applied_mysql(connector, &version) {
+            info!("migration `{}` already applied, skipping", version);
+            continue;
+        }
+        let sql = create_table_sql(cls, Dialect::Mysql);
+        info!("creating table `{}` …", cls.table_name);
+        execute_ddl_mysql(connector, &sql);
+        record_migration_mysql(connector, &version, &format!("create table {}", cls.table_name));
+    }
+
+    info!("all migrations completed");
+
+    run_column_migrations_mysql(connector);
+    run_alter_migrations_mysql(connector);
+}
+
+#[cfg(not(feature = "mysql"))]
+fn run_migrations_mysql(_connector: &Connector) {
+    warn!("mysql feature not enabled, skipping mysql migrations");
+}
+
+// ---------------------------------------------------------------------------
+// SQLite migration path
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sqlite")]
+fn run_migrations_sqlite(connector: &Connector) {
+    tube::log!("run_migrations_sqlite ENTER");
+    let migration_sql = create_table_sql(&SchemaMigration::class(), Dialect::Sqlite);
+    std::fs::write("/tmp/dsa_migration_sql.txt", &migration_sql).ok();
+    tube::log!("run_migrations_sqlite schema sql written to /tmp");
+    execute_ddl_sqlite(connector, &migration_sql);
+
+    let models: Vec<(&str, Class)> = collect_models();
+
+    for (label, cls) in &models {
+        if *label == "schema_migrations" {
+            continue;
+        }
+        let version = format!("v0_{}_create", label);
+        if is_migration_applied_sqlite(connector, &version) {
+            info!("migration `{}` already applied, skipping", version);
+            continue;
+        }
+        let sql = create_table_sql(cls, Dialect::Sqlite);
+        info!("creating table `{}` …", cls.table_name);
+        execute_ddl_sqlite(connector, &sql);
+        record_migration_sqlite(connector, &version, &format!("create table {}", cls.table_name));
+    }
+
+    info!("all sqlite migrations completed");
+
+    run_alter_migrations_sqlite(connector);
+}
+
+#[cfg(not(feature = "sqlite"))]
+fn run_migrations_sqlite(_connector: &Connector) {
+    warn!("sqlite feature not enabled, skipping sqlite migrations");
+}
+
+// ---------------------------------------------------------------------------
+// Model collection (shared)
+// ---------------------------------------------------------------------------
+
+fn collect_models() -> Vec<(&'static str, Class)> {
+    vec![
         ("analysis_history", AnalysisHistory::class()),
         ("stock_daily", StockDaily::class()),
         ("decision_signals", DecisionSignal::class()),
@@ -52,214 +157,229 @@ pub fn run_migrations(connector: &Connector) {
         ("agent_provider_turns", AgentProviderTurn::class()),
         ("llm_usage", LlmUsage::class()),
         ("schema_migrations", SchemaMigration::class()),
-    ];
-
-    // 3. Create each table if it does not yet exist
-    for (label, cls) in &models {
-        // Skip schema_migrations — already handled above
-        if *label == "schema_migrations" {
-            continue;
-        }
-        let version = format!("v0_{}_create", label);
-        if is_migration_applied(connector, &version) {
-            info!("migration `{}` already applied, skipping", version);
-            continue;
-        }
-        let sql = create_table_sql(cls);
-        info!("creating table `{}` …", cls.table_name);
-        execute_ddl(connector, &sql);
-        record_migration(connector, &version, &format!("create table {}", cls.table_name));
-    }
-
-    info!("all migrations completed");
-
-    run_column_migrations(connector);
-    run_alter_migrations(connector);
+    ]
 }
 
 // ---------------------------------------------------------------------------
-// SQL generation
+// SQL generation (dialect-aware)
 // ---------------------------------------------------------------------------
 
 /// Generate a `CREATE TABLE IF NOT EXISTS` statement from a `Class` metadata.
-pub fn create_table_sql(cls: &Class) -> String {
+pub fn create_table_sql(cls: &Class, dialect: Dialect) -> String {
     let table_name = &cls.table_name;
     let mut cols: Vec<String> = Vec::new();
     let mut primary_keys: Vec<String> = Vec::new();
+    let mut autoincrement_col: Option<String> = None;
 
     for attr in &cls.attributes {
-        let col = build_column_def(attr, &cls.primary_type);
+        if attr.increment > 0 && attr.primary && cls.primary_type == "identity" && dialect == Dialect::Sqlite {
+            let name = column_name(attr);
+            autoincrement_col = Some(name.clone());
+            primary_keys.push(name.clone());
+            cols.push(format!("\"{}\" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT", name));
+            continue;
+        }
+        let col = build_column_def(attr, &cls.primary_type, dialect);
         cols.push(col);
         if attr.primary {
             primary_keys.push(column_name(attr));
         }
     }
 
-    // Composite / explicit primary key
     if !primary_keys.is_empty() {
-        cols.push(format!(
-            "PRIMARY KEY ({})",
-            primary_keys.join(", ")
-        ));
+        if autoincrement_col.is_none() {
+            cols.push(format!(
+                "PRIMARY KEY ({})",
+                primary_keys.join(", ")
+            ));
+        }
     }
 
-    let table_opts = if cls.primary_type == "identity" {
-        // MySQL InnoDB AUTO_INCREMENT on PK
-        String::new()
-    } else {
-        String::new()
-    };
-
-    format!(
-        "CREATE TABLE IF NOT EXISTS `{}` (\n  {}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4{}",
-        table_name,
-        cols.join(",\n  "),
-        table_opts,
-    )
+    match dialect {
+        Dialect::Mysql => {
+            format!(
+                "CREATE TABLE IF NOT EXISTS `{}` (\n  {}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+                table_name,
+                cols.join(",\n  "),
+            )
+        }
+        Dialect::Sqlite => {
+            format!(
+                "CREATE TABLE IF NOT EXISTS \"{}\" (\n  {}\n)",
+                table_name,
+                cols.join(",\n  "),
+            )
+        }
+    }
 }
 
-/// Build a single column definition line from an `Attribute`.
-fn build_column_def(attr: &Attribute, primary_type: &str) -> String {
+fn build_column_def(attr: &Attribute, primary_type: &str, dialect: Dialect) -> String {
     let name = column_name(attr);
-    let sql_type = attribute_sql_type(attr, primary_type);
+    let sql_type = attribute_sql_type(attr, primary_type, dialect);
 
-    let mut parts = vec![format!("`{}` {}", name, sql_type)];
+    let q = |s: &str| match dialect {
+        Dialect::Mysql => format!("`{}`", s),
+        Dialect::Sqlite => format!("\"{}\"", s),
+    };
 
-    // NOT NULL
+    let mut parts = vec![format!("{} {}", q(&name), sql_type)];
+
     if attr.required || attr.primary {
         parts.push("NOT NULL".to_owned());
     }
 
-    // AUTO_INCREMENT (only on identity PK)
     if attr.increment > 0 && attr.primary && primary_type == "identity" {
-        parts.push("AUTO_INCREMENT".to_owned());
+        match dialect {
+            Dialect::Mysql => parts.push("AUTO_INCREMENT".to_owned()),
+            Dialect::Sqlite => parts.push("AUTOINCREMENT".to_owned()),
+        }
     }
 
-    // DEFAULT
     if !attr.default_value.is_empty() && !attr.primary {
-        parts.push(format!("DEFAULT {}", attr.default_value));
+        let dv = translate_default_value(&attr.default_value, dialect);
+        parts.push(format!("DEFAULT {}", dv));
     }
 
-    // UNIQUE
     if attr.unique && !attr.primary {
         parts.push("UNIQUE".to_owned());
     }
 
-    // COMMENT
-    if !attr.comment.is_empty() {
+    if !attr.comment.is_empty() && dialect == Dialect::Mysql {
         parts.push(format!("COMMENT '{}'", attr.comment.replace('\'', "\\'")));
     }
 
     parts.join(" ")
 }
 
-/// Resolve the SQL column name: use `alias` if set, else `name`.
+fn translate_default_value(val: &str, dialect: Dialect) -> String {
+    match dialect {
+        Dialect::Mysql => val.to_owned(),
+        Dialect::Sqlite => {
+            let lower = val.to_lowercase();
+            if lower.starts_with("current_timestamp") {
+                "CURRENT_TIMESTAMP".to_owned()
+            } else {
+                val.to_owned()
+            }
+        }
+    }
+}
+
 fn column_name(attr: &Attribute) -> String {
     if !attr.alias.is_empty() {
         attr.alias.clone()
     } else {
-        // Convert snake_case field name to camelCase column name
-        // to match the `rename` annotations used throughout the models
         attr.name.clone()
     }
 }
 
-/// Determine the MySQL column type for an attribute.
-fn attribute_sql_type(attr: &Attribute, primary_type: &str) -> String {
-    // Override PK type based on table's primary strategy
+fn attribute_sql_type(attr: &Attribute, primary_type: &str, dialect: Dialect) -> String {
     if attr.primary {
         if primary_type == "uuid" {
-            return "VARCHAR(36)".to_owned();
+            return match dialect {
+                Dialect::Mysql => "VARCHAR(36)".to_owned(),
+                Dialect::Sqlite => "TEXT".to_owned(),
+            };
         }
         if primary_type == "identity" {
-            return "BIGINT".to_owned();
+            return match dialect {
+                Dialect::Mysql => "BIGINT".to_owned(),
+                Dialect::Sqlite => "INTEGER".to_owned(),
+            };
         }
     }
 
-    // If the data_length is explicitly set, honour it for VARCHAR
     if attr.data_length > 0 && attr.data_type.contains("String") {
-        return format!("VARCHAR({})", attr.data_length);
+        return match dialect {
+            Dialect::Mysql => format!("VARCHAR({})", attr.data_length),
+            Dialect::Sqlite => "TEXT".to_owned(),
+        };
     }
 
-    rust_type_to_sql(&attr.data_type).to_owned()
+    rust_type_to_sql(&attr.data_type, dialect)
 }
 
-/// Map a Rust type string (as produced by the derive macro) to a MySQL column type.
-pub fn rust_type_to_sql(data_type: &str) -> &'static str {
-    // The derive macro records Rust type names like "i64", "String",
-    // "Option<NaiveDateTime>", "bool", etc.
-    // We match from most specific to least specific.
-
-    // Option types — strip the Option wrapper
+/// Map a Rust type string to a SQL column type.
+pub fn rust_type_to_sql(data_type: &str, dialect: Dialect) -> String {
     let base = if data_type.starts_with("Option<") && data_type.ends_with('>') {
         &data_type[7..data_type.len() - 1]
     } else {
         data_type
     };
 
+    match dialect {
+        Dialect::Mysql => rust_type_to_sql_mysql(base),
+        Dialect::Sqlite => rust_type_to_sql_sqlite(base),
+    }
+}
+
+fn rust_type_to_sql_mysql(base: &str) -> String {
     match base {
-        // Integer types
-        "i64" => "BIGINT",
-        "i32" => "INT",
-        "i16" => "SMALLINT",
-        "i8" => "TINYINT",
-
-        "u64" => "BIGINT UNSIGNED",
-        "u32" => "INT UNSIGNED",
-        "u16" => "SMALLINT UNSIGNED",
-        "u8" => "TINYINT UNSIGNED",
-
-        // Float types
-        "f64" => "DOUBLE",
-        "f32" => "FLOAT",
-
-        // Boolean
-        "bool" => "TINYINT(1)",
-
-        // String
-        "String" => "VARCHAR(255)",
-
-        // DateTime
-        "NaiveDateTime" => "DATETIME",
-
-        // Binary
-        "Vec<u8>" => "BLOB",
-
-        // Fallback
+        "i64" => "BIGINT".to_owned(),
+        "i32" => "INT".to_owned(),
+        "i16" => "SMALLINT".to_owned(),
+        "i8" => "TINYINT".to_owned(),
+        "u64" => "BIGINT UNSIGNED".to_owned(),
+        "u32" => "INT UNSIGNED".to_owned(),
+        "u16" => "SMALLINT UNSIGNED".to_owned(),
+        "u8" => "TINYINT UNSIGNED".to_owned(),
+        "f64" => "DOUBLE".to_owned(),
+        "f32" => "FLOAT".to_owned(),
+        "bool" => "TINYINT(1)".to_owned(),
+        "String" => "VARCHAR(255)".to_owned(),
+        "NaiveDateTime" => "DATETIME".to_owned(),
+        "Vec<u8>" => "BLOB".to_owned(),
         _ => {
-            // Handle types we might not have exact matches for
             if base.contains("String") {
-                "VARCHAR(255)"
+                "VARCHAR(255)".to_owned()
             } else if base.contains("NaiveDateTime") || base.contains("DateTime") {
-                "DATETIME"
+                "DATETIME".to_owned()
             } else if base.contains("Vec<u8>") || base.contains("Bytes") {
-                "BLOB"
+                "BLOB".to_owned()
             } else {
-                "TEXT"
+                "TEXT".to_owned()
+            }
+        }
+    }
+}
+
+fn rust_type_to_sql_sqlite(base: &str) -> String {
+    match base {
+        "i64" | "i32" | "i16" | "i8" | "u64" | "u32" | "u16" | "u8" => "INTEGER".to_owned(),
+        "f64" | "f32" => "REAL".to_owned(),
+        "bool" => "INTEGER".to_owned(),
+        "String" => "TEXT".to_owned(),
+        "NaiveDateTime" => "TEXT".to_owned(),
+        "Vec<u8>" => "BLOB".to_owned(),
+        _ => {
+            if base.contains("String") || base.contains("NaiveDateTime") || base.contains("DateTime") {
+                "TEXT".to_owned()
+            } else if base.contains("Vec<u8>") || base.contains("Bytes") {
+                "BLOB".to_owned()
+            } else {
+                "TEXT".to_owned()
             }
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Migration tracking
+// MySQL migration tracking
 // ---------------------------------------------------------------------------
 
-/// Check whether a migration version has already been applied.
-fn is_migration_applied(connector: &Connector, version: &str) -> bool {
+#[cfg(feature = "mysql")]
+fn is_migration_applied_mysql(connector: &Connector, version: &str) -> bool {
     let sql = "SELECT COUNT(*) AS cnt FROM `schema_migrations` WHERE `version` = :version";
-    match deck::Helper::query_rows(
+    match deck_mysql::Helper::query_rows(
         sql,
         vec![("version".to_string(), tube::Value::from(version.to_string()))],
         connector,
     ) {
         Ok(rows) => {
             if let Some(row) = rows.first() {
-                // mysql crate Row — read the first column as i64
                 if let Some(cnt) = row.get::<i64, _>(0) {
                     return cnt > 0;
                 }
-                // Try u64
                 if let Some(cnt) = row.get::<u64, _>(0) {
                     return cnt > 0;
                 }
@@ -273,10 +393,10 @@ fn is_migration_applied(connector: &Connector, version: &str) -> bool {
     }
 }
 
-/// Record a successful migration in the tracking table.
-fn record_migration(connector: &Connector, version: &str, description: &str) {
+#[cfg(feature = "mysql")]
+fn record_migration_mysql(connector: &Connector, version: &str, description: &str) {
     let sql = "INSERT INTO `schema_migrations` (`version`, `description`, `applied_at`) VALUES (:version, :description, NOW())";
-    match deck::Helper::execute(
+    match deck_mysql::Helper::execute(
         sql,
         vec![
             ("version".to_string(), tube::Value::from(version.to_string())),
@@ -291,9 +411,9 @@ fn record_migration(connector: &Connector, version: &str, description: &str) {
     }
 }
 
-/// Execute a DDL / DML statement that returns no meaningful rows.
-fn execute_ddl(connector: &Connector, sql: &str) {
-    match deck::Helper::execute(sql, vec![], connector) {
+#[cfg(feature = "mysql")]
+fn execute_ddl_mysql(connector: &Connector, sql: &str) {
+    match deck_mysql::Helper::execute(sql, vec![], connector) {
         Ok(_) => {}
         Err(e) => {
             warn!("DDL execution failed: {} — sql: {}", e, sql);
@@ -301,11 +421,8 @@ fn execute_ddl(connector: &Connector, sql: &str) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Incremental column migrations (ALTER TABLE)
-// ---------------------------------------------------------------------------
-
-fn run_column_migrations(connector: &Connector) {
+#[cfg(feature = "mysql")]
+fn run_column_migrations_mysql(connector: &Connector) {
     let migrations: Vec<(&str, &str)> = vec![
         (
             "v1_watchlist_stocks_camel_case",
@@ -320,13 +437,115 @@ fn run_column_migrations(connector: &Connector) {
     ];
 
     for (version, sql) in &migrations {
-        if is_migration_applied(connector, version) {
+        if is_migration_applied_mysql(connector, version) {
             info!("migration `{}` already applied, skipping", version);
             continue;
         }
         info!("applying migration `{}` …", version);
-        execute_ddl(connector, sql);
-        record_migration(connector, version, &format!("rename columns: {}", version));
+        execute_ddl_mysql(connector, sql);
+        record_migration_mysql(connector, version, &format!("rename columns: {}", version));
+    }
+}
+
+#[cfg(feature = "mysql")]
+fn run_alter_migrations_mysql(connector: &Connector) {
+    let alters: Vec<(&str, &str)> = vec![
+        ("v0_analysis_history_report_json_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN report_json MEDIUMTEXT"),
+        ("v0_news_intel_content_mediumtext", "ALTER TABLE news_intel MODIFY COLUMN content MEDIUMTEXT"),
+        ("v0_analysis_history_context_snapshot_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN context_snapshot MEDIUMTEXT"),
+        ("v0_analysis_history_news_content_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN news_content MEDIUMTEXT"),
+        ("v1_stock_daily_add_macd_columns", "ALTER TABLE stock_daily ADD COLUMN IF NOT EXISTS `ma60` DOUBLE NOT NULL DEFAULT 0 COMMENT '60日均线', ADD COLUMN IF NOT EXISTS `dif` DOUBLE NOT NULL DEFAULT 0 COMMENT 'MACD DIF值', ADD COLUMN IF NOT EXISTS `dea` DOUBLE NOT NULL DEFAULT 0 COMMENT 'MACD DEA值', ADD COLUMN IF NOT EXISTS `macd_hist` DOUBLE NOT NULL DEFAULT 0 COMMENT 'MACD柱状值'"),
+    ];
+
+    for (version, sql) in &alters {
+        if is_migration_applied_mysql(connector, version) {
+            info!("migration `{}` already applied, skipping", version);
+            continue;
+        }
+        info!("running alter migration `{}` …", version);
+        execute_ddl_mysql(connector, sql);
+        record_migration_mysql(connector, version, &format!("alter: {}", version));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SQLite migration tracking
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "sqlite")]
+fn is_migration_applied_sqlite(connector: &Connector, version: &str) -> bool {
+    let sql = format!(
+        "SELECT COUNT(*) AS cnt FROM \"schema_migrations\" WHERE \"version\" = '{}'",
+        version.replace('\'', "''")
+    );
+    match sqlite_query_count(connector, &sql) {
+        Ok(cnt) => cnt > 0,
+        Err(e) => {
+            warn!("sqlite migration check failed (table may not exist yet): {}", e);
+            false
+        }
+    }
+}
+
+#[cfg(feature = "sqlite")]
+fn record_migration_sqlite(connector: &Connector, version: &str, description: &str) {
+    let sql = format!(
+        "INSERT INTO \"schema_migrations\" (\"version\", \"description\", \"applied_at\") VALUES ('{}', '{}', datetime('now'))",
+        version.replace('\'', "''"),
+        description.replace('\'', "''"),
+    );
+    execute_ddl_sqlite(connector, &sql);
+}
+
+#[cfg(feature = "sqlite")]
+fn execute_ddl_sqlite(connector: &Connector, sql: &str) {
+    let conn_str = connector.get_conn_str();
+    tube::log!("execute_ddl_sqlite: conn_str={}, sql_len={}", conn_str, sql.len());
+    match Connection::open(&conn_str) {
+        Ok(conn) => {
+            if let Err(e) = conn.execute_batch(sql) {
+                tube::log!("sqlite DDL execution FAILED: {} — sql: {}", e, &sql[..sql.len().min(200)]);
+            } else {
+                tube::log!("sqlite DDL execution OK");
+            }
+        }
+        Err(e) => {
+            tube::log!("sqlite open FAILED: {}", e);
+        }
+    }
+}
+
+#[cfg(feature = "sqlite")]
+fn sqlite_query_count(connector: &Connector, sql: &str) -> Result<i64, String> {
+    let conn_str = connector.get_conn_str();
+    match Connection::open(&conn_str) {
+        Ok(conn) => {
+            match conn.query_row(sql, [], |row| row.get::<_, i64>(0)) {
+                Ok(cnt) => Ok(cnt),
+                Err(e) => Err(format!("{}", e)),
+            }
+        }
+        Err(e) => Err(format!("{}", e)),
+    }
+}
+
+#[cfg(feature = "sqlite")]
+fn run_alter_migrations_sqlite(connector: &Connector) {
+    let alters: Vec<(&str, &str)> = vec![
+        ("v1_stock_daily_add_macd_columns", "ALTER TABLE stock_daily ADD COLUMN \"ma60\" REAL NOT NULL DEFAULT 0"),
+        ("v1_stock_daily_add_dif", "ALTER TABLE stock_daily ADD COLUMN \"dif\" REAL NOT NULL DEFAULT 0"),
+        ("v1_stock_daily_add_dea", "ALTER TABLE stock_daily ADD COLUMN \"dea\" REAL NOT NULL DEFAULT 0"),
+        ("v1_stock_daily_add_macd_hist", "ALTER TABLE stock_daily ADD COLUMN \"macd_hist\" REAL NOT NULL DEFAULT 0"),
+    ];
+
+    for (version, sql) in &alters {
+        if is_migration_applied_sqlite(connector, version) {
+            info!("migration `{}` already applied, skipping", version);
+            continue;
+        }
+        info!("running sqlite alter migration `{}` …", version);
+        execute_ddl_sqlite(connector, sql);
+        record_migration_sqlite(connector, version, &format!("alter: {}", version));
     }
 }
 
@@ -339,50 +558,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rust_type_to_sql() {
-        assert_eq!(rust_type_to_sql("i64"), "BIGINT");
-        assert_eq!(rust_type_to_sql("i32"), "INT");
-        assert_eq!(rust_type_to_sql("i16"), "SMALLINT");
-        assert_eq!(rust_type_to_sql("i8"), "TINYINT");
-        assert_eq!(rust_type_to_sql("u64"), "BIGINT UNSIGNED");
-        assert_eq!(rust_type_to_sql("u32"), "INT UNSIGNED");
-        assert_eq!(rust_type_to_sql("f64"), "DOUBLE");
-        assert_eq!(rust_type_to_sql("f32"), "FLOAT");
-        assert_eq!(rust_type_to_sql("String"), "VARCHAR(255)");
-        assert_eq!(rust_type_to_sql("bool"), "TINYINT(1)");
-        assert_eq!(rust_type_to_sql("NaiveDateTime"), "DATETIME");
-        assert_eq!(rust_type_to_sql("Vec<u8>"), "BLOB");
-        // Option variants
-        assert_eq!(rust_type_to_sql("Option<String>"), "VARCHAR(255)");
-        assert_eq!(rust_type_to_sql("Option<NaiveDateTime>"), "DATETIME");
+    fn test_rust_type_to_sql_mysql() {
+        assert_eq!(rust_type_to_sql("i64", Dialect::Mysql), "BIGINT");
+        assert_eq!(rust_type_to_sql("i32", Dialect::Mysql), "INT");
+        assert_eq!(rust_type_to_sql("i16", Dialect::Mysql), "SMALLINT");
+        assert_eq!(rust_type_to_sql("i8", Dialect::Mysql), "TINYINT");
+        assert_eq!(rust_type_to_sql("u64", Dialect::Mysql), "BIGINT UNSIGNED");
+        assert_eq!(rust_type_to_sql("u32", Dialect::Mysql), "INT UNSIGNED");
+        assert_eq!(rust_type_to_sql("f64", Dialect::Mysql), "DOUBLE");
+        assert_eq!(rust_type_to_sql("f32", Dialect::Mysql), "FLOAT");
+        assert_eq!(rust_type_to_sql("String", Dialect::Mysql), "VARCHAR(255)");
+        assert_eq!(rust_type_to_sql("bool", Dialect::Mysql), "TINYINT(1)");
+        assert_eq!(rust_type_to_sql("NaiveDateTime", Dialect::Mysql), "DATETIME");
+        assert_eq!(rust_type_to_sql("Vec<u8>", Dialect::Mysql), "BLOB");
+        assert_eq!(rust_type_to_sql("Option<String>", Dialect::Mysql), "VARCHAR(255)");
+        assert_eq!(rust_type_to_sql("Option<NaiveDateTime>", Dialect::Mysql), "DATETIME");
+    }
+
+    #[test]
+    fn test_rust_type_to_sql_sqlite() {
+        assert_eq!(rust_type_to_sql("i64", Dialect::Sqlite), "INTEGER");
+        assert_eq!(rust_type_to_sql("i32", Dialect::Sqlite), "INTEGER");
+        assert_eq!(rust_type_to_sql("u64", Dialect::Sqlite), "INTEGER");
+        assert_eq!(rust_type_to_sql("f64", Dialect::Sqlite), "REAL");
+        assert_eq!(rust_type_to_sql("f32", Dialect::Sqlite), "REAL");
+        assert_eq!(rust_type_to_sql("String", Dialect::Sqlite), "TEXT");
+        assert_eq!(rust_type_to_sql("bool", Dialect::Sqlite), "INTEGER");
+        assert_eq!(rust_type_to_sql("NaiveDateTime", Dialect::Sqlite), "TEXT");
+        assert_eq!(rust_type_to_sql("Vec<u8>", Dialect::Sqlite), "BLOB");
+        assert_eq!(rust_type_to_sql("Option<String>", Dialect::Sqlite), "TEXT");
     }
 
     #[test]
     fn test_create_table_sql_schema_migration() {
         let cls = SchemaMigration::class();
-        let sql = create_table_sql(&cls);
-        assert!(sql.contains("CREATE TABLE IF NOT EXISTS"));
-        assert!(sql.contains("schema_migrations"));
-        assert!(sql.contains("PRIMARY KEY"));
-    }
-}
+        let mysql_sql = create_table_sql(&cls, Dialect::Mysql);
+        assert!(mysql_sql.contains("CREATE TABLE IF NOT EXISTS"));
+        assert!(mysql_sql.contains("schema_migrations"));
+        assert!(mysql_sql.contains("PRIMARY KEY"));
+        assert!(mysql_sql.contains("AUTO_INCREMENT"));
+        assert!(mysql_sql.contains("ENGINE=InnoDB"));
 
-fn run_alter_migrations(connector: &Connector) {
-    let alters: Vec<(&str, &str)> = vec![
-        ("v0_analysis_history_report_json_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN report_json MEDIUMTEXT"),
-        ("v0_news_intel_content_mediumtext", "ALTER TABLE news_intel MODIFY COLUMN content MEDIUMTEXT"),
-        ("v0_analysis_history_context_snapshot_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN context_snapshot MEDIUMTEXT"),
-        ("v0_analysis_history_news_content_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN news_content MEDIUMTEXT"),
-        ("v1_stock_daily_add_macd_columns", "ALTER TABLE stock_daily ADD COLUMN IF NOT EXISTS `ma60` DOUBLE NOT NULL DEFAULT 0 COMMENT '60日均线', ADD COLUMN IF NOT EXISTS `dif` DOUBLE NOT NULL DEFAULT 0 COMMENT 'MACD DIF值', ADD COLUMN IF NOT EXISTS `dea` DOUBLE NOT NULL DEFAULT 0 COMMENT 'MACD DEA值', ADD COLUMN IF NOT EXISTS `macd_hist` DOUBLE NOT NULL DEFAULT 0 COMMENT 'MACD柱状值'"),
-    ];
-
-    for (version, sql) in &alters {
-        if is_migration_applied(connector, version) {
-            info!("migration `{}` already applied, skipping", version);
-            continue;
-        }
-        info!("running alter migration `{}` …", version);
-        execute_ddl(connector, sql);
-        record_migration(connector, version, &format!("alter: {}", version));
+        let sqlite_sql = create_table_sql(&cls, Dialect::Sqlite);
+        assert!(sqlite_sql.contains("CREATE TABLE IF NOT EXISTS"));
+        assert!(sqlite_sql.contains("schema_migrations"));
+        assert!(sqlite_sql.contains("PRIMARY KEY"));
+        assert!(sqlite_sql.contains("AUTOINCREMENT"));
+        assert!(!sqlite_sql.contains("ENGINE=InnoDB"));
     }
 }

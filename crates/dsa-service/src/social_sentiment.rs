@@ -1,7 +1,7 @@
+use dsa_core::db::query_rows;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 use dsa_core::utils;
-use deck_mysql::{DataRow, Helper};
 
 pub struct SocialSentiment {
     request: RequestParameter,
@@ -69,9 +69,9 @@ impl SocialSentiment {
         }
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = format!("SELECT sentiment_label, sentiment_score, title FROM news_intel WHERE stock_code = '{}' ORDER BY published_at DESC LIMIT 10", code);
-        let rows = Helper::query_rows(&sql, vec![], &connector)
+        let rows = query_rows(&sql, vec![], &connector)
             .map_err(|e| tube::Error::msg(format!("查询新闻情绪出错: {}", e)))?;
-        let items: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
+        let items: Vec<Value> = rows;
         let avg_sentiment = items.iter()
             .filter_map(|i| i.get("sentimentScore").and_then(|v| v.as_f64()))
             .sum::<f64>() / items.len().max(1) as f64;

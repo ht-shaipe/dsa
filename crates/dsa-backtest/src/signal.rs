@@ -1,8 +1,8 @@
 //! 信号追踪 - 决策信号的追踪与评估
 
+use dsa_core::db::{query_rows, execute, row_get_string, row_get_f64, row_get_i64};
 use dsa_core::{DsaError, DsaResult};
-use deck_connector::{get_connector, Connector};
-use deck_mysql::{DataRow, Helper};
+use deck_connector::Connector;
 use tube::Value;
 
 pub struct SignalTracker {
@@ -33,24 +33,24 @@ impl SignalTracker {
              signal_date FROM decision_signals \
              WHERE status = 1 AND action IN ('buy', 'add', 'hold', 'reduce', 'sell') \
              ORDER BY signal_date DESC LIMIT 100";
-        let rows = Helper::query_rows(sql, vec![], &connector)
+        let rows = query_rows(sql, vec![], &connector)
             .map_err(|e| DsaError::Database(format!("查询决策信号失败: {}", e)))?;
 
         let mut outcomes = Vec::new();
 
         for row in &rows {
-            let signal_id: i64 = row.get_value(0).as_f64().unwrap_or(0.0) as i64;
-            let code = row.get_string(1);
-            let action = row.get_string(2);
-            let entry_price: f64 = row.get_value(3).as_f64().unwrap_or(0.0);
-            let stop_loss: f64 = row.get_value(4).as_f64().unwrap_or(0.0);
-            let target_price: f64 = row.get_value(5).as_f64().unwrap_or(0.0);
-            let signal_date_raw = row.get_string(6);
+            let signal_id: i64 = row_get_i64(row, "id");
+            let code = row_get_string(row, "stockCode");
+            let action = row_get_string(row, "action");
+            let entry_price: f64 = row_get_f64(row, "entryPrice");
+            let stop_loss: f64 = row_get_f64(row, "stopLoss");
+            let target_price: f64 = row_get_f64(row, "targetPrice");
+            let signal_date_raw = row_get_string(row, "signalDate");
             let signal_date_only = signal_date_raw.split(' ').next().unwrap_or(&signal_date_raw);
 
             // 检查是否已有评估结果
             let check_sql = "SELECT id FROM decision_signal_outcomes WHERE signal_id = :sid AND eval_horizon = :horizon LIMIT 1";
-            let existing = Helper::query_rows(
+            let existing = query_rows(
                 check_sql,
                 vec![
                     ("sid".to_string(), Value::from(signal_id)),
@@ -68,7 +68,7 @@ impl SignalTracker {
             let hist_sql = "SELECT high, low, close FROM stock_daily \
                  WHERE stock_code = :code AND DATE(trade_date) >= :sdate AND status = 1 \
                  ORDER BY trade_date ASC LIMIT :limit";
-            let hist_rows = Helper::query_rows(
+            let hist_rows = query_rows(
                 hist_sql,
                 vec![
                     ("code".to_string(), Value::from(code.as_str())),
@@ -86,17 +86,17 @@ impl SignalTracker {
             let eval_closes: Vec<f64> = hist_rows
                 .iter()
                 .take(window as usize)
-                .map(|r| r.get_value(2).as_f64().unwrap_or(0.0))
+                .map(|r| row_get_f64(r, "close"))
                 .collect();
             let eval_highs: Vec<f64> = hist_rows
                 .iter()
                 .take(window as usize)
-                .map(|r| r.get_value(0).as_f64().unwrap_or(0.0))
+                .map(|r| row_get_f64(r, "high"))
                 .collect();
             let eval_lows: Vec<f64> = hist_rows
                 .iter()
                 .take(window as usize)
-                .map(|r| r.get_value(1).as_f64().unwrap_or(0.0))
+                .map(|r| row_get_f64(r, "low"))
                 .collect();
 
             let exit_price = eval_closes.last().copied().unwrap_or(entry_price);
@@ -126,7 +126,7 @@ impl SignalTracker {
                  (signal_id, stock_code, eval_horizon, eval_date, actual_return, max_drawdown, \
                   direction_correct, hit_target, hit_stop_loss, status, create_time) \
                  VALUES (:sid, :code, :horizon, NOW(), :ret, :dd, :dir_correct, :hit_target, :hit_sl, 1, NOW())";
-            if let Err(e) = Helper::execute(
+            if let Err(e) = execute(
                 insert_sql,
                 vec![
                     ("sid".to_string(), Value::from(signal_id)),
@@ -159,7 +159,6 @@ impl SignalTracker {
     }
 
     fn get_db_connector() -> Result<Connector, DsaError> {
-        get_connector("default", "mysql")
-            .ok_or_else(|| DsaError::Database("MySQL连接未初始化".to_string()))
+        dsa_core::db::get_db_connector().map_err(|e| DsaError::Database(e.to_string()))
     }
 }

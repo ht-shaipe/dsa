@@ -370,7 +370,7 @@ async function loadRecentSignals() {
     const params: Record<string, any> = { limit: 30 }
     if (signalCodeFilter.value) params.code = signalCodeFilter.value
     const res: any = await decisionApi.list(params as any)
-    recentSignals.value = (res.data || []).map((s: any) => ({ ...s, _evaluating: false }))
+    recentSignals.value = (Array.isArray(res) ? res : []).map((s: any) => ({ ...s, _evaluating: false }))
     if (!recentSignals.value.length && !guideExpanded.value.length) {
       guideExpanded.value = ['guide']
     }
@@ -386,8 +386,8 @@ async function runEvaluate() {
   evaluating.value = true
   try {
     const res: any = await backtestApi.evaluate(signalId.value)
-    evalResult.value = res.data || null
-    if (res.data?.duplicate) {
+    evalResult.value = res || null
+    if (res?.duplicate) {
       ElMessage.info('该信号已有回测结果')
     } else {
       ElMessage.success('回测完成')
@@ -407,8 +407,8 @@ async function runEvaluateForSignal(row: any) {
   row._evaluating = true
   try {
     const res: any = await backtestApi.evaluate(row.id)
-    evalResult.value = res.data || null
-    if (res.data?.duplicate) {
+    evalResult.value = res || null
+    if (res?.duplicate) {
       ElMessage.info('该信号已有回测结果')
     } else {
       ElMessage.success('回测完成')
@@ -426,7 +426,7 @@ async function runBatch() {
   batching.value = true
   try {
     const res: any = await backtestApi.evaluateBatch(50)
-    const d = res.data || {}
+    const d = res || {}
     ElMessage.success(`批量回测完成: ${d.evaluatedCount || 0}条成功, ${d.errors?.length || 0}条失败`)
     loadList()
     loadSummary()
@@ -445,7 +445,7 @@ async function loadList() {
     if (listCodeFilter.value) params.code = listCodeFilter.value
     if (listOutcomeFilter.value) params.outcome = listOutcomeFilter.value
     const res: any = await backtestApi.list(params)
-    backtestList.value = res.data || []
+    backtestList.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
   finally { listLoading.value = false }
 }
@@ -453,14 +453,14 @@ async function loadList() {
 async function loadSummary() {
   try {
     const res: any = await backtestApi.summary(listCodeFilter.value ? { code: listCodeFilter.value } : undefined)
-    summaryData.value = res.data || {}
+    summaryData.value = res || {}
   } catch { /* ignore */ }
 }
 
 async function viewDetail(row: Record<string, any>) {
   try {
     const res: any = await backtestApi.detail(row.id)
-    detailData.value = res.data || row
+    detailData.value = res || row
   } catch {
     detailData.value = row
   }

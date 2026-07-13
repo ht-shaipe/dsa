@@ -1,7 +1,7 @@
+use dsa_core::db::query_rows;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 use dsa_core::{utils, get_global_config};
-use deck_mysql::{DataRow, Helper};
 
 pub struct Report {
     request: RequestParameter,
@@ -260,7 +260,7 @@ impl Report {
                    create_time \
                    FROM analysis_history WHERE stock_code = :code AND status = 1 \
                    ORDER BY create_time DESC LIMIT :limit";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![
                 ("code".to_string(), Value::from(code.as_str())),
@@ -275,7 +275,7 @@ impl Report {
         let comparisons: Vec<Value> = rows
             .iter()
             .map(|r| {
-                let rv = r.to_value2();
+                let rv = r.clone();
                 let dt = str_val(&rv, "decisionType");
                 let cl = str_val(&rv, "confidenceLevel");
                 let dt_label = translate_decision(&dt, &labels);
@@ -344,12 +344,11 @@ impl Report {
             )
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| tube::Error::from(format!("查询分析记录失败: {}", e)))?;
 
         rows.into_iter()
             .next()
-            .map(|r| r.to_value2())
             .ok_or_else(|| tube::Error::from("未找到分析记录".to_string()))
     }
 }

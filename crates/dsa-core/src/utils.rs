@@ -42,10 +42,9 @@ pub fn market_prefix(code: &str) -> &'static str {
     }
 }
 
-/// 获取默认MySQL数据库连接器
+/// 获取默认数据库连接器（根据配置自动选择MySQL/SQLite）
 pub fn get_db_connector() -> Result<Connector, DsaError> {
-    get_connector("default", "mysql")
-        .ok_or_else(|| DsaError::Database("MySQL连接未初始化".to_string()))
+    crate::db::get_db_connector()
 }
 
 /// 从东方财富获取K线数据并写入数据库，失败时回退到新浪接口
@@ -134,12 +133,12 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
         Ok(c) => c,
         Err(_) => return,
     };
-    let stock_name = match deck::Helper::query_rows(
+    let stock_name = match crate::db::query_rows(
         "SELECT stock_name FROM stock_daily WHERE stock_code = :code AND stock_name != '' AND status >= 1 LIMIT 1",
         vec![("code".to_string(), Value::from(code.to_string()))],
         &connector,
     ) {
-        Ok(rows) => rows.first().map(|r| deck::DataRow::get_string(r, 0)).unwrap_or_default(),
+        Ok(rows) => crate::db::first_row_string(&rows, "stockName"),
         Err(_) => String::new(),
     };
     for bar in bars.iter().rev().take(max_count) {
@@ -150,7 +149,7 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
              stock_name=IF(VALUES(stock_name)!='', VALUES(stock_name), stock_name), \
              open=VALUES(open), high=VALUES(high), low=VALUES(low), \
              close=VALUES(close), volume=VALUES(volume), amount=VALUES(amount)";
-        let _ = deck::Helper::execute(
+        let _ = crate::db::execute(
             sql,
             vec![
                 ("code".to_string(), Value::from(code.to_string())),
@@ -279,7 +278,7 @@ pub fn record_llm_usage_with_cache(
           cache_hit, latency_ms, stock_code, create_time) \
          VALUES (:provider, :model, :op, :pt, :ct, :tt, :cache, :latency, :code, NOW())";
     let total = prompt_tokens + completion_tokens;
-    let _ = deck::Helper::execute(
+    let _ = crate::db::execute(
         sql,
         vec![
             ("provider".to_string(), Value::from(provider.to_string())),
@@ -313,7 +312,7 @@ pub fn record_conversation_message(
     let sql = "INSERT INTO conversation_messages \
          (session_id, role, content, llm_provider, llm_model, prompt_tokens, completion_tokens, create_time) \
          VALUES (:sid, :role, :content, :provider, :model, :pt, :ct, NOW())";
-    let _ = deck::Helper::execute(
+    let _ = crate::db::execute(
         sql,
         vec![
             ("sid".to_string(), Value::from(session_id.to_string())),

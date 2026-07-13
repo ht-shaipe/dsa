@@ -207,9 +207,9 @@ let progressTimer: ReturnType<typeof setInterval> | null = null
 async function loadStatus() {
   try {
     const res: any = await screeningApi.status()
-    statusData.value = res.data || {}
-    statusEnabled.value = !!(res.data?.enabled || res.data?.alphaSift?.enabled)
-    dailyDataReady.value = !!(res.data?.dailyDataReady)
+    statusData.value = res || {}
+    statusEnabled.value = !!(res?.enabled || res?.alphaSift?.enabled)
+    dailyDataReady.value = !!(res?.dailyDataReady)
   } catch {
     statusEnabled.value = false
   }
@@ -218,7 +218,7 @@ async function loadStatus() {
 async function loadStrategies() {
   try {
     const res: any = await screeningApi.strategies()
-    strategies.value = res.data || []
+    strategies.value = Array.isArray(res) ? res : []
     if (strategies.value.length && !activeStrategy.value) {
       activeStrategy.value = strategies.value[0].id || strategies.value[0].name || ''
     }
@@ -228,7 +228,7 @@ async function loadStrategies() {
 async function loadHotspots() {
   try {
     const res: any = await screeningApi.hotspots()
-    hotspots.value = res.data || []
+    hotspots.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 
@@ -236,8 +236,8 @@ async function runScreen() {
   screening.value = true
   try {
     const res: any = await screeningApi.screen(activeStrategy.value || undefined)
-    screenResults.value = res.data?.results || res.data || []
-    const count = res.data?.count ?? screenResults.value.length
+    screenResults.value = res?.results || (Array.isArray(res) ? res : [])
+    const count = res?.count ?? screenResults.value.length
     ElMessage.success(`筛选完成，找到 ${count} 只股票`)
   } catch(e: any) {
     ElMessage.error(e?.message || '筛选执行失败')
@@ -263,12 +263,12 @@ function startProgressPolling() {
   progressTimer = setInterval(async () => {
     try {
       const res: any = await screeningApi.syncProgress()
-      syncProgress.value = res.data || {}
-      if (!res.data?.running) {
+      syncProgress.value = res || {}
+      if (!res?.running) {
         if (progressTimer) { clearInterval(progressTimer); progressTimer = null }
         syncing.value = false
         dailyDataReady.value = true
-        if (res.data?.phase === 'done') {
+        if (res?.phase === 'done') {
           ElMessage.success('日线数据同步完成')
         }
       }
@@ -286,7 +286,7 @@ async function showHotspotDetail(h: Record<string, any>) {
   try {
     const topic = h.topic || h.name || ''
     const res: any = await screeningApi.hotspotDetail(topic)
-    hotspotDetail.value = res.data || h
+    hotspotDetail.value = res || h
   } catch {
     hotspotDetail.value = h
   }
@@ -297,10 +297,10 @@ onMounted(async () => {
   if (statusEnabled.value) {
     loadStrategies()
     loadHotspots()
-    const res: any = await screeningApi.syncProgress().catch(() => ({ data: {} }))
-    if (res.data?.running) {
+    const res: any = await screeningApi.syncProgress().catch(() => ({} as any))
+    if (res?.running) {
       syncing.value = true
-      syncProgress.value = res.data
+      syncProgress.value = res
       startProgressPolling()
     }
   }

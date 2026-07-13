@@ -6,12 +6,17 @@ authors.workspace = true
 license.workspace = true
 description = "DSA HTTP server entry point"
 
+[features]
+default = ["mysql", "sqlite"]
+mysql = ["dsa-service/mysql"]
+sqlite = ["dsa-service/sqlite"]
+
 [[bin]]
 name = "dsa"
 path = "src/main.rs"
 
 [dependencies]
-dsa-core = { workspace = true }
+dsa-core = { workspace = true, features = ["sqlite"] }
 dsa-pipeline = { workspace = true }
 dsa-agent = { workspace = true }
 dsa-backtest = { workspace = true }

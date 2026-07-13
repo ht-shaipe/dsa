@@ -35,20 +35,32 @@ const password = ref('')
 const loading = ref(false)
 
 onMounted(async () => {
-  await authStore.checkStatus()
+  if (authStore.isAuthenticated) {
+    router.replace('/')
+    return
+  }
+  try {
+    await authStore.checkStatus()
+  } catch {}
   if (authStore.isAuthenticated) {
     router.replace('/')
     return
   }
   if (!authStore.authEnabled) {
-    const ok = await authStore.login('')
-    if (ok) {
-      router.replace('/')
-    }
+    loading.value = true
+    try {
+      const ok = await authStore.login('')
+      if (ok) {
+        router.replace('/')
+        return
+      }
+    } catch {}
+    loading.value = false
   }
 })
 
 async function handleLogin() {
+  if (loading.value) return
   if (!password.value && authStore.authEnabled) {
     ElMessage.warning('请输入密码')
     return
@@ -57,7 +69,6 @@ async function handleLogin() {
   try {
     const ok = await authStore.login(password.value)
     if (ok) {
-      ElMessage.success('登录成功')
       router.replace('/')
     } else {
       ElMessage.error('密码错误')

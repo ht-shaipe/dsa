@@ -137,8 +137,7 @@ async function runAnalysis() {
   if (!selectedCode.value) return
   analysisStore.setAnalyzing(true)
   try {
-    const res: any = await analysisApi.analyze(selectedCode.value, selectedName.value)
-    const data = res.data || res
+    const data: any = await analysisApi.analyze(selectedCode.value, selectedName.value)
     if (data) {
       analysisStore.setReport(data)
     } else {
@@ -154,8 +153,7 @@ async function runAnalysis() {
 
 async function loadMarketOverview() {
   try {
-    const res: any = await marketApi.overview()
-    const d = res.data || {}
+    const d: any = await marketApi.overview()
     marketOverview.value = [
       { name: d.sh?.name || '上证指数', price: d.sh?.price || 0, change: d.sh?.changePercent || d.sh?.change_pct || 0 },
       { name: d.sz?.name || '深证成指', price: d.sz?.price || 0, change: d.sz?.changePercent || d.sz?.change_pct || 0 },
@@ -166,8 +164,8 @@ async function loadMarketOverview() {
 
 async function loadWatchlist() {
   try {
-    const res: any = await stockApi.watchlist()
-    watchlist.value = res.data || []
+    const data: any = await stockApi.watchlist()
+    watchlist.value = Array.isArray(data) ? data : []
   } catch { /* ignore */ }
 }
 

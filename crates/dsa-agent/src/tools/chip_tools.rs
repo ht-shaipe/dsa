@@ -1,7 +1,7 @@
 //! 筹码工具 - 筹码分布分析
 
 use dsa_core::utils;
-use deck::DataRow;
+use deck_mysql::DataRow;
 use deck_mysql::Helper;
 use tube::Value;
 

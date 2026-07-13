@@ -1,6 +1,9 @@
 use dsa_core::models::db::WatchlistStock as WatchlistStockModel;
 use dsa_core::utils;
-use deck::{DataTable, QueryExecutor, SelectExecutor, TableService};
+use deck::sqlite::{DataTable, SelectExecutor};
+use deck::QueryExecutor;
+use deck::TableService;
+
 use qta_crawler::{Basic, EastMoney, History, QQ, Real, Stock as QtaStock};
 use tube::{Result, Value};
 use tube_web::RequestParameter;
@@ -495,13 +498,11 @@ impl Stock {
 
     fn count_all(&self) -> Result<i64> {
         let connector = self.get_connector()
-            .ok_or_else(|| error!("MySQL连接未初始化"))?;
-        let sql = "SELECT COUNT(*) FROM watchlist_stocks";
-        let rows = deck::Helper::query_rows(sql, vec![], &connector)
+            .ok_or_else(|| error!("数据库连接未初始化"))?;
+        let sql = "SELECT COUNT(*) as cnt FROM watchlist_stocks";
+        let rows = dsa_core::db::query_rows(sql, vec![], &connector)
             .map_err(|e| error!("查询watchlist总数失败: {}", e))?;
-        Ok(rows.first()
-            .and_then(|r| r.get::<i64, _>(0))
-            .unwrap_or(0))
+        Ok(dsa_core::db::first_row_i64(&rows, "cnt"))
     }
 
     fn find_by_code(&self, code: &str) -> Result<Option<Value>> {

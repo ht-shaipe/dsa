@@ -215,14 +215,14 @@ async function loadSignals() {
     if (filterAction.value) params.action = filterAction.value
     if (filterStatus.value) params.status = filterStatus.value
     const res: any = await decisionApi.list(params)
-    signals.value = res.data || []
+    signals.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 
 async function loadStats() {
   try {
     const res: any = await decisionApi.stats(filterCode.value || undefined)
-    stats.value = res.data || {}
+    stats.value = res || {}
   } catch { /* ignore */ }
 }
 
@@ -230,8 +230,8 @@ async function extractBatch() {
   extracting.value = true
   try {
     const res: any = await decisionApi.extractBatch(20)
-    const count = res.data?.extractedCount || res.data?.extracted_count || 0
-    const errors = res.data?.errors || []
+    const count = res?.extractedCount || res?.extracted_count || 0
+    const errors = res?.errors || []
     if (count > 0) {
       ElMessage.success(`成功提取 ${count} 条信号${errors.length ? `，${errors.length} 条失败` : ''}`)
     } else {
@@ -266,7 +266,7 @@ async function openDetail(sig: Record<string, any>) {
   feedbackForm.value = { feedback: '', rating: 3 }
   try {
     const res: any = await decisionApi.detail(sig.id)
-    currentSignal.value = res.data || sig
+    currentSignal.value = res || sig
   } catch { /* ignore */ }
   loadOutcomes(sig.id)
 }
@@ -274,7 +274,7 @@ async function openDetail(sig: Record<string, any>) {
 async function loadOutcomes(signalId: number) {
   try {
     const res: any = await decisionApi.outcomes({ signalId, limit: 20 })
-    outcomes.value = res.data || []
+    outcomes.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 

@@ -1,8 +1,8 @@
 //! 回测引擎 - 对齐原项目 backtest
 
+use dsa_core::db::{query_rows, execute, row_get_string, row_get_f64, first_row_i64};
 use dsa_core::{DsaError, DsaResult};
-use deck_connector::{get_connector, Connector};
-use deck_mysql::{DataRow, Helper};
+use deck_connector::Connector;
 use tube::Value;
 
 pub struct BacktestEngine {}
@@ -27,8 +27,7 @@ impl BacktestEngine {
     }
 
     fn get_db_connector() -> Result<Connector, DsaError> {
-        get_connector("default", "mysql")
-            .ok_or_else(|| DsaError::Database("MySQL连接未初始化".to_string()))
+        dsa_core::db::get_db_connector().map_err(|e| DsaError::Database(e.to_string()))
     }
 
     /// 运行回测 - 评估分析预测 vs 实际走势
@@ -49,7 +48,7 @@ impl BacktestEngine {
         // 检查是否已有评估结果
         let check_sql = "SELECT id FROM backtest_results \
              WHERE analysis_id = :aid AND eval_window_days = :ew AND status >= 1 LIMIT 1";
-        let existing = Helper::query_rows(
+        let existing = query_rows(
             check_sql,
             vec![
                 ("aid".to_string(), Value::from(analysis_id)),
@@ -60,7 +59,7 @@ impl BacktestEngine {
         .map_err(|e| DsaError::Database(format!("检查已有评估失败: {}", e)))?;
 
         if !existing.is_empty() {
-            let exist_id: i64 = existing[0].get_value(0).as_f64().unwrap_or(0.0) as i64;
+            let exist_id: i64 = first_row_i64(&existing, "id");
             return Ok(value!({
                 "status": "ok",
                 "data": {
@@ -77,7 +76,7 @@ impl BacktestEngine {
              decision_type, ideal_buy, secondary_buy, stop_loss, take_profit, report_json, \
              analysis_summary, risk_warning, market_context, create_time \
              FROM analysis_history WHERE id = :id AND status = 1";
-        let rows = Helper::query_rows(sql, vec![("id".to_string(), Value::from(analysis_id))], &connector)
+        let rows = query_rows(sql, vec![("id".to_string(), Value::from(analysis_id))], &connector)
             .map_err(|e| DsaError::Database(format!("查询分析历史失败: {}", e)))?;
 
         if rows.is_empty() {
@@ -88,25 +87,21 @@ impl BacktestEngine {
         }
 
         let row = &rows[0];
-        let stock_code = row.get_string(1);
-        // SELECT顺序: id(0), stock_code(1), stock_name(2), sentiment_score(3), trend_prediction(4),
-        //   operation_advice(5), decision_type(6), ideal_buy(7), secondary_buy(8),
-        //   stop_loss(9), take_profit(10), report_json(11), analysis_summary(12),
-        //   risk_warning(13), market_context(14), create_time(15)
-        let decision_type = row.get_string(6);
-        let ideal_buy: f64 = row.get_value(7).as_f64().unwrap_or(0.0);
-        let stop_loss: f64 = row.get_value(9).as_f64().unwrap_or(0.0);
-        let take_profit: f64 = row.get_value(10).as_f64().unwrap_or(0.0);
+        let stock_code = row_get_string(row, "stockCode");
+        let decision_type = row_get_string(row, "decisionType");
+        let ideal_buy: f64 = row_get_f64(row, "idealBuy");
+        let stop_loss: f64 = row_get_f64(row, "stopLoss");
+        let take_profit: f64 = row_get_f64(row, "takeProfit");
 
-        // create_time 作为信号日期
-        let signal_date_str = row.get_string(15);
+        // createTime 作为信号日期
+        let signal_date_str = row_get_string(row, "createTime");
         let signal_date_only = signal_date_str.split(' ').next().unwrap_or(&signal_date_str);
 
         // 获取信号日期之后的实际K线数据 (从信号日期开始往后)
         let hist_sql = "SELECT open, high, low, close, volume FROM stock_daily \
              WHERE stock_code = :code AND DATE(trade_date) >= :sdate AND status = 1 \
              ORDER BY trade_date ASC LIMIT :limit";
-        let hist_rows = Helper::query_rows(
+        let hist_rows = query_rows(
             hist_sql,
             vec![
                 ("code".to_string(), Value::from(stock_code.as_str())),
@@ -129,15 +124,14 @@ impl BacktestEngine {
         } else {
             hist_rows
                 .first()
-                .map(|r| r.get_value(0).as_f64().unwrap_or(0.0))
+                .map(|r| row_get_f64(r, "open"))
                 .unwrap_or(0.0)
         };
 
-        // 计算实际回报 (取前 eval_window 根K线的收盘价)
         let eval_closes: Vec<f64> = hist_rows
             .iter()
             .take(eval_window as usize)
-            .map(|r| r.get_value(3).as_f64().unwrap_or(0.0))
+            .map(|r| row_get_f64(r, "close"))
             .collect();
 
         let (actual_return, max_drawdown, simulated_exit, direction_correct, hit_stop_loss, hit_take_profit) =
@@ -180,7 +174,7 @@ impl BacktestEngine {
              (analysis_id, stock_code, signal_date, decision_action, simulated_entry, simulated_exit, \
               exit_date, return_pct, max_drawdown, direction_correct, scope_type, status, create_time) \
              VALUES (:aid, :code, :sdate, :action, :entry, :exit, NULL, :ret, :dd, :dir_correct, 'watchlist', 1, NOW())";
-        let insert_result = Helper::execute(
+        let insert_result = execute(
             insert_sql,
             vec![
                 ("aid".to_string(), Value::from(analysis_id)),
@@ -254,11 +248,10 @@ impl BacktestEngine {
             )
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| DsaError::Database(format!("查询回测列表失败: {}", e)))?;
 
-        let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(Value::Array(results))
+        Ok(Value::Array(rows))
     }
 
     /// 查询回测结果详情
@@ -276,7 +269,7 @@ impl BacktestEngine {
              simulated_entry, simulated_exit, exit_date, return_pct, max_drawdown, \
              direction_correct, scope_type, status, create_time \
              FROM backtest_results WHERE id = :id AND status = 1";
-        let rows = Helper::query_rows(sql, vec![("id".to_string(), Value::from(id))], &connector)
+        let rows = query_rows(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| DsaError::Database(format!("查询回测详情失败: {}", e)))?;
 
         if rows.is_empty() {
@@ -286,7 +279,7 @@ impl BacktestEngine {
             )));
         }
 
-        Ok(rows[0].to_value2())
+        Ok(rows[0].clone())
     }
 
     /// 查询信号结果评估
@@ -324,11 +317,10 @@ impl BacktestEngine {
             )
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| DsaError::Database(format!("查询信号结果失败: {}", e)))?;
 
-        let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(Value::Array(results))
+        Ok(Value::Array(rows))
     }
 
     /// 聚合回测统计数据
@@ -363,7 +355,7 @@ impl BacktestEngine {
             )
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| DsaError::Database(format!("查询回测统计失败: {}", e)))?;
 
         if rows.is_empty() {
@@ -380,11 +372,11 @@ impl BacktestEngine {
         }
 
         let row = &rows[0];
-        let total: f64 = row.get_value(0).as_f64().unwrap_or(0.0);
-        let wins: f64 = row.get_value(1).as_f64().unwrap_or(0.0);
-        let avg_return: f64 = row.get_value(2).as_f64().unwrap_or(0.0);
-        let dir_correct: f64 = row.get_value(3).as_f64().unwrap_or(0.0);
-        let max_dd: f64 = row.get_value(4).as_f64().unwrap_or(0.0);
+        let total: f64 = row_get_f64(row, "totalTrades");
+        let wins: f64 = row_get_f64(row, "wins");
+        let avg_return: f64 = row_get_f64(row, "avgReturn");
+        let dir_correct: f64 = row_get_f64(row, "dirCorrect");
+        let max_dd: f64 = row_get_f64(row, "maxDrawdown");
 
         let win_rate = if total > 0.0 {
             wins / total * 100.0

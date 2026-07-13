@@ -118,7 +118,7 @@ impl Market {
             .await
             .map_err(|e| error!("获取交易日历失败: {}", e))?;
         let data: Vec<Value> = dates.iter().map(|d| Value::from(d.as_str())).collect();
-        Ok(value!({"status": "ok", "data": data}))
+        Ok(Value::Array(data))
     }
 
     fn value(&self) -> Value {

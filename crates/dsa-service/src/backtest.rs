@@ -1,6 +1,5 @@
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_i64, row_get_string};
 use dsa_core::utils;
-use deck_mysql::{DataRow, Helper};
-use deck_connector::get_connector;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
@@ -32,8 +31,7 @@ impl Backtest {
     }
 
     fn connector(&self) -> Result<deck_connector::Connector> {
-        get_connector(&crate::DATASOURCE_KEY, "mysql")
-            .ok_or_else(|| tube::Error::msg("MySQL连接未初始化"))
+        dsa_core::db::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))
     }
 
     async fn evaluate(&self) -> Result<Value> {
@@ -54,7 +52,7 @@ impl Backtest {
              AND stock_code = (SELECT stock_code FROM decision_signals WHERE id = :sid) \
              AND signal_date = (SELECT signal_date FROM decision_signals WHERE id = :sid) \
              AND eval_window_days = :ew AND status >= 1 LIMIT 1";
-        let existing = Helper::query_rows(
+        let existing = query_rows(
             check_sql,
             vec![
                 ("sid".to_string(), Value::from(signal_id)),
@@ -65,7 +63,7 @@ impl Backtest {
         .map_err(|e| tube::Error::msg(format!("检查已有评估失败: {}", e)))?;
 
         if !existing.is_empty() {
-            let exist_id: i64 = existing[0].get_value(0).as_f64().unwrap_or(0.0) as i64;
+            let exist_id: i64 = row_get_i64(&existing[0], "id");
             return Ok(value!({
                 "id": exist_id,
                 "signalId": signal_id,
@@ -78,7 +76,7 @@ impl Backtest {
              entry_price, stop_loss, target_price, confidence_level, \
              sentiment_score, reasoning, scope_type, analysis_id, status \
              FROM decision_signals WHERE id = :id AND status >= 1";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("id".to_string(), Value::from(signal_id))],
             &connector,
@@ -93,14 +91,14 @@ impl Backtest {
         }
 
         let row = &rows[0];
-        let stock_code = row.get_string(1);
-        let stock_name = row.get_string(2);
-        let signal_date_str = row.get_string(3);
-        let action = row.get_string(4);
-        let entry_price: f64 = row.get_value(5).as_f64().unwrap_or(0.0);
-        let stop_loss: f64 = row.get_value(6).as_f64().unwrap_or(0.0);
-        let target_price: f64 = row.get_value(7).as_f64().unwrap_or(0.0);
-        let analysis_id: i64 = row.get_value(12).as_f64().unwrap_or(0.0) as i64;
+        let stock_code = row_get_string(row, "stockCode");
+        let stock_name = row_get_string(row, "stockName");
+        let signal_date_str = row_get_string(row, "signalDate");
+        let action = row_get_string(row, "action");
+        let entry_price: f64 = row_get_f64(row, "entryPrice");
+        let stop_loss: f64 = row_get_f64(row, "stopLoss");
+        let target_price: f64 = row_get_f64(row, "targetPrice");
+        let analysis_id: i64 = row_get_f64(row, "analysisId") as i64;
 
         // signal_date 是 datetime 格式, 只取日期部分用于K线查询
         let signal_date_only = signal_date_str.split(' ').next().unwrap_or(&signal_date_str);
@@ -109,7 +107,7 @@ impl Backtest {
              FROM stock_daily \
              WHERE stock_code = :code AND DATE(trade_date) >= :sdate AND status = 1 \
              ORDER BY trade_date ASC LIMIT :limit";
-        let hist_rows = Helper::query_rows(
+        let hist_rows = query_rows(
             hist_sql,
             vec![
                 ("code".to_string(), Value::from(stock_code.as_str())),
@@ -127,7 +125,7 @@ impl Backtest {
                  FROM stock_daily \
                  WHERE stock_code = :code AND DATE(trade_date) < :sdate AND status = 1 \
                  ORDER BY trade_date DESC LIMIT :limit";
-            let fallback_rows = Helper::query_rows(
+            let fallback_rows = query_rows(
                 fallback_sql,
                 vec![
                     ("code".to_string(), Value::from(stock_code.as_str())),
@@ -148,21 +146,21 @@ impl Backtest {
             reversed
         };
 
-        let start_price: f64 = eval_rows[0].get_value(1).as_f64().unwrap_or(0.0);
+        let start_price: f64 = row_get_f64(&eval_rows[0], "open");
         let eval_closes: Vec<f64> = eval_rows
             .iter()
             .take(eval_window as usize)
-            .map(|r| r.get_value(4).as_f64().unwrap_or(0.0))
+            .map(|r| row_get_f64(r, "close"))
             .collect();
         let eval_highs: Vec<f64> = eval_rows
             .iter()
             .take(eval_window as usize)
-            .map(|r| r.get_value(2).as_f64().unwrap_or(0.0))
+            .map(|r| row_get_f64(r, "high"))
             .collect();
         let eval_lows: Vec<f64> = eval_rows
             .iter()
             .take(eval_window as usize)
-            .map(|r| r.get_value(3).as_f64().unwrap_or(0.0))
+            .map(|r| row_get_f64(r, "low"))
             .collect();
 
         let end_close = eval_closes.last().copied().unwrap_or(start_price);
@@ -231,7 +229,7 @@ impl Backtest {
               :sr, :de, :outcome, :sl, :tp, \
               :hit_sl, :hit_tp, :oa)";
 
-        let result = Helper::execute(
+        let result = execute(
             insert_sql,
             vec![
                 ("aid".to_string(), Value::from(analysis_id)),
@@ -264,7 +262,7 @@ impl Backtest {
         )
         .map_err(|e| tube::Error::msg(format!("保存回测结果失败: {}", e)))?;
 
-        let _ = Helper::execute(
+        let _ = execute(
             "UPDATE decision_signals SET status = 4, modify_time = NOW() WHERE id = :id",
             vec![("id".to_string(), Value::from(signal_id))],
             &connector,
@@ -300,7 +298,7 @@ impl Backtest {
         let sql = "SELECT id FROM decision_signals \
              WHERE status = 1 AND signal_date < DATE_SUB(CURDATE(), INTERVAL :ew DAY) \
              ORDER BY signal_date ASC LIMIT :limit";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![
                 ("ew".to_string(), Value::from(eval_window as i64)),
@@ -314,7 +312,7 @@ impl Backtest {
         let mut errors: Vec<Value> = Vec::new();
 
         for row in &rows {
-            let sid: i64 = row.get_value(0).as_f64().unwrap_or(0.0) as i64;
+            let sid: i64 = row_get_i64(row, "id");
             let eval_params = value!({"signalId": sid});
             let eval_req = {
                 let mut r = self.request.clone();
@@ -379,7 +377,7 @@ impl Backtest {
             where_clause
         );
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| tube::Error::msg(format!("查询回测统计失败: {}", e)))?;
 
         if rows.is_empty() {
@@ -396,15 +394,15 @@ impl Backtest {
         }
 
         let r = &rows[0];
-        let total: f64 = r.get_value(0).as_f64().unwrap_or(0.0);
-        let wins: f64 = r.get_value(1).as_f64().unwrap_or(0.0);
-        let losses: f64 = r.get_value(2).as_f64().unwrap_or(0.0);
-        let neutrals: f64 = r.get_value(3).as_f64().unwrap_or(0.0);
-        let avg_return: f64 = r.get_value(4).as_f64().unwrap_or(0.0);
-        let _avg_win: f64 = r.get_value(5).as_f64().unwrap_or(0.0);
-        let _avg_loss: f64 = r.get_value(6).as_f64().unwrap_or(0.0);
-        let max_dd: f64 = r.get_value(7).as_f64().unwrap_or(0.0);
-        let std_return: f64 = r.get_value(8).as_f64().unwrap_or(0.0);
+        let total: f64 = row_get_f64(r, "total");
+        let wins: f64 = row_get_f64(r, "wins");
+        let losses: f64 = row_get_f64(r, "losses");
+        let neutrals: f64 = row_get_f64(r, "neutrals");
+        let avg_return: f64 = row_get_f64(r, "avgReturn");
+        let _avg_win: f64 = row_get_f64(r, "avgWin");
+        let _avg_loss: f64 = row_get_f64(r, "avgLoss");
+        let max_dd: f64 = row_get_f64(r, "maxDrawdown");
+        let std_return: f64 = row_get_f64(r, "stdReturn");
 
         let win_rate = if total > 0.0 { wins / total * 100.0 } else { 0.0 };
         let sharpe_ratio = if std_return > 0.0 {
@@ -440,7 +438,7 @@ impl Backtest {
              max_high, min_low, stock_return_pct, direction_expected, outcome, \
              stop_loss_price, take_profit_price, hit_stop_loss, hit_take_profit \
              FROM backtest_results WHERE id = :id AND status >= 1";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("id".to_string(), Value::from(id))],
             &connector,
@@ -451,7 +449,7 @@ impl Backtest {
             return Ok(Value::Null);
         }
 
-        Ok(rows[0].to_value2())
+        Ok(rows[0].clone())
     }
 
     async fn list(&self) -> Result<Value> {
@@ -488,10 +486,10 @@ impl Backtest {
         p.push(("limit".to_string(), Value::from(limit)));
         p.push(("offset".to_string(), Value::from(offset)));
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| tube::Error::msg(format!("查询回测列表失败: {}", e)))?;
 
-        let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
+        let results: Vec<Value> = rows.iter().map(|r| r.clone()).collect();
         Ok(Value::Array(results))
     }
 }

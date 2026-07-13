@@ -1,5 +1,5 @@
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_string};
 use dsa_core::utils;
-use deck_mysql::{DataRow, Helper};
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
@@ -78,11 +78,9 @@ impl Intelligence {
         let sql = "SELECT id, name, source_type, url_template, config_json, scope_type, \
              scope_value, market, enabled, fetch_interval, create_time, modify_time \
              FROM intelligence_sources ORDER BY id";
-        let rows = Helper::query_rows(sql, vec![], &connector)
+        let rows = query_rows(sql, vec![], &connector)
             .map_err(|e| tube::Error::from(format!("查询情报源失败: {}", e)))?;
-
-        let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(Value::Array(results))
+        Ok(Value::Array(rows))
     }
 
     async fn source_create(&self) -> Result<Value> {
@@ -116,7 +114,7 @@ impl Intelligence {
               enabled, fetch_interval, create_time, modify_time) \
              VALUES (:name, :type, :url, :config, 'all', '', :market, :enabled, :interval, NOW(), NOW())";
 
-        let result = Helper::execute(
+        let result = execute(
             sql,
             vec![
                 ("name".to_string(), Value::from(name.as_str())),
@@ -192,7 +190,7 @@ impl Intelligence {
             sets.join(", ")
         );
 
-        Helper::execute(&sql, p, &connector)
+        execute(&sql, p, &connector)
             .map_err(|e| tube::Error::from(format!("更新情报源失败: {}", e)))?;
 
         Ok(value!({"id": id}))
@@ -210,7 +208,7 @@ impl Intelligence {
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "UPDATE intelligence_sources SET enabled = 0, modify_time = NOW() WHERE id = :id";
-        Helper::execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
+        execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| tube::Error::from(format!("删除情报源失败: {}", e)))?;
 
         Ok(value!({"id": id}))
@@ -255,7 +253,7 @@ impl Intelligence {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT id, name, source_type, url_template, config_json, market \
              FROM intelligence_sources WHERE id = :id AND enabled = 1";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("id".to_string(), Value::from(source_id))],
             &connector,
@@ -270,9 +268,9 @@ impl Intelligence {
         }
 
         let row = &rows[0];
-        let source_type = row.get_string(2);
-        let url_template = row.get_string(3);
-        let market = row.get_string(5);
+        let source_type = row_get_string(row, "sourceType");
+        let url_template = row_get_string(row, "urlTemplate");
+        let market = row_get_string(row, "market");
 
         let items = match source_type.as_str() {
             "rss" | "atom" => self.fetch_rss(source_id, &url_template, &market).await?,
@@ -290,15 +288,15 @@ impl Intelligence {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT id, name, source_type, url_template, config_json, market \
              FROM intelligence_sources WHERE enabled = 1";
-        let rows = Helper::query_rows(sql, vec![], &connector)
+        let rows = query_rows(sql, vec![], &connector)
             .map_err(|e| tube::Error::from(format!("查询情报源失败: {}", e)))?;
 
         let mut total_fetched = 0i64;
         for row in &rows {
-            let source_id: i64 = row.get_value(0).as_f64().unwrap_or(0.0) as i64;
-            let source_type = row.get_string(2);
-            let url_template = row.get_string(3);
-            let market = row.get_string(5);
+            let source_id: i64 = row_get_f64(row, "id") as i64;
+            let source_type = row_get_string(row, "sourceType");
+            let url_template = row_get_string(row, "urlTemplate");
+            let market = row_get_string(row, "market");
 
             let items = match source_type.as_str() {
                 "rss" | "atom" => self.fetch_rss(source_id, &url_template, &market).await?,
@@ -349,11 +347,10 @@ impl Intelligence {
             )
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| tube::Error::from(format!("查询情报条目失败: {}", e)))?;
 
-        let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(Value::Array(results))
+        Ok(Value::Array(rows))
     }
 
     async fn templates(&self) -> Result<Value> {
@@ -444,7 +441,7 @@ impl Intelligence {
               enabled, fetch_interval, create_time, modify_time) \
              VALUES (:name, :type, :url, :config, 'all', '', :market, :enabled, :interval, NOW(), NOW())";
 
-        let result = Helper::execute(
+        let result = execute(
             sql,
             vec![
                 ("name".to_string(), Value::from(name.as_str())),
@@ -489,7 +486,7 @@ impl Intelligence {
             }
 
             let check_sql = "SELECT id FROM intelligence_items WHERE source_url = :url LIMIT 1";
-            let existing = Helper::query_rows(
+            let existing = query_rows(
                 check_sql,
                 vec![("url".to_string(), Value::from(link.as_str()))],
                 &connector,
@@ -506,7 +503,7 @@ impl Intelligence {
                  (source_id, title, content, source_url, scope_type, scope_value, market, \
                   published_at, fetched_at, create_time) \
                  VALUES (:sid, :title, :content, :url, :scope_type, :scope_value, :market, NOW(), NOW(), NOW())";
-            if let Err(e) = Helper::execute(
+            if let Err(e) = execute(
                 insert_sql,
                 vec![
                     ("sid".to_string(), Value::from(source_id)),
@@ -567,7 +564,7 @@ impl Intelligence {
                 }
 
                 let check_sql = "SELECT id FROM intelligence_items WHERE source_url = :url LIMIT 1";
-                let existing = Helper::query_rows(
+                let existing = query_rows(
                     check_sql,
                     vec![("url".to_string(), Value::from(link.to_string()))],
                     &connector,
@@ -582,7 +579,7 @@ impl Intelligence {
                      (source_id, title, content, source_url, scope_type, scope_value, market, \
                       published_at, fetched_at, create_time) \
                      VALUES (:sid, :title, :content, :url, 'all', '', :market, NOW(), NOW(), NOW())";
-                if let Err(e) = Helper::execute(
+                if let Err(e) = execute(
                     insert_sql,
                     vec![
                         ("sid".to_string(), Value::from(source_id)),

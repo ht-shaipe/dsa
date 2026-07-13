@@ -6,6 +6,7 @@ members = [
     "crates/dsa-backtest",
     "crates/dsa-service",
     "crates/dsa-server",
+    "crates/dsa-app",
 ]
 resolver = "2"
 
@@ -21,6 +22,8 @@ dsa-pipeline = { path = "crates/dsa-pipeline" }
 dsa-agent = { path = "crates/dsa-agent" }
 dsa-backtest = { path = "crates/dsa-backtest" }
 dsa-service = { path = "crates/dsa-service" }
+dsa-server = { path = "crates/dsa-server" }
+dsa-app = { path = "crates/dsa-app" }
 
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -56,6 +59,6 @@ qta_sdk = { path = "/Users/shaipe/workspace/rust/kit/qta/sdk" }
 
 ai-llm-kit = { path = "/Users/shaipe/workspace/rust/kit/ai/llm" }
 
-deck = { path = "/Users/shaipe/workspace/rust/kit/deck", features = ["derive", "mysql"] }
+deck = { path = "/Users/shaipe/workspace/rust/kit/deck", default-features = false, features = ["derive", "mysql", "sqlite"] }
 deck_model = { path = "/Users/shaipe/workspace/rust/kit/deck/model" }
 deck_connector = { path = "/Users/shaipe/workspace/rust/kit/deck/connector" }

@@ -166,7 +166,7 @@ async function loadRecords() {
         offset: offset.value,
       })
     }
-    records.value = res.data || []
+    records.value = Array.isArray(res) ? res : []
   } catch {
     ElMessage.error('加载分析历史失败')
   }
@@ -189,7 +189,7 @@ async function openDetail(row: any) {
 
   try {
     const res: any = await analysisApi.historyDetail(row.id)
-    const detail = res.data || {}
+    const detail = res || {}
     currentRecord.value = { ...row, ...detail }
 
     const reportJson = detail.reportJson || detail.report_json

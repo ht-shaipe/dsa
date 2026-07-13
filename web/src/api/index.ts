@@ -3,8 +3,15 @@ import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
 import { ElMessage } from 'element-plus'
 
+function getApiBase(): string {
+  if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
+    return 'http://127.0.0.1:18080/api/v1'
+  }
+  return '/api/v1'
+}
+
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: getApiBase(),
   timeout: 60000,
   headers: { 'Content-Type': 'application/json' },
 })
@@ -20,10 +27,15 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => {
     const body = res.data
-    if (body && typeof body === 'object' && 'code' in body && 'result' in body) {
-      body.data = body.result
+    if (!body || typeof body !== 'object' || !('code' in body)) {
+      return body
     }
-    return body
+    if (body.code !== 200) {
+      const msg = body.message || '请求失败'
+      ElMessage.error(msg)
+      return Promise.reject(new Error(msg))
+    }
+    return body.result
   },
   (err) => {
     if (err.response?.status === 401) {
@@ -39,9 +51,6 @@ api.interceptors.response.use(
   },
 )
 
-/**
- * 统一API调用函数
- */
 export function callApi(module: string, method: string, params: Record<string, any> = {}): Promise<any> {
   return api.post(`/${module}/${method}`, params)
 }

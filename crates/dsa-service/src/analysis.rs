@@ -3,13 +3,16 @@
 //! 主模型: dsa_core::models::db::AnalysisHistory as AnalysisHistoryModel
 //! 使用 deck DataTable/TableService 模式
 
+use dsa_core::db::query_rows;
 use dsa_core::models::AnalysisReport;
 use dsa_core::models::db::AnalysisHistory as AnalysisHistoryModel;
 use dsa_core::utils;
 use dsa_pipeline::pipeline::AnalysisPipeline;
 use dsa_pipeline::report_renderer::ReportRenderer;
-use deck::{DataTable, Helper, QueryExecutor, SelectExecutor, TableService};
-use deck_mysql::DataRow;
+use deck::sqlite::{DataTable, SelectExecutor};
+use deck::QueryExecutor;
+use deck::TableService;
+
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
@@ -172,7 +175,7 @@ impl Analysis {
               FROM analysis_history WHERE status = 1 \
               AND (stock_name LIKE :kw OR analysis_summary LIKE :kw) \
               ORDER BY create_time DESC LIMIT {}", limit);
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             &sql,
             vec![
                 ("kw".to_string(), Value::from(kw_pattern.as_str())),
@@ -180,7 +183,7 @@ impl Analysis {
             &connector,
         )?;
 
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        Ok(rows)
     }
 
     // ─── 业务方法 ────────────────────────────────────────────
