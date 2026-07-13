@@ -29,8 +29,8 @@ fn main() {
             .expect("Failed to build tokio runtime for Actix-web");
 
         rt.block_on(async {
-            dsa_server::setup_database(&conf_clone);
             tube_web::logs::initialize_logging("");
+            dsa_server::setup_database(&conf_clone);
 
             let server_config = dsa_server::ServerConfig {
                 host: "127.0.0.1".to_string(),

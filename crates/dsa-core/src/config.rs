@@ -32,6 +32,8 @@ pub struct AppConfig {
     pub portfolio_risk: PortfolioRiskConfig,
     #[serde(default)]
     pub data_source: DataSourceConfig,
+    #[serde(default)]
+    pub data_sync: DataSyncConfig,
 }
 
 /// 通知渠道配置（钉钉/飞书/企微/Telegram/邮件等）
@@ -460,6 +462,79 @@ impl Default for DataSourceConfig {
     }
 }
 
+/// 数据同步配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataSyncConfig {
+    #[serde(default = "default_sync_boards")]
+    pub boards: Vec<String>,
+    #[serde(default = "default_true")]
+    pub exclude_st: bool,
+    #[serde(default = "default_true")]
+    pub exclude_new_stock: bool,
+    #[serde(default = "default_exclude_new_days")]
+    pub exclude_new_stock_days: u32,
+    #[serde(default = "default_true")]
+    pub exclude_delisting_risk: bool,
+    #[serde(default = "default_sync_retention_days")]
+    pub retention_days: u32,
+}
+
+fn default_sync_boards() -> Vec<String> {
+    vec!["sh_main".to_string(), "sz_main".to_string(), "sz_gem".to_string()]
+}
+
+fn default_exclude_new_days() -> u32 { 60 }
+
+fn default_sync_retention_days() -> u32 { 120 }
+
+impl Default for DataSyncConfig {
+    fn default() -> Self {
+        Self {
+            boards: default_sync_boards(),
+            exclude_st: true,
+            exclude_new_stock: true,
+            exclude_new_stock_days: 60,
+            exclude_delisting_risk: true,
+            retention_days: 120,
+        }
+    }
+}
+
+impl DataSyncConfig {
+    pub fn should_include_code(&self, code: &str, name: &str) -> bool {
+        let code_prefix = if code.len() >= 2 { &code[..2] } else { "" };
+
+        let board_match = self.boards.iter().any(|b| match b.as_str() {
+            "sh_main" => code.starts_with('6') && !code.starts_with("68"),
+            "sh_kj" => code.starts_with("68"),
+            "sz_main" => code.starts_with('0') && !code.starts_with("03"),
+            "sz_gem" => code.starts_with("30"),
+            "bj_main" => code.starts_with('8') || code.starts_with('4'),
+            _ => code_prefix == b.trim_start_matches(['s', 'h', 'z', '_']),
+        });
+
+        if !board_match {
+            return false;
+        }
+
+        if self.exclude_st {
+            let name_upper = name.to_uppercase();
+            if name_upper.contains("ST") || name_upper.contains("*ST") || name_upper.contains("退") {
+                return false;
+            }
+        }
+
+        if self.exclude_delisting_risk {
+            let name_upper = name.to_uppercase();
+            if name_upper.contains("退市") || name_upper.contains("退") {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
 /// HTTP服务配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -737,6 +812,7 @@ impl Default for AppConfig {
             bot: BotConfig::default(),
             portfolio_risk: PortfolioRiskConfig::default(),
             data_source: DataSourceConfig::default(),
+            data_sync: DataSyncConfig::default(),
         }
     }
 }

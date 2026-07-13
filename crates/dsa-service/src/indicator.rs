@@ -33,11 +33,11 @@ impl Indicator {
 
     async fn calc_all(&self) -> Result<Value> {
         let connector = utils::get_db_connector()
-            .map_err(|e| error!("DB连接失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
 
         let sql = "SELECT DISTINCT stock_code, stock_name FROM stock_daily WHERE status = 1 ORDER BY stock_code";
         let rows = query_rows(sql, vec![], &connector)
-            .map_err(|e| error!("查询股票列表失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("查询股票列表失败: {}", e)))?;
 
         let mut success = 0u32;
         let mut failed = 0u32;
@@ -66,7 +66,7 @@ impl Indicator {
 
     async fn calc_stock(&self) -> Result<Value> {
         let connector = utils::get_db_connector()
-            .map_err(|e| error!("DB连接失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
         let code = utils::param_string(self.params(), "code");
         if code.is_empty() {
             return Err(error!("请提供股票代码(code参数)"));
@@ -84,7 +84,7 @@ impl Indicator {
             vec![("code".to_string(), Value::from(code.to_string()))],
             connector,
         )
-        .map_err(|e| error!("查询K线数据失败 {}: {}", code, e))?;
+        .map_err(|e| tube::Error::from(format!("查询K线数据失败 {}: {}", code, e)))?;
 
         if rows.len() < 26 {
             return Ok(value!({"code": code, "skipped": true, "reason": "数据不足26天"}));

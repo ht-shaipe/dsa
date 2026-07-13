@@ -205,12 +205,12 @@ impl Analysis {
             &conf.llm.model,
             conf.llm.temperature,
             conf.llm.timeout_seconds,
-        ).map_err(|e| error!("Pipeline初始化失败: {}", e))?;
+        ).map_err(|e| tube::Error::from(format!("Pipeline初始化失败: {}", e)))?;
 
         let kline_data = utils::fetch_kline(&code, "daily").await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
         let realtime = utils::fetch_realtime_quote(&code).await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
         let market_ctx = utils::fetch_market_context().await;
 
         let stock_name = if name.is_empty() {
@@ -231,14 +231,14 @@ impl Analysis {
                 market_ctx.as_deref(),
             )
             .await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
 
         let renderer = ReportRenderer::new();
         let markdown = renderer.render_markdown(&report);
         let text = renderer.render_text(&report);
 
         let report_json = serde_json::to_value(&report)
-            .map_err(|e| error!("报告序列化失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("报告序列化失败: {}", e)))?;
 
         let mut report_json_for_db = report_json.clone();
         if let serde_json::Value::Object(ref mut map) = report_json_for_db {
@@ -284,7 +284,7 @@ impl Analysis {
             &conf.llm.model,
             conf.llm.temperature,
             conf.llm.timeout_seconds,
-        ).map_err(|e| error!("Pipeline初始化失败: {}", e))?;
+        ).map_err(|e| tube::Error::from(format!("Pipeline初始化失败: {}", e)))?;
 
         let mut results = Vec::new();
         for code in codes {
@@ -310,9 +310,9 @@ impl Analysis {
         code: &str,
     ) -> Result<AnalysisReport> {
         let kline_data = utils::fetch_kline(code, "daily").await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
         let realtime = utils::fetch_realtime_quote(code).await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
         let market_ctx = utils::fetch_market_context().await;
         let name = realtime
             .get("name")
@@ -322,7 +322,7 @@ impl Analysis {
         pipeline
             .analyze_stock(code, &name, &kline_data, Some(&realtime), market_ctx.as_deref())
             .await
-            .map_err(|e| error!("{}", e))
+            .map_err(|e| tube::Error::from(format!("{}", e)))
     }
 
     async fn get_report(&self) -> Result<Value> {
@@ -353,7 +353,7 @@ impl Analysis {
     async fn market_review(&self) -> Result<Value> {
         let gen = dsa_pipeline::market_review::MarketReviewGenerator::new();
         gen.generate(self.params()).await
-            .map_err(|e| error!("{}", e))
+            .map_err(|e| tube::Error::from(format!("{}", e)))
     }
 
     async fn history_list(&self) -> Result<Value> {

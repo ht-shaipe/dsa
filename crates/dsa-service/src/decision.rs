@@ -283,7 +283,7 @@ impl Decision {
             sentiment_score, &confidence_level,
             entry_price, stop_loss, target_price,
             &reasoning, &evidence, scope_val, analysis_id,
-        ).map_err(|e| error!("创建决策信号失败: {}", e))?;
+        ).map_err(|e| tube::Error::from(format!("创建决策信号失败: {}", e)))?;
 
         Ok(value!({
             "id": result, "code": code, "action": action, "duplicate": false
@@ -348,7 +348,7 @@ impl Decision {
         p.push(("limit".to_string(), Value::from(limit)));
 
         let rows = query_rows(&sql, p, &connector)
-            .map_err(|e| error!("查询决策信号列表失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("查询决策信号列表失败: {}", e)))?;
 
         Ok(Value::Array(rows))
     }
@@ -479,7 +479,7 @@ impl Decision {
         let sql = "SELECT id, stock_code, action, entry_price, stop_loss, target_price, create_time \
              FROM decision_signals WHERE status = 1 AND create_time < DATE_SUB(NOW(), INTERVAL 1 DAY)";
         let rows = query_rows(sql, vec![], &connector)
-            .map_err(|e| error!("查询活跃信号失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("查询活跃信号失败: {}", e)))?;
 
         let mut reassessed = 0i64;
         let real = Real::new();
@@ -549,7 +549,7 @@ impl Decision {
         let sql = "SELECT id, stock_code, reasoning, evidence, entry_price, stop_loss, target_price \
              FROM decision_signals WHERE id = :id";
         let rows = query_rows(sql, vec![("id".to_string(), Value::from(signal_id))], &connector)
-            .map_err(|e| error!("查询信号详情失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("查询信号详情失败: {}", e)))?;
 
         if rows.is_empty() {
             return Ok(Value::Null);
@@ -642,7 +642,7 @@ impl Decision {
 
         let tracker = dsa_backtest::SignalTracker::new();
         let outcomes = tracker.evaluate_outcomes(eval_window).await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
 
         Ok(Value::Array(outcomes))
     }
@@ -673,7 +673,7 @@ impl Decision {
         };
 
         let rows = query_rows(&sql, p, &connector)
-            .map_err(|e| error!("查询信号统计失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("查询信号统计失败: {}", e)))?;
 
         if rows.is_empty() {
             return Ok(value!({

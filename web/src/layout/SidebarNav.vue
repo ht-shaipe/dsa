@@ -7,8 +7,8 @@
       class="sidebar-menu"
     >
       <div class="logo-area">
+        <img src="@/assets/icon.png" class="logo-icon" />
         <span v-if="!appStore.sidebarCollapsed" class="logo-text">DSA</span>
-        <span v-else class="logo-text-mini">D</span>
       </div>
 
       <el-menu-item index="/">
@@ -55,10 +55,7 @@
         <el-icon><Setting /></el-icon>
         <template #title>系统设置</template>
       </el-menu-item>
-      <el-menu-item index="/guide">
-        <el-icon><Document /></el-icon>
-        <template #title>使用手册</template>
-      </el-menu-item>
+
     </el-menu>
   </el-scrollbar>
 </template>
@@ -77,21 +74,26 @@ const appStore = useAppStore()
 }
 .sidebar-menu {
   border-right: none;
+  background: transparent;
+  --el-menu-item-bg-color: transparent;
+  --el-menu-item-hover-bg-color: var(--el-fill-color-light);
+  --el-menu-item-active-bg-color: var(--el-color-primary-light-9);
 }
 .logo-area {
-  height: 56px;
+  height: 55px;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   border-bottom: 1px solid var(--el-border-color-light);
+}
+.logo-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 .logo-text {
   font-size: 20px;
-  font-weight: bold;
-  color: var(--el-color-primary);
-}
-.logo-text-mini {
-  font-size: 18px;
   font-weight: bold;
   color: var(--el-color-primary);
 }

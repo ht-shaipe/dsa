@@ -28,8 +28,8 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    dsa_server::setup_database(&conf);
     tube_web::logs::initialize_logging("");
+    dsa_server::setup_database(&conf);
 
     let server_config = dsa_server::ServerConfig {
         host: conf.server.host.clone(),

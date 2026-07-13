@@ -110,6 +110,70 @@
         </el-table>
       </el-tab-pane>
 
+      <!-- 数据同步 -->
+      <el-tab-pane label="数据同步" name="data_sync">
+        <el-form :model="dataSyncForm" label-width="130px" style="max-width:650px">
+          <el-divider content-position="left">同步范围</el-divider>
+          <el-form-item label="市场板块">
+            <el-checkbox-group v-model="dataSyncForm.boards">
+              <el-checkbox label="沪市主板" value="sh_main" />
+              <el-checkbox label="深市主板" value="sz_main" />
+              <el-checkbox label="创业板" value="sz_gem" />
+              <el-checkbox label="科创板" value="sh_kj" />
+              <el-checkbox label="北交所" value="bj_main" />
+            </el-checkbox-group>
+          </el-form-item>
+          <el-divider content-position="left">风险过滤</el-divider>
+          <el-form-item label="排除ST股票">
+            <el-switch v-model="dataSyncForm.excludeSt" />
+            <span style="margin-left:8px;color:var(--el-text-color-secondary)">过滤名称含ST/*ST的股票</span>
+          </el-form-item>
+          <el-form-item label="排除退市风险">
+            <el-switch v-model="dataSyncForm.excludeDelistingRisk" />
+            <span style="margin-left:8px;color:var(--el-text-color-secondary)">过滤名称含退市/退的股票</span>
+          </el-form-item>
+          <el-form-item label="排除次新股">
+            <el-switch v-model="dataSyncForm.excludeNewStock" />
+            <span style="margin-left:8px;color:var(--el-text-color-secondary)">上市不足60天的股票波动大、数据少</span>
+          </el-form-item>
+          <el-divider content-position="left">数据管理</el-divider>
+          <el-form-item label="保留天数">
+            <el-input-number v-model="dataSyncForm.retentionDays" :min="60" :max="1000" :step="30" style="width:180px" />
+            <span style="margin-left:8px;color:var(--el-text-color-secondary)">超过此天数的日线数据将被清理</span>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="saveDataSyncConfig" :loading="saving">保存配置</el-button>
+          </el-form-item>
+        </el-form>
+
+        <el-divider content-position="left">操作</el-divider>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px">
+          <el-button type="primary" @click="initDailyData" :loading="syncRunning" :disabled="syncRunning">
+            {{ syncRunning ? '同步进行中...' : '初始化日线数据' }}
+          </el-button>
+          <el-button type="danger" @click="cleanDailyData" :loading="cleaning" :disabled="syncRunning">清理过期数据</el-button>
+          <el-button @click="loadSyncStatus">刷新状态</el-button>
+        </div>
+
+        <el-card v-if="syncStatus.running || syncStatus.total > 0" shadow="never" style="max-width:650px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+            <el-tag :type="syncStatus.running ? 'warning' : 'success'">
+              {{ syncStatus.running ? '同步中' : (syncStatus.phase === 'done' ? '已完成' : '未开始') }}
+            </el-tag>
+            <span v-if="syncStatus.phase && syncStatus.phase !== 'done'" style="color:var(--el-text-color-secondary)">{{ syncStatus.phase }}</span>
+          </div>
+          <el-progress
+            v-if="syncStatus.total > 0"
+            :percentage="Math.round((syncStatus.done / syncStatus.total) * 100)"
+            :status="syncStatus.running ? '' : 'success'"
+            :format="() => `${syncStatus.done} / ${syncStatus.total}`"
+          />
+          <div v-if="syncStatus.failed > 0" style="margin-top:4px;color:var(--el-color-danger)">
+            失败: {{ syncStatus.failed }}
+          </div>
+        </el-card>
+      </el-tab-pane>
+
       <!-- 认证配置 -->
       <el-tab-pane label="认证配置" name="auth">
         <el-form :model="authForm" label-width="120px" style="max-width:400px">
@@ -257,6 +321,19 @@ const authForm = ref({
 })
 const changingPassword = ref(false)
 
+// Data sync
+const dataSyncForm = ref({
+  boards: ['sh_main', 'sz_main', 'sz_gem'] as string[],
+  excludeSt: true,
+  excludeNewStock: true,
+  excludeDelistingRisk: true,
+  retentionDays: 120,
+})
+const syncStatus = ref<Record<string, any>>({})
+const syncRunning = ref(false)
+const cleaning = ref(false)
+let syncPollTimer: ReturnType<typeof setInterval> | null = null
+
 // Intelligence
 const sources = ref<any[]>([])
 const sourceDialogVisible = ref(false)
@@ -306,6 +383,15 @@ async function loadConfig() {
       enabled: !!sched.enabled,
       times: sched.times || ['09:30'],
     }
+    // Load data sync
+    const ds = config.data_sync || config.dataSync || {}
+    dataSyncForm.value = {
+      boards: ds.boards || ['sh_main', 'sz_main', 'sz_gem'],
+      excludeSt: ds.excludeSt ?? ds.exclude_st ?? true,
+      excludeNewStock: ds.excludeNewStock ?? ds.exclude_new_stock ?? true,
+      excludeDelistingRisk: ds.excludeDelistingRisk ?? ds.exclude_delisting_risk ?? true,
+      retentionDays: ds.retentionDays ?? ds.retention_days ?? 120,
+    }
   } catch { /* ignore */ }
 }
 
@@ -346,6 +432,13 @@ async function saveConfig() {
         return n
       })(),
       scheduler: schedulerForm.value,
+      data_sync: {
+        boards: dataSyncForm.value.boards,
+        exclude_st: dataSyncForm.value.excludeSt,
+        exclude_new_stock: dataSyncForm.value.excludeNewStock,
+        exclude_delisting_risk: dataSyncForm.value.excludeDelistingRisk,
+        retention_days: dataSyncForm.value.retentionDays,
+      },
     })
     ElMessage.success('配置已保存')
     loadConfig()
@@ -456,6 +549,71 @@ async function changePassword() {
   } finally {
     changingPassword.value = false
   }
+}
+
+async function loadSyncStatus() {
+  try {
+    const res: any = await systemApi.syncStatus()
+    syncStatus.value = res || {}
+    syncRunning.value = !!res?.running
+    if (res?.config) {
+      dataSyncForm.value = {
+        boards: res.config.boards || ['sh_main', 'sz_main', 'sz_gem'],
+        excludeSt: res.config.excludeSt ?? true,
+        excludeNewStock: res.config.excludeNewStock ?? true,
+        excludeDelistingRisk: res.config.excludeDelistingRisk ?? true,
+        retentionDays: res.config.retentionDays ?? 120,
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+async function initDailyData() {
+  try {
+    const res: any = await systemApi.initDailyData()
+    ElMessage.success(res?.message || '同步已启动')
+    syncRunning.value = true
+    startSyncPolling()
+  } catch {
+    // error already shown by api interceptor
+  }
+}
+
+async function cleanDailyData() {
+  cleaning.value = true
+  try {
+    const res: any = await systemApi.cleanDailyData()
+    ElMessage.success(`已清理 ${res?.deleted ?? 0} 条过期数据`)
+  } catch {
+    // error already shown by api interceptor
+  } finally {
+    cleaning.value = false
+  }
+}
+
+async function saveDataSyncConfig() {
+  saving.value = true
+  try {
+    await systemApi.save({
+      data_sync: dataSyncForm.value,
+    })
+    ElMessage.success('数据同步配置已保存')
+  } catch {
+    // error already shown by api interceptor
+  } finally {
+    saving.value = false
+  }
+}
+
+function startSyncPolling() {
+  if (syncPollTimer) clearInterval(syncPollTimer)
+  syncPollTimer = setInterval(() => {
+    loadSyncStatus()
+    if (!syncRunning.value && syncPollTimer) {
+      clearInterval(syncPollTimer)
+      syncPollTimer = null
+    }
+  }, 3000)
 }
 
 // Intelligence
@@ -619,6 +777,7 @@ onMounted(() => {
   loadSchedulerStatus()
   loadSchedulerJobs()
   loadSources()
+  loadSyncStatus()
 })
 </script>
 

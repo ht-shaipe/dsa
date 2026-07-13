@@ -73,13 +73,13 @@ impl Market {
     async fn review(&self) -> Result<Value> {
         let gen = dsa_pipeline::market_review::MarketReviewGenerator::new();
         gen.generate(&value!({})).await
-            .map_err(|e| error!("生成市场回顾失败: {}", e))
+            .map_err(|e| tube::Error::from(format!("生成市场回顾失败: {}", e)))
     }
 
     async fn hot_sectors(&self) -> Result<Value> {
         let complex = Complex::get_hot_stock()
             .await
-            .map_err(|e| error!("获取热门板块失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取热门板块失败: {}", e)))?;
         Ok(complex)
     }
 
@@ -88,7 +88,7 @@ impl Market {
         let spot = em
             .stock_zh_a_spot()
             .await
-            .map_err(|e| error!("获取热门股票失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取热门股票失败: {}", e)))?;
 
         let hot: Vec<Value> = spot.into_iter().take(20).collect();
         Ok(Value::Array(hot))
@@ -103,7 +103,7 @@ impl Market {
         let data = real
             .get_price(&code)
             .await
-            .map_err(|e| error!("获取指数失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取指数失败: {}", e)))?;
         Ok(data)
     }
 
@@ -116,7 +116,7 @@ impl Market {
         let dates = basic
             .get_trade_calendar(&market)
             .await
-            .map_err(|e| error!("获取交易日历失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取交易日历失败: {}", e)))?;
         let data: Vec<Value> = dates.iter().map(|d| Value::from(d.as_str())).collect();
         Ok(Value::Array(data))
     }

@@ -1,6 +1,6 @@
 <template>
   <el-container class="app-layout">
-    <el-aside :width="appStore.sidebarCollapsed ? '64px' : '220px'" class="app-aside">
+    <el-aside :width="appStore.sidebarCollapsed ? '64px' : '160px'" class="app-aside">
       <SidebarNav />
     </el-aside>
     <el-container>
@@ -34,7 +34,7 @@ onMounted(() => {
   height: 100vh;
 }
 .app-aside {
-  background: var(--el-menu-bg-color);
+  background: var(--dsa-bg);
   border-right: 1px solid var(--el-border-color-light);
   transition: width 0.3s;
   overflow: hidden;

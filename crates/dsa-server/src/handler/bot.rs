@@ -17,5 +17,5 @@ pub async fn distribute(param: &RequestParameter) -> Result<Value> {
         .dispatch(&raw_message, &context)
         .await
         .map(|text| value!({"response": text}))
-        .map_err(|e| error!("{}", e))
+        .map_err(|e| { let msg = format!("{}", e); error!("{}", &msg); tube::Error::from(msg) })
 }

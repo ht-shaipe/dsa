@@ -133,6 +133,9 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
         Ok(c) => c,
         Err(_) => return,
     };
+    let is_sqlite = crate::get_global_config().database.is_sqlite();
+    let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+
     let stock_name = match crate::db::query_rows(
         "SELECT stock_name FROM stock_daily WHERE stock_code = :code AND stock_name != '' AND status >= 1 LIMIT 1",
         vec![("code".to_string(), Value::from(code.to_string()))],
@@ -141,16 +144,34 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
         Ok(rows) => crate::db::first_row_string(&rows, "stockName"),
         Err(_) => String::new(),
     };
-    for bar in bars.iter().rev().take(max_count) {
-        let sql = "INSERT INTO stock_daily \
+
+    let sql = if is_sqlite {
+        format!(
+            "INSERT INTO stock_daily \
              (stock_code, stock_name, trade_date, open, high, low, close, volume, amount, status, create_time) \
-             VALUES (:code, :name, :date, :open, :high, :low, :close, :vol, :amt, 1, NOW()) \
+             VALUES (:code, :name, :date, :open, :high, :low, :close, :vol, :amt, 1, {}) \
+             ON CONFLICT(stock_code, trade_date) DO UPDATE SET \
+             stock_name=CASE WHEN excluded.stock_name != '' THEN excluded.stock_name ELSE stock_daily.stock_name END, \
+             open=excluded.open, high=excluded.high, low=excluded.low, \
+             close=excluded.close, volume=excluded.volume, amount=excluded.amount",
+            now_expr
+        )
+    } else {
+        format!(
+            "INSERT INTO stock_daily \
+             (stock_code, stock_name, trade_date, open, high, low, close, volume, amount, status, create_time) \
+             VALUES (:code, :name, :date, :open, :high, :low, :close, :vol, :amt, 1, {}) \
              ON DUPLICATE KEY UPDATE \
              stock_name=IF(VALUES(stock_name)!='', VALUES(stock_name), stock_name), \
              open=VALUES(open), high=VALUES(high), low=VALUES(low), \
-             close=VALUES(close), volume=VALUES(volume), amount=VALUES(amount)";
+             close=VALUES(close), volume=VALUES(volume), amount=VALUES(amount)",
+            now_expr
+        )
+    };
+
+    for bar in bars.iter().rev().take(max_count) {
         let _ = crate::db::execute(
-            sql,
+            &sql,
             vec![
                 ("code".to_string(), Value::from(code.to_string())),
                 ("name".to_string(), Value::from(stock_name.as_str())),

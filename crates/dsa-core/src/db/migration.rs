@@ -434,6 +434,16 @@ fn run_column_migrations_mysql(connector: &Connector) {
              CHANGE COLUMN `create_time` `createTime` DATETIME DEFAULT CURRENT_TIMESTAMP, \
              CHANGE COLUMN `modify_time` `modifyTime` DATETIME DEFAULT CURRENT_TIMESTAMP",
         ),
+        (
+            "v2_watchlist_stocks_snake_case",
+            "ALTER TABLE `watchlist_stocks` \
+             CHANGE COLUMN `stockCode` `stock_code` VARCHAR(16) NOT NULL COMMENT '股票代码', \
+             CHANGE COLUMN `stockName` `stock_name` VARCHAR(64) DEFAULT '' COMMENT '股票名称', \
+             CHANGE COLUMN `groupName` `group_name` VARCHAR(32) DEFAULT 'default' COMMENT '分组', \
+             CHANGE COLUMN `sortOrder` `sort_order` INT DEFAULT 1 COMMENT '排序权重', \
+             CHANGE COLUMN `createTime` `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP, \
+             CHANGE COLUMN `modifyTime` `modify_time` DATETIME DEFAULT CURRENT_TIMESTAMP",
+        ),
     ];
 
     for (version, sql) in &migrations {
@@ -455,6 +465,9 @@ fn run_alter_migrations_mysql(connector: &Connector) {
         ("v0_analysis_history_context_snapshot_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN context_snapshot MEDIUMTEXT"),
         ("v0_analysis_history_news_content_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN news_content MEDIUMTEXT"),
         ("v1_stock_daily_add_macd_columns", "ALTER TABLE stock_daily ADD COLUMN IF NOT EXISTS `ma60` DOUBLE NOT NULL DEFAULT 0 COMMENT '60日均线', ADD COLUMN IF NOT EXISTS `dif` DOUBLE NOT NULL DEFAULT 0 COMMENT 'MACD DIF值', ADD COLUMN IF NOT EXISTS `dea` DOUBLE NOT NULL DEFAULT 0 COMMENT 'MACD DEA值', ADD COLUMN IF NOT EXISTS `macd_hist` DOUBLE NOT NULL DEFAULT 0 COMMENT 'MACD柱状值'"),
+        ("v3_stock_daily_unique_index", "ALTER TABLE stock_daily ADD UNIQUE INDEX `idx_stock_daily_code_date` (`stock_code`, `trade_date`)"),
+        ("v3_stock_daily_date_index", "ALTER TABLE stock_daily ADD INDEX `idx_stock_daily_date` (`trade_date`)"),
+        ("v3_stock_daily_status_index", "ALTER TABLE stock_daily ADD INDEX `idx_stock_daily_code_status` (`stock_code`, `status`)"),
     ];
 
     for (version, sql) in &alters {
@@ -536,6 +549,15 @@ fn run_alter_migrations_sqlite(connector: &Connector) {
         ("v1_stock_daily_add_dif", "ALTER TABLE stock_daily ADD COLUMN \"dif\" REAL NOT NULL DEFAULT 0"),
         ("v1_stock_daily_add_dea", "ALTER TABLE stock_daily ADD COLUMN \"dea\" REAL NOT NULL DEFAULT 0"),
         ("v1_stock_daily_add_macd_hist", "ALTER TABLE stock_daily ADD COLUMN \"macd_hist\" REAL NOT NULL DEFAULT 0"),
+        ("v2_watchlist_stocks_stock_code", "ALTER TABLE \"watchlist_stocks\" RENAME COLUMN \"stockCode\" TO \"stock_code\""),
+        ("v2_watchlist_stocks_stock_name", "ALTER TABLE \"watchlist_stocks\" RENAME COLUMN \"stockName\" TO \"stock_name\""),
+        ("v2_watchlist_stocks_group_name", "ALTER TABLE \"watchlist_stocks\" RENAME COLUMN \"groupName\" TO \"group_name\""),
+        ("v2_watchlist_stocks_sort_order", "ALTER TABLE \"watchlist_stocks\" RENAME COLUMN \"sortOrder\" TO \"sort_order\""),
+        ("v2_watchlist_stocks_create_time", "ALTER TABLE \"watchlist_stocks\" RENAME COLUMN \"createTime\" TO \"create_time\""),
+        ("v2_watchlist_stocks_modify_time", "ALTER TABLE \"watchlist_stocks\" RENAME COLUMN \"modifyTime\" TO \"modify_time\""),
+        ("v3_stock_daily_unique_index", "CREATE UNIQUE INDEX IF NOT EXISTS \"idx_stock_daily_code_date\" ON \"stock_daily\" (\"stock_code\", \"trade_date\")"),
+        ("v3_stock_daily_date_index", "CREATE INDEX IF NOT EXISTS \"idx_stock_daily_date\" ON \"stock_daily\" (\"trade_date\")"),
+        ("v3_stock_daily_status_index", "CREATE INDEX IF NOT EXISTS \"idx_stock_daily_code_status\" ON \"stock_daily\" (\"stock_code\", \"status\")"),
     ];
 
     for (version, sql) in &alters {

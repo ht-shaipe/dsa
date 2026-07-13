@@ -34,6 +34,24 @@ impl Backtest {
         dsa_core::db::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))
     }
 
+    fn is_sqlite(&self) -> bool {
+        dsa_core::get_global_config().database.is_sqlite()
+    }
+
+    fn now_expr(&self) -> &'static str {
+        if self.is_sqlite() { "datetime('now')" } else { "NOW()" }
+    }
+
+    fn date_sub_days_expr(&self, days: i64) -> String {
+        if self.is_sqlite() {
+            let now = chrono::Local::now();
+            let target = now - chrono::Duration::days(days);
+            format!("'{}'", target.format("%Y-%m-%d"))
+        } else {
+            format!("DATE_SUB(CURDATE(), INTERVAL {} DAY)", days)
+        }
+    }
+
     async fn evaluate(&self) -> Result<Value> {
         let params = self.params();
         let signal_id = utils::param_i64(params, "signalId");
@@ -217,20 +235,21 @@ impl Backtest {
             || (direction_expected == "down" && stock_return_pct < 0.0)
             || direction_expected == "neutral";
 
-        let insert_sql = "INSERT INTO backtest_results \
+        let now = self.now_expr();
+        let insert_sql = format!("INSERT INTO backtest_results \
              (analysis_id, stock_code, signal_date, decision_action, simulated_entry, simulated_exit, \
               return_pct, max_drawdown, direction_correct, scope_type, status, create_time, \
               eval_window_days, eval_status, evaluated_at, start_price, end_close, max_high, min_low, \
               stock_return_pct, direction_expected, outcome, stop_loss_price, take_profit_price, \
               hit_stop_loss, hit_take_profit, operation_advice) \
              VALUES (:aid, :code, :sdate, :action, :entry, :exit, \
-              :ret, :dd, :dir_correct, 'watchlist', 1, NOW(), \
-              :ew, 'completed', NOW(), :sp, :ec, :mh, :ml, \
+              :ret, :dd, :dir_correct, 'watchlist', 1, {now}, \
+              :ew, 'completed', {now}, :sp, :ec, :mh, :ml, \
               :sr, :de, :outcome, :sl, :tp, \
-              :hit_sl, :hit_tp, :oa)";
+              :hit_sl, :hit_tp, :oa)");
 
         let result = execute(
-            insert_sql,
+            &insert_sql,
             vec![
                 ("aid".to_string(), Value::from(analysis_id)),
                 ("code".to_string(), Value::from(stock_code.as_str())),
@@ -262,8 +281,9 @@ impl Backtest {
         )
         .map_err(|e| tube::Error::msg(format!("保存回测结果失败: {}", e)))?;
 
+        let now = self.now_expr();
         let _ = execute(
-            "UPDATE decision_signals SET status = 4, modify_time = NOW() WHERE id = :id",
+            &format!("UPDATE decision_signals SET status = 4, modify_time = {} WHERE id = :id", now),
             vec![("id".to_string(), Value::from(signal_id))],
             &connector,
         );
@@ -295,13 +315,13 @@ impl Backtest {
         let conf = dsa_core::get_global_config();
         let eval_window = conf.backtest.eval_window_days;
 
-        let sql = "SELECT id FROM decision_signals \
-             WHERE status = 1 AND signal_date < DATE_SUB(CURDATE(), INTERVAL :ew DAY) \
-             ORDER BY signal_date ASC LIMIT :limit";
+        let date_sub = self.date_sub_days_expr(eval_window as i64);
+        let sql = format!("SELECT id FROM decision_signals \
+             WHERE status = 1 AND signal_date < {} \
+             ORDER BY signal_date ASC LIMIT :limit", date_sub);
         let rows = query_rows(
-            sql,
+            &sql,
             vec![
-                ("ew".to_string(), Value::from(eval_window as i64)),
                 ("limit".to_string(), Value::from(limit)),
             ],
             &connector,
@@ -372,7 +392,8 @@ impl Backtest {
              AVG(CASE WHEN outcome = 'win' THEN stock_return_pct ELSE NULL END) as avg_win, \
              AVG(CASE WHEN outcome = 'loss' THEN stock_return_pct ELSE NULL END) as avg_loss, \
              MAX(max_drawdown) as max_drawdown, \
-             STDDEV(stock_return_pct) as std_return \
+             SUM(stock_return_pct * stock_return_pct) as sum_sq_return, \
+             SUM(stock_return_pct) as sum_return \
              FROM backtest_results WHERE {}",
             where_clause
         );
@@ -402,7 +423,14 @@ impl Backtest {
         let _avg_win: f64 = row_get_f64(r, "avgWin");
         let _avg_loss: f64 = row_get_f64(r, "avgLoss");
         let max_dd: f64 = row_get_f64(r, "maxDrawdown");
-        let std_return: f64 = row_get_f64(r, "stdReturn");
+        let sum_sq: f64 = row_get_f64(r, "sumSqReturn");
+        let sum_ret: f64 = row_get_f64(r, "sumReturn");
+        let variance = if total > 1.0 {
+            (sum_sq - sum_ret * sum_ret / total) / total
+        } else {
+            0.0
+        };
+        let std_return: f64 = if variance > 0.0 { variance.sqrt() } else { 0.0 };
 
         let win_rate = if total > 0.0 { wins / total * 100.0 } else { 0.0 };
         let sharpe_ratio = if std_return > 0.0 {

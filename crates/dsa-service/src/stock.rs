@@ -68,7 +68,7 @@ impl Stock {
             let result = Real::new()
                 .get_price(&format!("{}{}", prefix, code))
                 .await
-                .map_err(|e| error!("搜索行情失败: {}", e))?;
+                .map_err(|e| tube::Error::from(format!("搜索行情失败: {}", e)))?;
             Ok(value!([result]))
         } else {
             self.fuzzy_search(&query).await
@@ -175,7 +175,7 @@ impl Stock {
         let quote = qq
             .get_realtime_quote(&symbol)
             .await
-            .map_err(|e| error!("获取行情失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
 
         Ok(quote)
     }
@@ -250,7 +250,7 @@ impl Stock {
         let code = Self::param_code(&self.value());
         let detail = QtaStock::get_detail(&code)
             .await
-            .map_err(|e| error!("获取股票信息失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取股票信息失败: {}", e)))?;
         Ok(detail)
     }
 
@@ -359,7 +359,7 @@ impl Stock {
         let name = utils::param_string(&params, "name");
         let group = utils::param_string(&params, "group");
         let group_val = if group.is_empty() { "default" } else { &group };
-        let sort_order = utils::param_i64(&params, "sortOrder") as i32;
+        let sort_order = utils::param_i64(&params, "sort_order") as i32;
 
         let result = self.add_stock(&code, &name, group_val, sort_order)?;
 
@@ -375,7 +375,7 @@ impl Stock {
             return Ok(value!({"id": id}));
         }
 
-        let code = utils::param_string(&params, "stockCode");
+        let code = utils::param_string(&params, "stock_code");
         if !code.is_empty() {
             if let Some(_) = self.find_existing_by_code(&code)? {
                 self.soft_remove_by_code(&code)?;
@@ -385,7 +385,7 @@ impl Stock {
             return Ok(value!({"stockCode": code}));
         }
 
-        Err(error!("请提供id或stockCode"))
+        Err(error!("请提供id或stock_code"))
     }
 
     async fn watchlist_update(&self) -> Result<Value> {
@@ -399,18 +399,18 @@ impl Stock {
         if let Value::Object(ref mut map) = data {
             let name = utils::param_string(&params, "name");
             if !name.is_empty() {
-                map.insert("stockName".to_string(), Value::from(name));
+                map.insert("stock_name".to_string(), Value::from(name));
             }
             let group = utils::param_string(&params, "group");
             if !group.is_empty() {
-                map.insert("groupName".to_string(), Value::from(group));
+                map.insert("group_name".to_string(), Value::from(group));
             }
             let remark = utils::param_string(&params, "remark");
             if !remark.is_empty() {
                 map.insert("remark".to_string(), Value::from(remark));
             }
-            if let Some(so) = params.get("sortOrder").and_then(|v| v.as_f64()).map(|v| v as i32) {
-                map.insert("sortOrder".to_string(), Value::from(so));
+            if let Some(so) = params.get("sort_order").and_then(|v| v.as_f64()).map(|v| v as i32) {
+                map.insert("sort_order".to_string(), Value::from(so));
             }
         }
 
@@ -463,7 +463,7 @@ impl Stock {
         let data = em
             .stock_zh_a_spot()
             .await
-            .map_err(|e| error!("获取全市场行情失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取全市场行情失败: {}", e)))?;
         Ok(Value::Array(data))
     }
 
@@ -472,7 +472,7 @@ impl Stock {
         let data = basic
             .get_industry()
             .await
-            .map_err(|e| error!("获取行业列表失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取行业列表失败: {}", e)))?;
         Ok(data.into())
     }
 
@@ -481,7 +481,7 @@ impl Stock {
         let data = basic
             .get_concept()
             .await
-            .map_err(|e| error!("获取概念列表失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取概念列表失败: {}", e)))?;
         Ok(data.into())
     }
 
@@ -501,7 +501,7 @@ impl Stock {
             .ok_or_else(|| error!("数据库连接未初始化"))?;
         let sql = "SELECT COUNT(*) as cnt FROM watchlist_stocks";
         let rows = dsa_core::db::query_rows(sql, vec![], &connector)
-            .map_err(|e| error!("查询watchlist总数失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("查询watchlist总数失败: {}", e)))?;
         Ok(dsa_core::db::first_row_i64(&rows, "cnt"))
     }
 
@@ -527,20 +527,20 @@ impl Stock {
 
     fn soft_remove(&self, id: i64) -> Result<Value> {
         self.update()
-            .data(&value!({ "enabled": 0, "modifyTime": chrono::Local::now().naive_local() }))
+            .data(&value!({ "enabled": 0, "modify_time": chrono::Local::now().naive_local() }))
             .r#where(conds![{ "id" = id }])
             .execute()
     }
 
     fn hard_remove_by_code(&self, code: &str) -> Result<Value> {
         self.delete()
-            .r#where(conds![{ "stockCode" = code }])
+            .r#where(conds![{ "stock_code" = code }])
             .execute()
     }
 
     fn soft_remove_by_code(&self, code: &str) -> Result<Value> {
         self.update()
-            .data(&value!({ "enabled": 0, "modifyTime": chrono::Local::now().naive_local() }))
+            .data(&value!({ "enabled": 0, "modify_time": chrono::Local::now().naive_local() }))
             .r#where(conds![{ "stock_code" = code }])
             .execute()
     }
@@ -548,7 +548,7 @@ impl Stock {
     fn update_fields(&self, id: i64, data: &Value) -> Result<Value> {
         let mut d = data.clone();
         d["id"] = value!(id);
-        d["modifyTime"] = value!(chrono::Local::now().naive_local());
+        d["modify_time"] = value!(chrono::Local::now().naive_local());
         self.update()
             .data(&d)
             .r#where(conds![{ "id" = id }])
@@ -557,14 +557,14 @@ impl Stock {
 
     fn disable_all(&self) -> Result<Value> {
         self.update()
-            .data(&value!({ "enabled": 0, "modifyTime": chrono::Local::now().naive_local() }))
+            .data(&value!({ "enabled": 0, "modify_time": chrono::Local::now().naive_local() }))
             .r#where(conds![{ "enabled" = 1 }])
             .execute()
     }
 
     fn find_existing_by_code(&self, code: &str) -> Result<Option<Value>> {
         let res = self.select()
-            .r#where(conds![{ "stockCode" = code }])
+            .r#where(conds![{ "stock_code" = code }])
             .one()?;
         Ok(if res.is_null() { None } else { Some(res) })
     }
@@ -572,10 +572,10 @@ impl Stock {
     fn re_enable_with_name(&self, code: &str, name: &str, sort: i32) -> Result<Value> {
         self.update()
             .data(&value!({
-                "stockName": name,
+                "stock_name": name,
                 "enabled": 1,
-                "sortOrder": sort,
-                "modifyTime": chrono::Local::now().naive_local()
+                "sort_order": sort,
+                "modify_time": chrono::Local::now().naive_local()
             }))
             .r#where(conds![{ "stock_code" = code }])
             .execute()

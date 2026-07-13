@@ -200,7 +200,7 @@ async function saveEdit() {
       id: editForm.value.id,
       name: editForm.value.stockName,
       group: editForm.value.groupName,
-      sortOrder: editForm.value.sortOrder,
+      sort_order: editForm.value.sortOrder,
       remark: editForm.value.remark,
     })
     ElMessage.success('已更新')

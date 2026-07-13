@@ -82,7 +82,7 @@ impl Screening {
         let spot = em
             .stock_zh_a_spot()
             .await
-            .map_err(|e| error!("获取行情失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
 
         let codes: Vec<String> = spot
             .iter()
@@ -267,9 +267,9 @@ impl Screening {
     async fn hotspots(&self) -> Result<Value> {
         let em = EastMoney::new();
         let industry = em.sector_rank("industry").await
-            .map_err(|e| error!("获取行业热点失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取行业热点失败: {}", e)))?;
         let concept = em.sector_rank("concept").await
-            .map_err(|e| error!("获取概念热点失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取概念热点失败: {}", e)))?;
 
         let mut all: Vec<Value> = Vec::new();
         all.extend(industry.into_iter().take(10));
@@ -336,7 +336,7 @@ impl Screening {
         let spot = em
             .stock_zh_a_spot()
             .await
-            .map_err(|e| error!("获取行情失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
 
         let results: Vec<Value> = match strategy.as_str() {
             "dual_low" => Self::filter_dual_low(&spot, limit),
@@ -351,7 +351,7 @@ impl Screening {
 
     async fn filter_macd_golden_cross(&self, limit: usize) -> Result<Value> {
         let connector = get_db_connector()
-            .map_err(|e| error!("DB连接失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
 
         let sql = "SELECT sd.stock_code, sd.stock_name, sd.close, sd.ma60, sd.dif, sd.dea, sd.macd_hist, \
              sd.trade_date, sd.pct_chg, sd.volume, sd.amount, sd.turnover_rate, sd.volume_ratio \
@@ -365,7 +365,7 @@ impl Screening {
              ORDER BY sd.macd_hist DESC";
 
         let rows = query_rows(sql, vec![], &connector)
-            .map_err(|e| error!("查询MACD零上金叉候选失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("查询MACD零上金叉候选失败: {}", e)))?;
 
         let analyzer = TechnicalAnalyzer::new();
         let mut results: Vec<Value> = Vec::new();
@@ -386,7 +386,7 @@ impl Screening {
                 vec![("code".to_string(), Value::from(code_val.to_string()))],
                 &connector,
             )
-            .map_err(|e| error!("查询MACD历史失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("查询MACD历史失败: {}", e)))?;
 
             if hist_rows.len() < 2 {
                 checked += 1;
