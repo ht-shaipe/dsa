@@ -94,8 +94,15 @@ impl BaseAgent for RiskAgent {
             "temperature": 0.2,
         });
 
+        let start = std::time::Instant::now();
         let response = self.llm.chat(&body).await
             .map_err(|e| DsaError::LlmAnalysis(format!("风控Agent调用LLM失败: {}", e)))?;
+        let elapsed = start.elapsed().as_millis() as i64;
+
+        let conf = dsa_core::get_global_config();
+        dsa_core::utils::record_llm_usage_from_response(
+            &response, &conf.llm.provider, &self.model, "agent_risk", elapsed, &code,
+        );
 
         let content = response.get("choices")
             .and_then(|c| Value::as_array(c))

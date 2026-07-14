@@ -65,6 +65,8 @@ impl Analysis {
             Err(_) => "{}".to_string(),
         };
 
+        let conf = dsa_core::get_global_config();
+
         let data = value!({
             "stock_code": code,
             "stock_name": name,
@@ -76,6 +78,8 @@ impl Analysis {
             "report_json": report_json_str,
             "report_type": "full",
             "status": 1,
+            "llm_provider": &conf.llm.provider,
+            "llm_model": &conf.llm.model,
         });
 
         let _ = self.duplicate().data(&data).execute();
@@ -292,7 +296,17 @@ impl Analysis {
                 Ok(report) => {
                     let renderer = ReportRenderer::new();
                     let text = renderer.render_text(&report);
+                    let markdown = renderer.render_markdown(&report);
                     let json = serde_json::to_value(&report).unwrap_or_default();
+
+                    let name = report.stock_name.clone().unwrap_or_else(|| code.clone());
+                    let mut json_for_db = json.clone();
+                    if let serde_json::Value::Object(ref mut map) = json_for_db {
+                        map.insert("markdown".to_string(), serde_json::Value::String(markdown.clone()));
+                        map.insert("text".to_string(), serde_json::Value::String(text.clone()));
+                    }
+                    self.save_report_to_db(&code, &name, &report, &json_for_db);
+
                     results.push(value!({"code": code, "status": "ok", "text": text, "report": json}));
                 }
                 Err(e) => {

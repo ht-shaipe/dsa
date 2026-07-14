@@ -193,7 +193,7 @@ impl AnalysisPipeline {
 
     fn find_matching_brace(s: &str) -> Option<usize> {
         let mut depth = 0i32;
-        for (i, (byte_idx, ch)) in s.char_indices().enumerate() {
+        for (_i, (byte_idx, ch)) in s.char_indices().enumerate() {
             match ch {
                 '{' => depth += 1,
                 '}' => {

@@ -5,6 +5,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center">
           <span>自选股管理</span>
           <div style="display:flex;gap:8px;align-items:center">
+            <el-button :icon="Refresh" circle :loading="refreshing" @click="handleRefreshQuotes" title="刷新行情" />
             <StockAutocomplete
               v-model="searchText"
               @select="(code: string, name: string) => { addStock(code, name); searchText = '' }"
@@ -98,6 +99,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import { stockApi } from '@/api/stock'
 import { useTradingInterval } from '@/composables/useTradingInterval'
@@ -106,6 +108,7 @@ const router = useRouter()
 const stocks = ref<any[]>([])
 const loading = ref(false)
 const saving = ref(false)
+const refreshing = ref(false)
 const editVisible = ref(false)
 const editForm = ref<Record<string, any> | null>(null)
 const searchText = ref('')
@@ -128,7 +131,6 @@ async function loadList() {
   } finally {
     loading.value = false
   }
-  refreshQuotes()
   quoteTimer.start()
 }
 
@@ -143,18 +145,37 @@ async function refreshQuotes() {
     for (const q of list) {
       map.set(q.code || q.symbol, q)
     }
-    for (const s of stocks.value) {
+    stocks.value = stocks.value.map(s => {
       const code = s.stockCode || s.code
       const q = map.get(code)
-      if (!q) continue
-      s.close = q.close ?? q.price ?? s.close
-      s.price = q.price ?? q.close ?? s.price
-      if (q.changePercent != null) s.changePercent = q.changePercent
-      if (q.change != null) s.change = q.change
-      if (q.volume != null) s.volume = q.volume
-      if (q.turnoverRate != null) s.turnoverRate = q.turnoverRate
-    }
+      if (!q) return s
+      return {
+        ...s,
+        close: q.close ?? q.price ?? s.close,
+        price: q.price ?? q.close ?? s.price,
+        open: q.open ?? s.open,
+        high: q.high ?? s.high,
+        low: q.low ?? s.low,
+        changePercent: q.changePercent ?? s.changePercent,
+        change: q.change ?? s.change,
+        volume: q.volume ?? s.volume,
+        turnoverRate: q.turnoverRate ?? s.turnoverRate,
+        amount: q.amount ?? s.amount,
+      }
+    })
   } catch { /* ignore */ }
+}
+
+async function handleRefreshQuotes() {
+  refreshing.value = true
+  try {
+    const res: any = await stockApi.watchlist()
+    const list = Array.isArray(res) ? res : []
+    stocks.value = list
+  } catch { /* ignore */ }
+  finally {
+    refreshing.value = false
+  }
 }
 
 async function addStock(code: string, name: string) {

@@ -1,10 +1,10 @@
-use dsa_core::db::{execute, query_rows, row_get_f64, row_get_string, row_get_value};
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_string};
 use dsa_core::models::db::AlertCooldown as AlertCooldownModel;
 use dsa_core::models::db::AlertNotification as AlertNotificationModel;
 use dsa_core::models::db::AlertRule as AlertRuleModel;
 use dsa_core::models::db::AlertTrigger as AlertTriggerModel;
 use dsa_core::utils;
-use deck::sqlite::{DataTable, SelectExecutor};
+use deck::sqlite::DataTable;
 use deck::TableService;
 
 use qta_crawler::Real;

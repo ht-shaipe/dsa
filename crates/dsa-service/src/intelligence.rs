@@ -278,6 +278,8 @@ impl Intelligence {
             _ => vec![],
         };
 
+        Self::update_source_fetch_status(source_id, "success", items.len() as i64);
+
         Ok(value!({
             "sourceId": source_id,
             "fetchedCount": items.len() as i64,
@@ -303,7 +305,9 @@ impl Intelligence {
                 "api" => self.fetch_api(source_id, &url_template, &market).await?,
                 _ => vec![],
             };
-            total_fetched += items.len() as i64;
+            let count = items.len() as i64;
+            Self::update_source_fetch_status(source_id, "success", count);
+            total_fetched += count;
         }
 
         Ok(value!({
@@ -598,6 +602,19 @@ impl Intelligence {
         }
 
         Ok(items)
+    }
+
+    fn update_source_fetch_status(source_id: i64, status: &str, _fetched_count: i64) {
+        let connector = match utils::get_db_connector() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let sql = "UPDATE intelligence_sources SET last_fetched_at = NOW(), last_status = :status, \
+              modify_time = NOW() WHERE id = :id";
+        let _ = execute(sql, vec![
+            ("status".to_string(), Value::from(status.to_string())),
+            ("id".to_string(), Value::from(source_id)),
+        ], &connector);
     }
 
     fn extract_xml_items(xml: &str) -> Vec<String> {

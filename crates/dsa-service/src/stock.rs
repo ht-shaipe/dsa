@@ -207,9 +207,9 @@ impl Stock {
         let code = Self::param_code(&params);
         let period = utils::param_string(&params, "period");
         let period_str = if period.is_empty() { "daily" } else { &period };
-        let start_date = utils::param_string(&params, "startDate");
-        let end_date = utils::param_string(&params, "endDate");
-        let adjust = utils::param_string(&params, "adjust");
+        let _start_date = utils::param_string(&params, "startDate");
+        let _end_date = utils::param_string(&params, "endDate");
+        let _adjust = utils::param_string(&params, "adjust");
 
         let scale: u32 = match period_str {
             "weekly" => 1200,

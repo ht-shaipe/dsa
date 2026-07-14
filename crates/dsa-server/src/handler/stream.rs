@@ -72,7 +72,7 @@ async fn resolve_name_online(keyword: &str) -> Option<(String, String)> {
         let mkt = item.get("MktNum").and_then(|m| m.as_str()).unwrap_or_default();
         let pure_code = if code.len() >= 6 { &code[code.len()-6..] } else { code };
         if pure_code.starts_with('6') || pure_code.starts_with('0') || pure_code.starts_with('3') {
-            let full_code = if mkt == "1" { format!("sh{}", pure_code) } else { format!("sz{}", pure_code) };
+            let _full_code = if mkt == "1" { format!("sh{}", pure_code) } else { format!("sz{}", pure_code) };
             return Some((pure_code.to_string(), name.to_string()));
         }
     }

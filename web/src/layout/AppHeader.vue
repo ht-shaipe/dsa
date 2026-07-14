@@ -1,23 +1,22 @@
 <template>
-  <div class="app-header-inner">
-    <el-icon class="collapse-btn" @click="appStore.toggleSidebar">
-      <Fold v-if="!appStore.sidebarCollapsed" />
-      <Expand v-else />
-    </el-icon>
+  <div class="app-header-inner" data-tauri-drag-region>
+    <div class="header-left" data-tauri-drag-region>
+      <div class="traffic-light-space"></div>
+      <el-icon class="collapse-btn" @click="appStore.toggleSidebar">
+        <Fold v-if="!appStore.sidebarCollapsed" />
+        <Expand v-else />
+      </el-icon>
+    </div>
+    <div class="header-center" data-tauri-drag-region>
+      <span class="app-title">DSA - Daily Stock Analysis</span>
+    </div>
     <div class="header-right">
-      <el-switch
-        v-model="isDark"
-        active-text="暗色"
-        inactive-text="亮色"
-        @change="() => {}"
-        style="--el-switch-on-color: #2c2c2c"
-      />
-      <el-tooltip content="使用帮助" placement="bottom">
-        <el-icon class="help-btn" @click="helpDrawer = true"><QuestionFilled /></el-icon>
-      </el-tooltip>
       <el-dropdown @command="handleCommand">
         <span class="user-dropdown">
-          <el-icon><User /></el-icon>
+          <el-avatar :size="22" :icon="User" :src="authStore.avatarUrl" />
+          <span v-if="authStore.userInfo?.name || authStore.userInfo?.mobile" class="user-name">
+            {{ authStore.userInfo?.name || authStore.userInfo?.mobile }}
+          </span>
         </span>
         <template #dropdown>
           <el-dropdown-menu>
@@ -25,6 +24,32 @@
           </el-dropdown-menu>
         </template>
       </el-dropdown>
+      <el-dropdown trigger="click" @command="handleThemeChange">
+        <el-icon class="theme-btn" :title="themeTooltip">
+          <Sunny v-if="appStore.themeMode === 'light'" />
+          <Moon v-else-if="appStore.themeMode === 'dark'" />
+          <Monitor v-else />
+        </el-icon>
+        <template #dropdown>
+          <el-dropdown-menu>
+            <el-dropdown-item command="system" :class="{ 'is-active': appStore.themeMode === 'system' }">
+              <el-icon><Monitor /></el-icon>
+              <span>跟随系统</span>
+            </el-dropdown-item>
+            <el-dropdown-item command="light" :class="{ 'is-active': appStore.themeMode === 'light' }">
+              <el-icon><Sunny /></el-icon>
+              <span>亮色模式</span>
+            </el-dropdown-item>
+            <el-dropdown-item command="dark" :class="{ 'is-active': appStore.themeMode === 'dark' }">
+              <el-icon><Moon /></el-icon>
+              <span>暗色模式</span>
+            </el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
+      <el-tooltip content="使用帮助" placement="bottom">
+        <el-icon class="help-btn" @click="helpDrawer = true"><QuestionFilled /></el-icon>
+      </el-tooltip>
     </div>
 
     <el-drawer v-model="helpDrawer" title="使用帮助" size="520px" :append-to-body="true">
@@ -153,15 +178,23 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
-import { QuestionFilled } from '@element-plus/icons-vue'
+import { QuestionFilled, Sunny, Moon, Monitor } from '@element-plus/icons-vue'
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const router = useRouter()
 
-const isDark = computed({
-  get: () => appStore.isDark,
-  set: () => appStore.toggleTheme(),
+const themeTooltip = computed(() => {
+  switch (appStore.themeMode) {
+    case 'system':
+      return '跟随系统'
+    case 'light':
+      return '亮色模式'
+    case 'dark':
+      return '暗色模式'
+    default:
+      return '主题'
+  }
 })
 
 const helpDrawer = ref(false)
@@ -173,6 +206,12 @@ function handleCommand(cmd: string) {
     router.push('/login')
   }
 }
+
+function handleThemeChange(mode: 'system' | 'light' | 'dark') {
+  appStore.setTheme(mode)
+}
+
+authStore.loadUserInfo()
 </script>
 
 <style scoped lang="scss">
@@ -181,11 +220,48 @@ function handleCommand(cmd: string) {
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  height: 100%;
+  user-select: none;
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  -webkit-app-region: drag;
+}
+.traffic-light-space {
+  width: 78px;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+.header-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: drag;
+}
+.app-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--el-text-color-regular);
+  opacity: 0.8;
+  pointer-events: none;
 }
 .collapse-btn {
   cursor: pointer;
   font-size: 20px;
   color: var(--el-text-color-regular);
+  -webkit-app-region: no-drag;
+  margin-right: 8px;
+  &:hover {
+    color: var(--el-color-primary);
+  }
+}
+.theme-btn {
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--el-text-color-regular);
+  -webkit-app-region: no-drag;
   &:hover {
     color: var(--el-color-primary);
   }
@@ -194,6 +270,7 @@ function handleCommand(cmd: string) {
   cursor: pointer;
   font-size: 18px;
   color: var(--el-text-color-regular);
+  -webkit-app-region: no-drag;
   &:hover {
     color: var(--el-color-primary);
   }
@@ -202,11 +279,21 @@ function handleCommand(cmd: string) {
   display: flex;
   align-items: center;
   gap: 16px;
+  -webkit-app-region: no-drag;
 }
 .user-dropdown {
   cursor: pointer;
   display: flex;
   align-items: center;
+  gap: 6px;
+}
+.user-name {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .help-content {
   ul {
@@ -222,5 +309,11 @@ function handleCommand(cmd: string) {
     background: var(--el-fill-color-light);
     color: var(--el-color-danger);
   }
+}
+
+// 主题下拉菜单样式
+:deep(.el-dropdown-menu__item.is-active) {
+  color: var(--el-color-primary);
+  background-color: var(--el-color-primary-light-9);
 }
 </style>

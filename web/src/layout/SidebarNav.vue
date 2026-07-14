@@ -1,5 +1,6 @@
 <template>
-  <el-scrollbar class="sidebar-scrollbar">
+  <div class="sidebar-wrapper">
+    <el-scrollbar class="sidebar-scrollbar">
     <el-menu
       :default-active="route.path"
       :collapse="appStore.sidebarCollapsed"
@@ -58,6 +59,7 @@
 
     </el-menu>
   </el-scrollbar>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -69,23 +71,48 @@ const appStore = useAppStore()
 </script>
 
 <style scoped lang="scss">
+.sidebar-wrapper {
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
 .sidebar-scrollbar {
   height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  :deep(.el-scrollbar__wrap) {
+    overflow-x: hidden;
+  }
+  :deep(.el-scrollbar__view) {
+    width: 100%;
+  }
 }
+
 .sidebar-menu {
   border-right: none;
   background: transparent;
   --el-menu-item-bg-color: transparent;
   --el-menu-item-hover-bg-color: var(--el-fill-color-light);
   --el-menu-item-active-bg-color: var(--el-color-primary-light-9);
+  padding: 0;
+  width: 100%;
+  :deep(.el-menu-item) {
+    width: 100%;
+  }
 }
 .logo-area {
-  height: 55px;
+  height: 35px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   border-bottom: 1px solid var(--el-border-color-light);
+  padding-top: 20px;
+  width: 100%;
+  padding-left: 0;
+  padding-right: 0;
+  margin-left: 0;
 }
 .logo-icon {
   width: 32px;

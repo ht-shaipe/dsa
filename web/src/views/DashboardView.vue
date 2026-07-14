@@ -1,96 +1,92 @@
 <template>
   <div class="dashboard">
-    <el-row :gutter="20">
-      <el-col :span="6" v-for="item in marketOverview" :key="item.name">
-        <el-card shadow="hover" class="overview-card">
-          <div class="overview-name">{{ item.name }}</div>
-          <div class="overview-price">{{ item.price }}</div>
-          <div :class="['overview-change', item.change >= 0 ? 'up' : 'down']">
-            {{ item.change >= 0 ? '+' : '' }}{{ item.change?.toFixed(2) }}%
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+    <div class="market-bar">
+      <div v-for="item in marketOverview" :key="item.name" class="market-item">
+        <span class="market-name">{{ item.name }}</span>
+        <span :class="['market-price', item.change >= 0 ? 'up' : 'down']">{{ formatNum(item.price, 2) }}</span>
+        <span :class="['market-change', item.change >= 0 ? 'up' : 'down']">
+          {{ item.change >= 0 ? '+' : '' }}{{ formatNum(item.change, 2) }}%
+        </span>
+      </div>
+      <div class="market-bar-right">
+        <span class="market-time">{{ currentTime }}</span>
+      </div>
+    </div>
 
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="8">
-        <el-card shadow="hover">
-          <template #header>股票分析</template>
-          <StockAutocomplete v-model="searchText" @select="onStockSelect" />
-          <div style="margin-top: 12px">
-            <el-button type="primary" :loading="analysisStore.isAnalyzing" @click="runAnalysis" :disabled="!selectedCode">
-              开始分析
-            </el-button>
+    <div class="watchlist-section" v-if="watchlist.length">
+      <div class="section-header">
+        <span class="section-title">自选股行情</span>
+        <el-button link type="primary" @click="$router.push('/watchlist')">管理自选股 →</el-button>
+      </div>
+      <div class="watchlist-grid">
+        <div v-for="row in watchlist" :key="row.stockCode || row.code" class="stock-card" @click="analyzeFromWatchlist(row)">
+          <div class="stock-card-top">
+            <span class="stock-card-name">{{ row.name || row.stockName || '-' }}</span>
+            <span class="stock-card-code">{{ row.stockCode || row.code }}</span>
           </div>
-        </el-card>
-      </el-col>
-      <el-col :span="16">
-        <el-card shadow="hover" v-if="analysisStore.currentReport">
-          <template #header>
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <span>分析报告 - {{ selectedCode }} {{ selectedName }}</span>
-              <el-tag :type="actionType" size="large">{{ actionLabel }}</el-tag>
-            </div>
-          </template>
-          <div style="display:flex;gap:20px">
-            <ScoreGauge :score="analysisStore.currentReport.sentimentScore || 0" :size="120" />
-            <div style="flex:1">
-              <MarkdownRenderer :content="analysisStore.currentReport.markdown || analysisStore.currentReport.text || ''" />
-            </div>
+          <div class="stock-card-bottom">
+            <span class="stock-card-price">
+              <template v-if="row.close != null">{{ formatNum(row.close, 2) }}</template>
+              <template v-else-if="row.price != null">{{ formatNum(row.price, 2) }}</template>
+              <template v-else>-</template>
+            </span>
+            <span v-if="row.changePercent != null" :class="['stock-card-change', Number(row.changePercent) >= 0 ? 'up' : 'down']">
+              {{ Number(row.changePercent) >= 0 ? '+' : '' }}{{ formatNum(row.changePercent, 2) }}%
+            </span>
           </div>
-        </el-card>
-        <el-card shadow="hover" v-else>
-          <el-empty description="选择股票并开始分析" />
-        </el-card>
-      </el-col>
-    </el-row>
+        </div>
+      </div>
+    </div>
 
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="24">
-        <el-card shadow="hover">
-          <template #header>
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <span>自选股行情</span>
-              <el-button link type="primary" @click="$router.push('/watchlist')">管理自选股</el-button>
-            </div>
+    <div class="analysis-section">
+      <div class="analysis-header">
+        <div class="analysis-title">
+          <el-icon :size="20" color="var(--el-color-primary)"><DataAnalysis /></el-icon>
+          <span>AI 智能分析</span>
+          <template v-if="selectedCode">
+            <el-divider direction="vertical" />
+            <span class="selected-stock">{{ selectedName }}</span>
+            <span class="selected-code">{{ selectedCode }}</span>
           </template>
-          <el-table :data="watchlist" stripe style="width:100%">
-            <el-table-column label="代码" width="100">
-              <template #default="{ row }">
-                <span style="font-weight:500">{{ row.stockCode || row.code }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="名称" width="120">
-              <template #default="{ row }">{{ row.name || row.stockName || '-' }}</template>
-            </el-table-column>
-            <el-table-column label="现价" width="100">
-              <template #default="{ row }">
-                <span v-if="row.close != null">{{ Number(row.close).toFixed(2) }}</span>
-                <span v-else-if="row.price != null">{{ Number(row.price).toFixed(2) }}</span>
-                <span v-else>-</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="涨跌幅" width="100">
-              <template #default="{ row }">
-                <span v-if="row.changePercent != null" :class="Number(row.changePercent) >= 0 ? 'up' : 'down'">
-                  {{ Number(row.changePercent) >= 0 ? '+' : '' }}{{ Number(row.changePercent).toFixed(2) }}%
-                </span>
-                <span v-else>-</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="成交量" width="120">
-              <template #default="{ row }">{{ row.volume ?? '-' }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="80">
-              <template #default="{ row }">
-                <el-button link type="primary" @click="analyzeFromWatchlist(row)">分析</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="!watchlist.length" description="暂无自选股，前往自选股管理添加" />
-        </el-card>
-      </el-col>
-    </el-row>
+        </div>
+        <div class="analysis-actions">
+          <StockAutocomplete v-model="searchText" @select="onStockSelect" style="width: 240px" />
+          <el-button type="primary" :loading="analysisStore.isAnalyzing" @click="runAnalysis" :disabled="!selectedCode">
+            <el-icon><CaretRight /></el-icon>
+            {{ analysisStore.isAnalyzing ? '分析中...' : '开始分析' }}
+          </el-button>
+        </div>
+      </div>
+
+      <div class="analysis-body">
+        <template v-if="analysisStore.currentReport">
+          <div class="report-summary">
+            <div class="score-area">
+              <ScoreGauge :score="analysisStore.currentReport.sentimentScore || 0" :size="120" />
+            </div>
+            <div class="summary-info">
+              <el-tag :type="actionType" size="large" round>{{ actionLabel }}</el-tag>
+              <div v-if="analysisStore.currentReport.targetPrice" class="meta-item">
+                <span class="meta-label">目标价</span>
+                <span class="meta-value">{{ analysisStore.currentReport.targetPrice }}</span>
+              </div>
+              <div v-if="analysisStore.currentReport.stopLossPrice" class="meta-item">
+                <span class="meta-label">止损价</span>
+                <span class="meta-value danger">{{ analysisStore.currentReport.stopLossPrice }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="report-content">
+            <MarkdownRenderer :content="analysisStore.currentReport.markdown || analysisStore.currentReport.text || ''" />
+          </div>
+        </template>
+        <div v-else class="report-empty">
+          <el-icon :size="40" color="var(--el-fill-color)"><DataAnalysis /></el-icon>
+          <p v-if="selectedCode">已选择 {{ selectedName }}（{{ selectedCode }}），点击「开始分析」</p>
+          <p v-else>选择股票并点击分析，AI 将生成完整投资分析报告</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -112,11 +108,24 @@ const watchlist = ref<any[]>([])
 const selectedCode = ref('')
 const selectedName = ref('')
 const searchText = ref('')
+const currentTime = ref('')
+
+function formatNum(v: any, digits: number): string {
+  const n = Number(v)
+  return isNaN(n) ? '-' : n.toFixed(digits)
+}
+
+function updateTime() {
+  const now = new Date()
+  currentTime.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+}
 
 const tradingTimer = useTradingInterval(() => {
   loadMarketOverview()
   loadWatchlist()
 }, 10000)
+
+let clockTimer: ReturnType<typeof setInterval> | null = null
 
 const actionLabel = computed(() => {
   const dt = analysisStore.currentReport?.decisionType || ''
@@ -143,9 +152,8 @@ async function runAnalysis() {
     } else {
       ElMessage.warning('分析完成但未返回报告数据')
     }
-  } catch (e: any) {
-    const msg = e?.response?.data?.message || e?.message || '分析失败'
-    ElMessage.error(msg)
+  } catch {
+    // error already shown by api interceptor
   } finally {
     analysisStore.setAnalyzing(false)
   }
@@ -177,20 +185,163 @@ function analyzeFromWatchlist(row: any) {
 
 onMounted(() => {
   tradingTimer.start()
+  updateTime()
+  clockTimer = setInterval(updateTime, 1000)
 })
 
 onUnmounted(() => {
   tradingTimer.stop()
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
 })
 </script>
 
 <style scoped lang="scss">
-.overview-card {
-  text-align: center;
+.dashboard {
+  max-width: 1200px;
+  margin: 0 auto;
 }
-.overview-name { font-size: 14px; color: var(--el-text-color-secondary); }
-.overview-price { font-size: 24px; font-weight: bold; margin: 8px 0; }
-.overview-change { font-size: 16px; font-weight: 500; }
+
 .up { color: #f56c6c; }
 .down { color: #67c23a; }
+
+.market-bar {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 12px 20px;
+  background: var(--el-bg-color);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 1px solid var(--el-border-color-lighter);
+}
+.market-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.market-name { font-size: 13px; color: var(--el-text-color-secondary); }
+.market-price { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.market-change { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.market-bar-right { margin-left: auto; }
+.market-time { font-size: 12px; color: var(--el-text-color-placeholder); font-variant-numeric: tabular-nums; }
+
+.watchlist-section {
+  background: var(--el-bg-color);
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.section-title { font-size: 15px; font-weight: 600; }
+.watchlist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+.stock-card {
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--el-border-color-extra-light);
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover {
+    border-color: var(--el-color-primary-light-5);
+    background: var(--el-color-primary-light-9);
+  }
+}
+.stock-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.stock-card-name {
+  font-size: 14px;
+  font-weight: 500;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stock-card-code { font-size: 12px; color: var(--el-text-color-secondary); }
+.stock-card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.stock-card-price { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stock-card-change { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.analysis-section {
+  background: var(--el-bg-color);
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter);
+}
+.analysis-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.analysis-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.selected-stock { font-weight: 500; }
+.selected-code { font-size: 13px; color: var(--el-text-color-secondary); }
+.analysis-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.analysis-body {
+  padding: 20px;
+}
+
+.report-summary {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
+}
+.score-area { flex-shrink: 0; }
+.summary-info {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.meta-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.meta-label { font-size: 12px; color: var(--el-text-color-placeholder); }
+.meta-value { font-size: 16px; font-weight: 600; &.danger { color: var(--el-color-danger); } }
+
+.report-content { line-height: 1.7; }
+
+.report-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 20px;
+  p {
+    margin-top: 12px;
+    font-size: 14px;
+    color: var(--el-text-color-placeholder);
+  }
+}
 </style>

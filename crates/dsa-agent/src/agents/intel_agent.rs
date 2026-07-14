@@ -87,8 +87,15 @@ impl BaseAgent for IntelAgent {
             "temperature": 0.3,
         });
 
+        let start = std::time::Instant::now();
         let response = self.llm.chat(&body).await
             .map_err(|e| DsaError::LlmAnalysis(format!("情报Agent调用LLM失败: {}", e)))?;
+        let elapsed = start.elapsed().as_millis() as i64;
+
+        let conf = dsa_core::get_global_config();
+        dsa_core::utils::record_llm_usage_from_response(
+            &response, &conf.llm.provider, &self.model, "agent_intel", elapsed, &code,
+        );
 
         let content = response.get("choices")
             .and_then(|c| Value::as_array(c))

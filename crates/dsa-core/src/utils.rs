@@ -2,7 +2,7 @@
 
 use crate::models::KlineBar;
 use crate::DsaError;
-use deck_connector::{get_connector, Connector};
+use deck_connector::Connector;
 use qta_crawler::{EastMoney, History, QQ, Real};
 use tube::Value;
 
@@ -314,6 +314,22 @@ pub fn record_llm_usage_with_cache(
         ],
         &connector,
     );
+}
+
+/// 从LLM响应中提取usage并记录到数据库
+pub fn record_llm_usage_from_response(
+    response: &tube::Value,
+    provider: &str,
+    model: &str,
+    operation_type: &str,
+    elapsed_ms: i64,
+    stock_code: &str,
+) {
+    let usage_default = tube::Value::Object(tube::Map::new());
+    let usage = response.get("usage").unwrap_or(&usage_default);
+    let pt = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+    let ct = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+    record_llm_usage(provider, model, operation_type, pt, ct, elapsed_ms, stock_code);
 }
 
 /// 记录对话消息到数据库

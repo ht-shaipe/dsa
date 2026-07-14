@@ -13,7 +13,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use dsa_core::{DsaError, DsaResult, utils};
-use dsa_core::db::{query_rows, row_get_string, row_get_value};
+use dsa_core::db::{query_rows, row_get_string};
 use qta_crawler::Real;
 use tube::Value;
 

@@ -279,7 +279,7 @@ impl System {
 
     async fn notification_test(&self) -> Result<Value> {
         let params = self.params();
-        let channel = params
+        let _channel = params
             .get("channel")
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| "log".to_string());
@@ -373,7 +373,7 @@ impl System {
                 for (code, _name) in &codes_clone {
                     if !DATA_SYNC_STATUS.lock().unwrap().running { break; }
 
-                    let start_date = if is_sqlite {
+                    let _start_date = if is_sqlite {
                         format!(" AND trade_date >= '{}'", retention_date)
                     } else {
                         String::new()

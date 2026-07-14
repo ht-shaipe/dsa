@@ -59,4 +59,37 @@ export function callApiWithTimeout(module: string, method: string, params: Recor
   return api.post(`/${module}/${method}`, params, { timeout })
 }
 
+const remoteAuth = axios.create({
+  baseURL: 'https://auth.htui.cc/api/pas',
+  timeout: 30000,
+  headers: { 'Content-Type': 'application/json' },
+})
+
+export interface RemoteLoginResult {
+  token: string
+  user?: any
+}
+
+export function remoteLogin(mobile: string, password: string): Promise<RemoteLoginResult> {
+  return remoteAuth.post('/user/login', { mobile, password }).then((res) => {
+    const body = res.data
+    if (body.code === 200 || body.code === 0) {
+      return body.result || body.data || body
+    }
+    return Promise.reject(new Error(body.message || '登录失败'))
+  })
+}
+
+export function remoteRegister(mobile: string, password: string, name?: string): Promise<any> {
+  const params: Record<string, any> = { mobile, password }
+  if (name) params.name = name
+  return remoteAuth.post('/user/register', params).then((res) => {
+    const body = res.data
+    if (body.code === 200 || body.code === 0) {
+      return body.result || body.data || body
+    }
+    return Promise.reject(new Error(body.message || '注册失败'))
+  })
+}
+
 export default api

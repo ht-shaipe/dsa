@@ -1,4 +1,4 @@
-use dsa_core::db::{query_rows, row_get_f64, row_get_string};
+use dsa_core::db::{query_rows, row_get_f64};
 use dsa_core::utils;
 use qta_crawler::Real;
 use tube::{Result, Value};

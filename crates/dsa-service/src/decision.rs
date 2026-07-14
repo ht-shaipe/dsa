@@ -4,7 +4,7 @@
 //! 辅助模型: DecisionSignalOutcome, DecisionSignalFeedback
 //! 使用 deck DataTable/TableService 模式
 
-use dsa_core::db::{query_rows, row_get_f64, row_get_i64, row_get_string, row_get_value};
+use dsa_core::db::{query_rows, row_get_f64, row_get_i64, row_get_string};
 use dsa_core::models::db::DecisionSignal as DecisionSignalModel;
 use dsa_core::models::db::DecisionSignalFeedback as DecisionSignalFeedbackModel;
 use dsa_core::models::db::DecisionSignalOutcome as DecisionSignalOutcomeModel;

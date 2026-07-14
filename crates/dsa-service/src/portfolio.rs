@@ -1,4 +1,4 @@
-use dsa_core::db::{execute, query_rows, row_get_f64, row_get_i64, row_get_string, row_get_value};
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_i64, row_get_string};
 use dsa_core::models::db::PortfolioAccount as PortfolioAccountModel;
 use dsa_core::models::db::PortfolioCashLedger as PortfolioCashLedgerModel;
 use dsa_core::models::db::PortfolioCorporateAction as PortfolioCorporateActionModel;
@@ -8,7 +8,7 @@ use dsa_core::models::db::PortfolioPosition as PortfolioPositionModel;
 use dsa_core::models::db::PortfolioPositionLot as PortfolioPositionLotModel;
 use dsa_core::models::db::PortfolioTrade as PortfolioTradeModel;
 use dsa_core::utils;
-use deck::sqlite::{DataTable, SelectExecutor};
+use deck::sqlite::DataTable;
 use deck::QueryExecutor;
 use deck::TableService;
 

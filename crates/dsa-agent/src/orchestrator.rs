@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use ai_llm_kit::{LlmFactory, LlmProvider, LlmService, StreamCallback, StreamCallbackFuture};
 use dsa_core::{DsaError, DsaResult};
-use deck_mysql::DataRow;
 use tube::Value;
 
 use crate::agents::base_agent::BaseAgent;
@@ -481,6 +480,12 @@ impl Orchestrator {
             .and_then(|d| d.as_str())
             .unwrap_or_default();
 
+        let stock_name_for_decision = quote_result.as_ref()
+            .ok()
+            .and_then(|q| q.get("name").and_then(|n| n.as_str()))
+            .unwrap_or_default();
+        Self::persist_decision_signal(&code, &stock_name_for_decision, &decision_analysis, current_price);
+
         // 6. 组合Agent - 使用真实持仓数据
         step += 1;
         if step > max_steps { return Err(DsaError::Agent("已达到最大步骤数限制".to_string())); }
@@ -509,6 +514,48 @@ impl Orchestrator {
                 "volume": volume_analysis,
             },
         }))
+    }
+
+    fn persist_decision_signal(code: &str, name: &str, decision_content: &str, current_price: f64) {
+        let connector = match dsa_core::utils::get_db_connector() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let action = if decision_content.contains("\"buy\"") || decision_content.contains("买入") || decision_content.contains("\"action\": \"buy\"") {
+            "buy"
+        } else if decision_content.contains("\"sell\"") || decision_content.contains("卖出") || decision_content.contains("\"action\": \"sell\"") {
+            "sell"
+        } else {
+            "hold"
+        };
+
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+
+        let check_sql = "SELECT id FROM decision_signals WHERE stock_code = :code AND action = :action AND signal_date = :date AND status = 1 LIMIT 1";
+        if let Ok(existing) = dsa_core::db::query_rows(check_sql, vec![
+            ("code".to_string(), Value::from(code.to_string())),
+            ("action".to_string(), Value::from(action.to_string())),
+            ("date".to_string(), Value::from(today.clone())),
+        ], &connector) {
+            if !existing.is_empty() {
+                return;
+            }
+        }
+
+        let sql = "INSERT INTO decision_signals \
+             (stock_code, stock_name, signal_date, action, sentiment_score, confidence_level, \
+              entry_price, reasoning, evidence, scope_type, status, create_time) \
+             VALUES (:code, :name, :date, :action, 0, 'medium', :price, :reasoning, :evidence, 'pipeline', 1, NOW())";
+        let _ = dsa_core::db::execute(sql, vec![
+            ("code".to_string(), Value::from(code.to_string())),
+            ("name".to_string(), Value::from(name.to_string())),
+            ("date".to_string(), Value::from(today)),
+            ("action".to_string(), Value::from(action.to_string())),
+            ("price".to_string(), Value::from(current_price)),
+            ("reasoning".to_string(), Value::from(decision_content.chars().take(500).collect::<String>())),
+            ("evidence".to_string(), Value::from("auto_pipeline")),
+        ], &connector);
     }
 
     async fn skills(&self) -> DsaResult<Value> {
@@ -615,10 +662,17 @@ impl Orchestrator {
             ],
             "temperature": 0.5,
         });
+        let start = std::time::Instant::now();
         let response = llm.chat(&body).await
             .map_err(|e| DsaError::LlmAnalysis(format!("Quick分析LLM失败: {}", e)))?;
+        let elapsed = start.elapsed().as_millis() as i64;
         let analysis = response["choices"][0]["message"]["content"]
             .as_str().unwrap_or_default().to_string();
+
+        let conf = dsa_core::get_global_config();
+        dsa_core::utils::record_llm_usage_from_response(
+            &response, &conf.llm.provider, model, "pipeline_quick", elapsed, code,
+        );
 
         Ok(value!({
             "mode": "quick",
@@ -692,10 +746,17 @@ impl Orchestrator {
             ],
             "temperature": 0.6,
         });
+        let start = std::time::Instant::now();
         let response = llm2.chat(&body).await
             .map_err(|e| DsaError::LlmAnalysis(format!("Specialist分析LLM失败: {}", e)))?;
+        let elapsed = start.elapsed().as_millis() as i64;
         let analysis = response["choices"][0]["message"]["content"]
             .as_str().unwrap_or_default().to_string();
+
+        let conf = dsa_core::get_global_config();
+        dsa_core::utils::record_llm_usage_from_response(
+            &response, &conf.llm.provider, model, "pipeline_specialist", elapsed, code,
+        );
 
         Ok(value!({
             "mode": "specialist",
