@@ -1,7 +1,7 @@
 <template>
   <div class="app-header-inner" data-tauri-drag-region>
     <div class="header-left" data-tauri-drag-region>
-      <div class="traffic-light-space"></div>
+      <!-- <div class="traffic-light-space"></div> -->
       <el-icon class="collapse-btn" @click="appStore.toggleSidebar">
         <Fold v-if="!appStore.sidebarCollapsed" />
         <Expand v-else />
@@ -11,16 +11,29 @@
       <span class="app-title">DSA - Daily Stock Analysis</span>
     </div>
     <div class="header-right">
-      <el-dropdown @command="handleCommand">
+      <el-dropdown @command="handleCommand" trigger="click">
         <span class="user-dropdown">
-          <el-avatar :size="22" :icon="User" :src="authStore.avatarUrl" />
-          <span v-if="authStore.userInfo?.name || authStore.userInfo?.mobile" class="user-name">
-            {{ authStore.userInfo?.name || authStore.userInfo?.mobile }}
-          </span>
+          <el-avatar :size="28" :icon="User" :src="authStore.avatarUrl" />
+          <span class="user-name">{{ authStore.displayName }}</span>
         </span>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+            <div class="user-info-card">
+              <el-avatar :size="48" :icon="User" :src="authStore.avatarUrl" />
+              <div class="user-info-text">
+                <div class="user-info-name">{{ authStore.userInfo?.name || '未设置昵称' }}</div>
+                <div class="user-info-mobile">{{ authStore.userInfo?.mobile || '' }}</div>
+              </div>
+            </div>
+            <el-dropdown-item divided command="profile">
+              <el-icon><EditPen /></el-icon>修改个人信息
+            </el-dropdown-item>
+            <el-dropdown-item command="password">
+              <el-icon><Lock /></el-icon>修改密码
+            </el-dropdown-item>
+            <el-dropdown-item divided command="logout">
+              <el-icon><SwitchButton /></el-icon>退出登录
+            </el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -170,15 +183,53 @@
         </el-collapse>
       </div>
     </el-drawer>
+
+    <el-dialog v-model="profileDialogVisible" title="修改个人信息" width="420px" :append-to-body="true">
+      <el-form :model="profileForm" label-width="80px">
+        <el-form-item label="昵称">
+          <el-input v-model="profileForm.name" placeholder="请输入昵称" maxlength="20" />
+        </el-form-item>
+        <el-form-item label="手机号">
+          <el-input :model-value="authStore.userInfo?.mobile || ''" disabled />
+        </el-form-item>
+        <el-form-item label="头像URL">
+          <el-input v-model="profileForm.avatar" placeholder="头像图片URL（可选）" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="profileDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="profileSaving" @click="saveProfile">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="420px" :append-to-body="true">
+      <el-form :model="passwordForm" label-width="90px">
+        <el-form-item label="当前密码">
+          <el-input v-model="passwordForm.oldPassword" type="password" show-password placeholder="请输入当前密码" />
+        </el-form-item>
+        <el-form-item label="新密码">
+          <el-input v-model="passwordForm.newPassword" type="password" show-password placeholder="请输入新密码（至少6位）" />
+        </el-form-item>
+        <el-form-item label="确认新密码">
+          <el-input v-model="passwordForm.confirmPassword" type="password" show-password placeholder="请再次输入新密码" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="passwordDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="passwordSaving" @click="savePassword">确认修改</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
-import { QuestionFilled, Sunny, Moon, Monitor } from '@element-plus/icons-vue'
+import { remoteChangePassword } from '@/api/index'
+import { ElMessage } from 'element-plus'
+import { QuestionFilled, Sunny, Moon, Monitor, User, EditPen, Lock, SwitchButton } from '@element-plus/icons-vue'
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
@@ -200,10 +251,27 @@ const themeTooltip = computed(() => {
 const helpDrawer = ref(false)
 const helpActive = ref(['quick'])
 
+const profileDialogVisible = ref(false)
+const profileSaving = ref(false)
+const profileForm = reactive({ name: '', avatar: '' })
+
+const passwordDialogVisible = ref(false)
+const passwordSaving = ref(false)
+const passwordForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
+
 function handleCommand(cmd: string) {
   if (cmd === 'logout') {
     authStore.logout()
     router.push('/login')
+  } else if (cmd === 'profile') {
+    profileForm.name = authStore.userInfo?.name || ''
+    profileForm.avatar = authStore.userInfo?.avatar || ''
+    profileDialogVisible.value = true
+  } else if (cmd === 'password') {
+    passwordForm.oldPassword = ''
+    passwordForm.newPassword = ''
+    passwordForm.confirmPassword = ''
+    passwordDialogVisible.value = true
   }
 }
 
@@ -211,7 +279,58 @@ function handleThemeChange(mode: 'system' | 'light' | 'dark') {
   appStore.setTheme(mode)
 }
 
-authStore.loadUserInfo()
+async function saveProfile() {
+  if (!profileForm.name.trim()) {
+    ElMessage.warning('请输入昵称')
+    return
+  }
+  profileSaving.value = true
+  try {
+    const ok = await authStore.updateProfile(profileForm.name.trim(), profileForm.avatar.trim() || undefined)
+    if (ok) {
+      ElMessage.success('个人信息已更新')
+      profileDialogVisible.value = false
+    } else {
+      ElMessage.error('更新失败')
+    }
+  } catch {
+    ElMessage.error('更新失败')
+  } finally {
+    profileSaving.value = false
+  }
+}
+
+async function savePassword() {
+  if (!passwordForm.oldPassword) {
+    ElMessage.warning('请输入当前密码')
+    return
+  }
+  if (!passwordForm.newPassword || passwordForm.newPassword.length < 6) {
+    ElMessage.warning('新密码至少6位')
+    return
+  }
+  if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+    ElMessage.warning('两次密码不一致')
+    return
+  }
+  passwordSaving.value = true
+  try {
+    await remoteChangePassword(authStore.token, passwordForm.oldPassword, passwordForm.newPassword)
+    ElMessage.success('密码已修改，请重新登录')
+    passwordDialogVisible.value = false
+    authStore.logout()
+    router.push('/login')
+  } catch {
+    // error shown by API
+  } finally {
+    passwordSaving.value = false
+  }
+}
+
+authStore.init()
+if (authStore.isAuthenticated && !authStore.userInfo?.name) {
+  authStore.fetchProfile()
+}
 </script>
 
 <style scoped lang="scss">
@@ -295,6 +414,30 @@ authStore.loadUserInfo()
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.user-info-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  pointer-events: none;
+}
+.user-info-text {
+  flex: 1;
+  min-width: 0;
+}
+.user-info-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-info-mobile {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
+}
 .help-content {
   ul {
     margin: 0;
@@ -311,7 +454,6 @@ authStore.loadUserInfo()
   }
 }
 
-// 主题下拉菜单样式
 :deep(.el-dropdown-menu__item.is-active) {
   color: var(--el-color-primary);
   background-color: var(--el-color-primary-light-9);

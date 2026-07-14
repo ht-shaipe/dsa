@@ -174,24 +174,6 @@
         </el-card>
       </el-tab-pane>
 
-      <!-- 认证配置 -->
-      <el-tab-pane label="认证配置" name="auth">
-        <el-form :model="authForm" label-width="120px" style="max-width:400px">
-          <el-form-item label="当前密码">
-            <el-input v-model="authForm.currentPassword" type="password" show-password />
-          </el-form-item>
-          <el-form-item label="新密码">
-            <el-input v-model="authForm.newPassword" type="password" show-password />
-          </el-form-item>
-          <el-form-item label="确认密码">
-            <el-input v-model="authForm.confirmPassword" type="password" show-password />
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="changePassword" :loading="changingPassword">修改密码</el-button>
-          </el-form-item>
-        </el-form>
-      </el-tab-pane>
-
       <!-- 情报源配置 -->
       <el-tab-pane label="情报源配置" name="intelligence">
         <div style="display:flex;gap:12px;margin-bottom:16px">
@@ -253,6 +235,82 @@
           </template>
         </el-dialog>
       </el-tab-pane>
+
+      <!-- 更新管理 -->
+      <el-tab-pane label="更新管理" name="update">
+        <template v-if="!updater.isTauri">
+          <el-alert title="自动更新仅在桌面客户端中可用" description="请下载安装 DSA 桌面版以使用自动更新功能" type="info" show-icon :closable="false" />
+        </template>
+        <template v-else>
+          <el-form label-width="120px" style="max-width:600px">
+            <el-form-item label="当前版本">
+              <span style="font-weight:600">{{ appVersion }}</span>
+            </el-form-item>
+            <el-form-item label="更新状态">
+              <el-tag :type="statusTagType">{{ statusLabel }}</el-tag>
+              <span v-if="updater.status.value === 'available' && updater.updateInfo.value" style="margin-left:12px;color:var(--el-text-color-secondary)">
+                新版本 {{ updater.updateInfo.value.version }} 可用
+              </span>
+            </el-form-item>
+            <el-form-item v-if="updater.updateInfo.value" label="新版本信息">
+              <div>
+                <div style="font-weight:600;margin-bottom:6px">v{{ updater.updateInfo.value.version }}
+                  <span v-if="updater.updateInfo.value.date" style="font-size:12px;color:var(--el-text-color-secondary);margin-left:8px">
+                    {{ updater.updateInfo.value.date }}
+                  </span>
+                </div>
+                <div v-if="updater.updateInfo.value.body" style="white-space:pre-wrap;font-size:13px;color:var(--el-text-color-regular);line-height:1.6">
+                  {{ updater.updateInfo.value.body }}
+                </div>
+              </div>
+            </el-form-item>
+            <el-form-item v-if="updater.status.value === 'downloading'" label="下载进度">
+              <el-progress
+                :percentage="downloadPercent"
+                :format="() => `${downloadedMB} / ${totalMB}`"
+                :stroke-width="18"
+                style="width:100%"
+              />
+            </el-form-item>
+            <el-form-item v-if="updater.errorMessage.value" label="">
+              <el-alert :title="updater.errorMessage.value" type="error" show-icon :closable="false" />
+            </el-form-item>
+            <el-form-item>
+              <el-button
+                type="primary"
+                :loading="updater.status.value === 'checking'"
+                :disabled="updater.status.value === 'checking' || updater.status.value === 'downloading'"
+                @click="updater.checkForUpdate()"
+              >
+                {{ updater.status.value === 'checking' ? '检查中...' : '检查更新' }}
+              </el-button>
+              <el-button
+                v-if="updater.status.value === 'available' || updater.status.value === 'downloading'"
+                type="success"
+                :loading="updater.status.value === 'downloading'"
+                @click="updater.downloadAndInstall()"
+              >
+                {{ updater.status.value === 'downloading' ? '下载中...' : '下载并安装' }}
+              </el-button>
+              <el-button
+                v-if="updater.status.value === 'ready'"
+                type="success"
+                @click="updater.restartApp()"
+              >
+                立即重启应用更新
+              </el-button>
+            </el-form-item>
+          </el-form>
+
+          <el-divider content-position="left">自动更新</el-divider>
+          <el-form label-width="120px" style="max-width:600px">
+            <el-form-item label="启动时检查">
+              <el-switch v-model="autoCheckEnabled" @change="(val: any) => saveAutoCheck(!!val)" />
+              <span style="margin-left:8px;color:var(--el-text-color-secondary)">每次启动应用时自动检查新版本</span>
+            </el-form-item>
+          </el-form>
+        </template>
+      </el-tab-pane>
     </el-tabs>
 
     <el-card shadow="hover" style="margin-top: 20px">
@@ -269,13 +327,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { systemApi } from '@/api/system'
 import { notificationApi } from '@/api/notification'
 import { schedulerApi } from '@/api/scheduler'
 import { intelligenceApi } from '@/api/intelligence'
-import { authApi } from '@/api/auth'
+import { useUpdater } from '@/composables/useUpdater'
 
 const activeTab = ref('llm')
 const saving = ref(false)
@@ -313,14 +371,6 @@ const schedulerStatus = ref<Record<string, any>>({})
 const schedulerJobs = ref<any[]>([])
 const schedulerActionLoading = ref(false)
 
-// Auth
-const authForm = ref({
-  currentPassword: '',
-  newPassword: '',
-  confirmPassword: '',
-})
-const changingPassword = ref(false)
-
 // Data sync
 const dataSyncForm = ref({
   boards: ['sh_main', 'sz_main', 'sz_gem'] as string[],
@@ -345,6 +395,51 @@ const sourceSubmitting = ref(false)
 const reloading = ref(false)
 const exporting = ref(false)
 const importing = ref(false)
+
+const updater = useUpdater()
+const appVersion = ref('0.1.0')
+const autoCheckEnabled = ref(localStorage.getItem('dsa_auto_update_check') !== 'false')
+
+const statusTagType = computed(() => {
+  switch (updater.status.value) {
+    case 'idle': return 'info'
+    case 'checking': return 'warning'
+    case 'available': return 'success'
+    case 'downloading': return 'warning'
+    case 'ready': return 'success'
+    case 'error': return 'danger'
+    default: return 'info'
+  }
+})
+
+const statusLabel = computed(() => {
+  switch (updater.status.value) {
+    case 'idle': return '已是最新版本'
+    case 'checking': return '检查中...'
+    case 'available': return '发现新版本'
+    case 'downloading': return '下载中'
+    case 'ready': return '更新就绪'
+    case 'error': return '更新出错'
+    case 'unsupported': return '不支持自动更新'
+    default: return '未知'
+  }
+})
+
+const downloadPercent = computed(() => {
+  const { downloaded, total } = updater.progress.value
+  if (!total || total === 0) return 0
+  return Math.min(Math.round((downloaded / total) * 100), 100)
+})
+
+const downloadedMB = computed(() => (updater.progress.value.downloaded / 1048576).toFixed(1) + ' MB')
+const totalMB = computed(() => {
+  const t = updater.progress.value.total
+  return t > 0 ? (t / 1048576).toFixed(1) + ' MB' : '未知'
+})
+
+function saveAutoCheck(val: boolean) {
+  localStorage.setItem('dsa_auto_update_check', val ? 'true' : 'false')
+}
 
 async function loadConfig() {
   try {
@@ -526,28 +621,6 @@ async function stopScheduler() {
     ElMessage.error('停止失败')
   } finally {
     schedulerActionLoading.value = false
-  }
-}
-
-async function changePassword() {
-  if (!authForm.value.currentPassword || !authForm.value.newPassword) {
-    ElMessage.warning('请填写密码')
-    return
-  }
-  if (authForm.value.newPassword !== authForm.value.confirmPassword) {
-    ElMessage.warning('两次密码不一致')
-    return
-  }
-  changingPassword.value = true
-  try {
-    await (authApi as any).changePassword?.(authForm.value.currentPassword, authForm.value.newPassword)
-      || Promise.resolve()
-    ElMessage.success('密码已修改')
-    authForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' }
-  } catch {
-    ElMessage.error('修改密码失败')
-  } finally {
-    changingPassword.value = false
   }
 }
 
@@ -772,12 +845,18 @@ async function importConfig(file: File) {
   return false
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadConfig()
   loadSchedulerStatus()
   loadSchedulerJobs()
   loadSources()
   loadSyncStatus()
+  try {
+    const { getVersion } = await import('@tauri-apps/api/app')
+    appVersion.value = await getVersion()
+  } catch {
+    appVersion.value = '0.1.0'
+  }
 })
 </script>
 

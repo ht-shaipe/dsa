@@ -66,23 +66,54 @@ impl Analysis {
         };
 
         let conf = dsa_core::get_global_config();
+        let connector = match self.get_connector() {
+            Some(c) => c,
+            None => {
+                tracing::error!("save_report_to_db: 数据库连接未初始化");
+                return;
+            }
+        };
 
-        let data = value!({
-            "stock_code": code,
-            "stock_name": name,
-            "sentiment_score": sentiment_score,
-            "decision_type": decision_type,
-            "operation_advice": operation_advice,
-            "analysis_summary": analysis_summary,
-            "risk_warning": risk_warning,
-            "report_json": report_json_str,
-            "report_type": "full",
-            "status": 1,
-            "llm_provider": &conf.llm.provider,
-            "llm_model": &conf.llm.model,
-        });
+        let is_sqlite = conf.database.is_sqlite();
+        let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
 
-        let _ = self.duplicate().data(&data).execute();
+        let sql = if is_sqlite {
+            format!(
+                "INSERT INTO analysis_history \
+                 (stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
+                  analysis_summary, risk_warning, report_json, report_type, status, \
+                  llm_provider, llm_model, create_time, modify_time) \
+                 VALUES (:code, :name, :score, :dtype, :advice, :summary, :risk, :rjson, :rtype, 1, \
+                  :provider, :model, {}, {})",
+                now_expr, now_expr
+            )
+        } else {
+            format!(
+                "INSERT INTO analysis_history \
+                 (stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
+                  analysis_summary, risk_warning, report_json, report_type, status, \
+                  llm_provider, llm_model, create_time, modify_time) \
+                 VALUES (:code, :name, :score, :dtype, :advice, :summary, :risk, :rjson, :rtype, 1, \
+                  :provider, :model, {}, {})",
+                now_expr, now_expr
+            )
+        };
+
+        if let Err(e) = dsa_core::db::execute(&sql, vec![
+            ("code".to_string(), Value::from(code.to_string())),
+            ("name".to_string(), Value::from(name.to_string())),
+            ("score".to_string(), Value::from(sentiment_score)),
+            ("dtype".to_string(), Value::from(decision_type.to_string())),
+            ("advice".to_string(), Value::from(operation_advice.to_string())),
+            ("summary".to_string(), Value::from(analysis_summary.to_string())),
+            ("risk".to_string(), Value::from(risk_warning.to_string())),
+            ("rjson".to_string(), Value::from(report_json_str)),
+            ("rtype".to_string(), Value::from("full".to_string())),
+            ("provider".to_string(), Value::from(conf.llm.provider.clone())),
+            ("model".to_string(), Value::from(conf.llm.model.clone())),
+        ], &connector) {
+            tracing::error!("save_report_to_db 失败: {}", e);
+        }
     }
 
     /// 根据ID查询单条记录

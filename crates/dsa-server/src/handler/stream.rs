@@ -3,36 +3,6 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use tube_web::sse_channel;
 
-fn check_stream_auth(req: &HttpRequest) -> Result<(), &'static str> {
-    let has_password = dsa_core::get_password_override().is_some()
-        || std::env::var("DSA_PASSWORD").is_ok()
-        || {
-            let conf = dsa_core::get_global_config();
-            !conf.server.auth_password.is_empty()
-                || (!conf.server.auth_password_env.is_empty()
-                    && std::env::var(&conf.server.auth_password_env).is_ok())
-        };
-    if !has_password {
-        return Ok(());
-    }
-    if let Some(auth_header) = req.headers().get("Authorization").and_then(|v| v.to_str().ok()) {
-        if auth_header.starts_with("Bearer ") {
-            let token = &auth_header[7..];
-            let stored = dsa_core::get_auth_token();
-            if let Some(ref st) = stored { if token == st.as_str() { return Ok(()); } }
-        }
-    }
-    if let Some(query) = req.uri().query() {
-        for pair in query.split('&') {
-            if let Some(token_val) = pair.strip_prefix("token=") {
-                let stored = dsa_core::get_auth_token();
-                if let Some(ref st) = stored { if token_val == st.as_str() { return Ok(()); } }
-            }
-        }
-    }
-    Err("未授权访问")
-}
-
 // ===== 意图识别 =====
 
 #[derive(Debug, Clone)]
@@ -216,10 +186,6 @@ async fn fetch_market_context(sender: &mut tube_web::SSESender) -> Option<String
 // ===== 主入口 =====
 
 pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpResponse {
-    if let Err(msg) = check_stream_auth(&req) {
-        return HttpResponse::Unauthorized().json(serde_json::json!({"status": "error", "message": msg}));
-    }
-
     let param = tube_web::parse_request(req.clone(), payload).await;
     let (mut sender, receiver) = sse_channel(10);
 

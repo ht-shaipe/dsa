@@ -36,6 +36,7 @@ actix-web = { workspace = true }
 actix-cors = { workspace = true }
 actix-files = { workspace = true }
 actix-rt = { workspace = true }
+futures = { workspace = true }
 
 tube = { workspace = true }
 tube_web = { workspace = true }

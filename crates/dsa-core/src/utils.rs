@@ -85,7 +85,6 @@ pub async fn fetch_kline(code: &str, period: &str) -> Result<Vec<KlineBar>, DsaE
     Err(DsaError::StockData("获取K线数据失败".to_string()))
 }
 
-/// 从新浪财经获取K线数据（作为东方财富的备选数据源）
 async fn fetch_kline_sina(code: &str, period: &str) -> Result<Vec<KlineBar>, DsaError> {
     let scale: u32 = match period {
         "weekly" => 1200,
@@ -113,7 +112,6 @@ async fn fetch_kline_sina(code: &str, period: &str) -> Result<Vec<KlineBar>, Dsa
             if bars.is_empty() {
                 return Err(DsaError::StockData("新浪K线返回空数据".to_string()));
             }
-            save_kline_to_db(code, &bars);
             Ok(bars)
         }
         Err(e) => Err(DsaError::StockData(format!("获取K线数据失败(东方财富和新浪均不可用): {}", e))),
@@ -145,6 +143,17 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
         Err(_) => String::new(),
     };
 
+    let last_date = crate::db::query_rows(
+        "SELECT MAX(trade_date) as last_date FROM stock_daily WHERE stock_code = :code AND status >= 1",
+        vec![("code".to_string(), Value::from(code.to_string()))],
+        &connector,
+    ).ok()
+        .and_then(|rows| {
+            let val = crate::db::first_row_string(&rows, "lastDate");
+            if val.is_empty() { None } else { Some(val) }
+        })
+        .unwrap_or_default();
+
     let sql = if is_sqlite {
         format!(
             "INSERT INTO stock_daily \
@@ -170,6 +179,9 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
     };
 
     for bar in bars.iter().rev().take(max_count) {
+        if !last_date.is_empty() && bar.date.as_str() <= last_date.as_str() {
+            continue;
+        }
         let _ = crate::db::execute(
             &sql,
             vec![
@@ -294,12 +306,14 @@ pub fn record_llm_usage_with_cache(
         Ok(c) => c,
         Err(_) => return,
     };
-    let sql = "INSERT INTO llm_usage \
+    let is_sqlite = crate::get_global_config().database.is_sqlite();
+    let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+    let sql = &format!("INSERT INTO llm_usage \
          (llm_provider, llm_model, operation_type, prompt_tokens, completion_tokens, total_tokens, \
           cache_hit, latency_ms, stock_code, create_time) \
-         VALUES (:provider, :model, :op, :pt, :ct, :tt, :cache, :latency, :code, NOW())";
+         VALUES (:provider, :model, :op, :pt, :ct, :tt, :cache, :latency, :code, {})", now_expr);
     let total = prompt_tokens + completion_tokens;
-    let _ = crate::db::execute(
+    if let Err(e) = crate::db::execute(
         sql,
         vec![
             ("provider".to_string(), Value::from(provider.to_string())),
@@ -313,7 +327,9 @@ pub fn record_llm_usage_with_cache(
             ("code".to_string(), Value::from(stock_code.to_string())),
         ],
         &connector,
-    );
+    ) {
+        tracing::error!("record_llm_usage 失败: {}", e);
+    }
 }
 
 /// 从LLM响应中提取usage并记录到数据库
@@ -346,10 +362,12 @@ pub fn record_conversation_message(
         Ok(c) => c,
         Err(_) => return,
     };
-    let sql = "INSERT INTO conversation_messages \
+    let is_sqlite = crate::get_global_config().database.is_sqlite();
+    let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+    let sql = &format!("INSERT INTO conversation_messages \
          (session_id, role, content, llm_provider, llm_model, prompt_tokens, completion_tokens, create_time) \
-         VALUES (:sid, :role, :content, :provider, :model, :pt, :ct, NOW())";
-    let _ = crate::db::execute(
+         VALUES (:sid, :role, :content, :provider, :model, :pt, :ct, {})", now_expr);
+    if let Err(e) = crate::db::execute(
         sql,
         vec![
             ("sid".to_string(), Value::from(session_id.to_string())),
@@ -361,7 +379,9 @@ pub fn record_conversation_message(
             ("ct".to_string(), Value::from(completion_tokens)),
         ],
         &connector,
-    );
+    ) {
+        tracing::error!("record_conversation_message 失败: {}", e);
+    }
 }
 
 #[cfg(test)]

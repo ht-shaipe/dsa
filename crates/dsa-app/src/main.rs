@@ -9,6 +9,18 @@ const APP_SERVER_PORT: u16 = 18080;
 static SERVER_SHUTDOWN: Mutex<Option<Arc<tokio::sync::Notify>>> = Mutex::new(None);
 
 fn main() {
+    std::panic::set_hook(Box::new(|panic_info| {
+        let location = panic_info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_else(|| "unknown".to_string());
+        let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "unknown panic".to_string()
+        };
+        eprintln!("[PANIC] at {}: {}", location, message);
+    }));
+
     let (conf_path_str, conf) = load_config();
     let static_dir = find_static_dir();
     let shutdown_notify = Arc::new(tokio::sync::Notify::new());

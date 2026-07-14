@@ -1,15 +1,14 @@
 import { defineStore } from 'pinia'
-import { authApi } from '@/api/auth'
-import { remoteLogin } from '@/api/index'
+import { remoteLogin, remoteUpdateProfile, remoteGetProfile } from '@/api/index'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     token: localStorage.getItem('dsa_token') || '',
-    authEnabled: false,
     userInfo: null as any,
   }),
   getters: {
     isAuthenticated: (state) => !!state.token,
+    displayName: (state) => state.userInfo?.name || state.userInfo?.mobile || '',
     avatarUrl: (state) => {
       const avatar = state.userInfo?.avatar
       if (!avatar) return undefined
@@ -20,44 +19,56 @@ export const useAuthStore = defineStore('auth', {
     },
   },
   actions: {
-    async checkStatus() {
-      try {
-        const data: any = await authApi.status()
-        this.authEnabled = data?.authEnabled ?? false
-        if (!this.authEnabled && !this.token) {
-          this.token = 'no-auth-required'
-          localStorage.setItem('dsa_token', this.token)
-        }
-      } catch {
-        this.authEnabled = false
-      }
-    },
-    async loginWithRemote(mobile: string, password: string): Promise<boolean> {
+    async loginWithRemote(mobile: string, password: string): Promise<string | null> {
       try {
         const result = await remoteLogin(mobile, password)
         if (result?.token) {
           this.token = result.token
-          this.userInfo = result.user || { mobile }
+          const user = result.user || {}
+          this.userInfo = {
+            mobile,
+            name: user.name || user.nickname || '',
+            avatar: user.avatar || user.avatar_url || '',
+            ...user,
+          }
           localStorage.setItem('dsa_token', this.token)
           localStorage.setItem('dsa_user', JSON.stringify(this.userInfo))
-          return true
+          return null
         }
-        return false
+        return '登录返回数据异常，未获得token'
+      } catch (err: any) {
+        return err?.message || '登录失败'
+      }
+    },
+    async updateProfile(name: string, avatar?: string): Promise<boolean> {
+      try {
+        await remoteUpdateProfile(this.token, name, avatar)
+        if (this.userInfo) {
+          this.userInfo.name = name
+          if (avatar) this.userInfo.avatar = avatar
+          localStorage.setItem('dsa_user', JSON.stringify(this.userInfo))
+        }
+        return true
       } catch {
         return false
       }
     },
-    async login(password: string): Promise<boolean> {
+    async fetchProfile(): Promise<void> {
+      if (!this.token) return
       try {
-        const data: any = await authApi.login(password)
-        if (data?.authenticated) {
-          this.token = data.token || 'no-auth-required'
-          localStorage.setItem('dsa_token', this.token)
-          return true
+        const user = await remoteGetProfile(this.token)
+        if (user) {
+          this.userInfo = {
+            ...this.userInfo,
+            name: user.name || user.nickname || this.userInfo?.name || '',
+            mobile: user.mobile || this.userInfo?.mobile || '',
+            avatar: user.avatar || user.avatar_url || this.userInfo?.avatar || '',
+            ...user,
+          }
+          localStorage.setItem('dsa_user', JSON.stringify(this.userInfo))
         }
-        return false
       } catch {
-        return false
+        // ignore — use cached data
       }
     },
     logout() {
@@ -65,15 +76,15 @@ export const useAuthStore = defineStore('auth', {
       this.userInfo = null
       localStorage.removeItem('dsa_token')
       localStorage.removeItem('dsa_user')
-      if (this.authEnabled) {
-        authApi.logout().catch(() => {})
-      }
     },
     loadUserInfo() {
       const saved = localStorage.getItem('dsa_user')
       if (saved) {
         try { this.userInfo = JSON.parse(saved) } catch { /* ignore */ }
       }
+    },
+    init() {
+      this.loadUserInfo()
     },
   },
 })

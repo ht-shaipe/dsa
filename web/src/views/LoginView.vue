@@ -7,7 +7,7 @@
       </div>
       <p class="login-subtitle">AI 驱动的每日股票分析系统</p>
 
-      <el-form @submit.prevent="handleSubmit" v-if="!authStore.authEnabled">
+      <el-form @submit.prevent="handleSubmit">
         <el-form-item>
           <el-input
             v-model="mobile"
@@ -79,6 +79,8 @@
         <div class="mode-switch">
           <template v-if="mode === 'login'">
             还没有账号？<el-link type="primary" @click="mode = 'register'">立即注册</el-link>
+            <span style="margin: 0 8px; color: var(--el-border-color)">|</span>
+            <el-link type="info" @click="skipLogin">跳过登录</el-link>
           </template>
           <template v-else>
             已有账号？<el-link type="primary" @click="mode = 'login'">返回登录</el-link>
@@ -106,30 +108,20 @@ const regPassword2 = ref('')
 const mode = ref<'login' | 'register'>('login')
 const loading = ref(false)
 
-onMounted(async () => {
+onMounted(() => {
   if (authStore.isAuthenticated) {
     router.replace('/')
-    return
-  }
-  try {
-    await authStore.checkStatus()
-  } catch {}
-  if (authStore.isAuthenticated) {
-    router.replace('/')
-    return
-  }
-  if (!authStore.authEnabled) {
-    loading.value = true
-    try {
-      const ok = await authStore.login('')
-      if (ok) {
-        router.replace('/')
-        return
-      }
-    } catch {}
-    loading.value = false
   }
 })
+
+async function skipLogin() {
+  authStore.token = 'local-dev'
+  authStore.userInfo = { name: '本地用户', mobile: '', avatar: '' }
+  localStorage.setItem('dsa_token', 'local-dev')
+  localStorage.setItem('dsa_user', JSON.stringify(authStore.userInfo))
+  ElMessage.success('已跳过登录')
+  router.replace('/')
+}
 
 async function handleSubmit() {
   if (loading.value) return
@@ -171,12 +163,12 @@ async function handleSubmit() {
 
   loading.value = true
   try {
-    const ok = await authStore.loginWithRemote(mobile.value, password.value)
-    if (ok) {
+    const err = await authStore.loginWithRemote(mobile.value, password.value)
+    if (!err) {
       ElMessage.success('登录成功')
       router.replace('/')
     } else {
-      ElMessage.error('手机号或密码错误')
+      ElMessage.error(err)
     }
   } catch {
     // error already shown

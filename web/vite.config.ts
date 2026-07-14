@@ -6,6 +6,9 @@ import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { resolve } from 'path'
 
 export default defineConfig({
+  define: {
+    __DSA_DEV__: JSON.stringify(!!process.env.DSA_DEV),
+  },
   plugins: [
     vue(),
     AutoImport({

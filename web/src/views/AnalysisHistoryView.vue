@@ -89,9 +89,9 @@
         </el-descriptions>
 
         <el-divider content-position="left">完整报告</el-divider>
-        <div v-if="reportMarkdown" class="report-content">
+        <el-scrollbar v-if="reportMarkdown" class="report-content" max-height="calc(100vh - 280px)">
           <MarkdownRenderer :content="reportMarkdown" />
-        </div>
+        </el-scrollbar>
         <el-empty v-else description="暂无完整报告内容" />
       </template>
     </el-drawer>
@@ -225,8 +225,6 @@ onMounted(() => {
   text-overflow: ellipsis;
 }
 .report-content {
-  max-height: calc(100vh - 280px);
-  overflow-y: auto;
   padding: 0 4px;
 }
 </style>

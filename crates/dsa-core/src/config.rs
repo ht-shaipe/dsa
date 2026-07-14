@@ -542,10 +542,7 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_cors_origins")]
     pub cors_origins: Vec<String>,
-    #[serde(default)]
-    pub auth_password: String,
-    #[serde(default)]
-    pub auth_password_env: String,
+
 }
 
 /// 股票监控配置
@@ -730,8 +727,7 @@ impl Default for AppConfig {
                 host: "0.0.0.0".to_string(),
                 port: 8000,
                 cors_origins: default_cors_origins(),
-                auth_password: String::new(),
-                auth_password_env: String::new(),
+
             },
             stock: StockConfig {
                 watchlist: vec!["600519".to_string(), "300750".to_string(), "002594".to_string()],

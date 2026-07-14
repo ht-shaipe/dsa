@@ -126,11 +126,11 @@ dev: env build-server ## 启动开发环境 (后端 + 前端)
 
 dev-server: ## 启动后端开发服务 (自动重编译)
 	@echo "$(GREEN)[Backend] Starting on port $(PORT)...$(NC)"
-	cargo run --bin dsa -- --config $(CONFIG)
+	DSA_DEV=1 cargo run --bin dsa -- --config $(CONFIG)
 
 dev-web: install ## 启动前端开发服务器
 	@echo "$(GREEN)[Frontend] Starting on port $(WEB_PORT)...$(NC)"
-	cd web && DSA_STANDALONE=1 npm run dev
+	cd web && DSA_STANDALONE=1 DSA_DEV=1 npm run dev
 
 # ============================================================
 # 构建

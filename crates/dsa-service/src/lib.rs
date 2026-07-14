@@ -16,7 +16,6 @@ lazy_static! {
 }
 
 pub mod config;
-pub mod auth;
 pub mod usage;
 pub mod stock;
 pub mod analysis;
@@ -40,7 +39,6 @@ pub mod name_resolver;
 pub mod bot;
 pub mod indicator;
 
-pub use auth::Auth;
 pub use usage::Usage;
 pub use stock::Stock;
 pub use analysis::Analysis;

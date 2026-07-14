@@ -59,7 +59,26 @@
       </div>
 
       <div class="analysis-body">
-        <template v-if="analysisStore.currentReport">
+        <template v-if="analysisStore.isAnalyzing && analysisStore.streamingText">
+          <div class="stream-container">
+            <div v-if="analysisStore.streamStatus" class="stream-status">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              <span>{{ analysisStore.streamStatus }}</span>
+            </div>
+            <div class="stream-text">
+              <pre>{{ analysisStore.streamingText }}</pre>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="analysisStore.isAnalyzing">
+          <div class="stream-container">
+            <div class="stream-status">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              <span>{{ analysisStore.streamStatus || '准备分析...' }}</span>
+            </div>
+          </div>
+        </template>
+        <template v-else-if="analysisStore.currentReport">
           <div class="report-summary">
             <div class="score-area">
               <ScoreGauge :score="analysisStore.currentReport.sentimentScore || 0" :size="120" />
@@ -76,9 +95,9 @@
               </div>
             </div>
           </div>
-          <div class="report-content">
+          <el-scrollbar class="report-content" max-height="500px">
             <MarkdownRenderer :content="analysisStore.currentReport.markdown || analysisStore.currentReport.text || ''" />
-          </div>
+          </el-scrollbar>
         </template>
         <div v-else class="report-empty">
           <el-icon :size="40" color="var(--el-fill-color)"><DataAnalysis /></el-icon>
@@ -94,6 +113,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useTradingInterval } from '@/composables/useTradingInterval'
 import { ElMessage } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import ScoreGauge from '@/components/common/ScoreGauge.vue'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
@@ -109,6 +129,7 @@ const selectedCode = ref('')
 const selectedName = ref('')
 const searchText = ref('')
 const currentTime = ref('')
+let streamAbort: AbortController | null = null
 
 function formatNum(v: any, digits: number): string {
   const n = Number(v)
@@ -144,19 +165,43 @@ function onStockSelect(code: string, name: string) {
 
 async function runAnalysis() {
   if (!selectedCode.value) return
-  analysisStore.setAnalyzing(true)
-  try {
-    const data: any = await analysisApi.analyze(selectedCode.value, selectedName.value)
-    if (data) {
-      analysisStore.setReport(data)
-    } else {
-      ElMessage.warning('分析完成但未返回报告数据')
-    }
-  } catch {
-    // error already shown by api interceptor
-  } finally {
-    analysisStore.setAnalyzing(false)
+  if (streamAbort) {
+    streamAbort.abort()
+    streamAbort = null
   }
+  analysisStore.setAnalyzing(true)
+  analysisStore.clearReport()
+
+  streamAbort = analysisApi.analyzeStream(selectedCode.value, selectedName.value, {
+    onStatus(content) {
+      analysisStore.setStreamStatus(content)
+    },
+    onText(chunk) {
+      analysisStore.appendStreamText(chunk)
+    },
+    onReport(data) {
+      if (data.type === 'report') {
+        analysisStore.setReport(data)
+      } else if (data.type === 'raw') {
+        analysisStore.setReport({
+          markdown: data.content,
+          text: data.content,
+          sentimentScore: 0,
+          decisionType: '',
+          operationAdvice: '',
+          parseError: data.parse_error,
+        })
+      }
+    },
+    onError(message) {
+      ElMessage.error(message)
+    },
+    onDone() {
+      analysisStore.setAnalyzing(false)
+      analysisStore.clearStreamState()
+      streamAbort = null
+    },
+  })
 }
 
 async function loadMarketOverview() {
@@ -191,6 +236,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   tradingTimer.stop()
+  if (streamAbort) { streamAbort.abort(); streamAbort = null }
   if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
 })
 </script>
@@ -332,6 +378,34 @@ onUnmounted(() => {
 .meta-value { font-size: 16px; font-weight: 600; &.danger { color: var(--el-color-danger); } }
 
 .report-content { line-height: 1.7; }
+
+.stream-container {
+  padding: 20px;
+}
+.stream-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.stream-text {
+  background: var(--el-fill-color-lighter);
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 500px;
+  overflow-y: auto;
+  pre {
+    margin: 0;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--el-text-color-primary);
+  }
+}
 
 .report-empty {
   display: flex;

@@ -76,8 +76,16 @@ pub async fn start_server(
             .service(
                 web::scope("/api/v1")
                     .service(
+                        web::resource("/proxy")
+                            .route(web::post().to(handler::proxy::proxy_post)),
+                    )
+                    .service(
                         web::resource("/agent/chat/stream")
                             .route(web::post().to(handler::stream::chat_stream)),
+                    )
+                    .service(
+                        web::resource("/analysis/stream")
+                            .route(web::post().to(handler::analysis_stream::analysis_stream)),
                     )
                     .service(
                         web::resource("/{cls}")

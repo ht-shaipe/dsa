@@ -36,14 +36,40 @@ impl Dialect {
 
 /// Run all pending migrations. Creates the `schema_migrations` tracking table
 /// first, then iterates every model and ensures its table exists.
+/// Uses a fast-path check: if the recorded schema version matches the current
+/// model set hash, all migrations are skipped without querying per-version.
 pub fn run_migrations(connector: &Connector) {
     let dialect = Dialect::from_connector(connector);
-    tube::log!("run_migrations called, dialect={:?}", dialect);
+    info!("run_migrations called, dialect={:?}", dialect);
 
     match dialect {
         Dialect::Mysql => run_migrations_mysql(connector),
         Dialect::Sqlite => run_migrations_sqlite(connector),
     }
+}
+
+/// Compute a version hash from the current model definitions and alter migrations.
+/// This changes whenever models or alter migrations are added/modified.
+fn compute_schema_hash() -> String {
+    let models = collect_models();
+    let mut parts: Vec<String> = Vec::new();
+    for (label, cls) in &models {
+        parts.push(format!("{}:{}", label, cls.table_name));
+        for attr in &cls.attributes {
+            parts.push(format!("{}:{}:{}", attr.name, attr.data_type, attr.alias));
+        }
+    }
+    for (version, _sql) in collect_alter_migrations_sqlite() {
+        parts.push(version.to_string());
+    }
+    for (version, _sql) in collect_alter_migrations_mysql() {
+        parts.push(version.to_string());
+    }
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    parts.join("|").hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +78,12 @@ pub fn run_migrations(connector: &Connector) {
 
 #[cfg(feature = "mysql")]
 fn run_migrations_mysql(connector: &Connector) {
+    let current_hash = compute_schema_hash();
+    if is_schema_current_mysql(connector, &current_hash) {
+        info!("schema is up-to-date (hash={}), skipping all migrations", &current_hash[..8]);
+        return;
+    }
+
     let migration_sql = create_table_sql(&SchemaMigration::class(), Dialect::Mysql);
     execute_ddl_mysql(connector, &migration_sql);
 
@@ -72,10 +104,13 @@ fn run_migrations_mysql(connector: &Connector) {
         record_migration_mysql(connector, &version, &format!("create table {}", cls.table_name));
     }
 
-    info!("all migrations completed");
+    info!("all mysql table migrations completed");
 
     run_column_migrations_mysql(connector);
     run_alter_migrations_mysql(connector);
+
+    record_schema_hash_mysql(connector, &current_hash);
+    info!("schema hash updated to {}", &current_hash[..8]);
 }
 
 #[cfg(not(feature = "mysql"))]
@@ -89,10 +124,13 @@ fn run_migrations_mysql(_connector: &Connector) {
 
 #[cfg(feature = "sqlite")]
 fn run_migrations_sqlite(connector: &Connector) {
-    tube::log!("run_migrations_sqlite ENTER");
+    let current_hash = compute_schema_hash();
+    if is_schema_current_sqlite(connector, &current_hash) {
+        info!("schema is up-to-date (hash={}), skipping all migrations", &current_hash[..8]);
+        return;
+    }
+
     let migration_sql = create_table_sql(&SchemaMigration::class(), Dialect::Sqlite);
-    std::fs::write("/tmp/dsa_migration_sql.txt", &migration_sql).ok();
-    tube::log!("run_migrations_sqlite schema sql written to /tmp");
     execute_ddl_sqlite(connector, &migration_sql);
 
     let models: Vec<(&str, Class)> = collect_models();
@@ -112,14 +150,91 @@ fn run_migrations_sqlite(connector: &Connector) {
         record_migration_sqlite(connector, &version, &format!("create table {}", cls.table_name));
     }
 
-    info!("all sqlite migrations completed");
+    info!("all sqlite table migrations completed");
 
     run_alter_migrations_sqlite(connector);
+
+    record_schema_hash_sqlite(connector, &current_hash);
+    info!("schema hash updated to {}", &current_hash[..8]);
 }
 
 #[cfg(not(feature = "sqlite"))]
 fn run_migrations_sqlite(_connector: &Connector) {
     warn!("sqlite feature not enabled, skipping sqlite migrations");
+}
+
+// ---------------------------------------------------------------------------
+// Schema hash fast-path (shared)
+// ---------------------------------------------------------------------------
+
+/// Check if the stored schema hash matches the current computed hash.
+/// Returns true if all migrations are already applied and schema is current.
+#[cfg(feature = "sqlite")]
+fn is_schema_current_sqlite(connector: &Connector, current_hash: &str) -> bool {
+    let conn_str = connector.get_conn_str();
+    match Connection::open(&conn_str) {
+        Ok(conn) => {
+            match conn.query_row(
+                "SELECT \"version\" FROM \"schema_migrations\" WHERE \"version\" LIKE 'schema_hash:%' LIMIT 1",
+                [],
+                |row| row.get::<_, String>(0),
+            ) {
+                Ok(stored) => {
+                    let stored_hash = stored.strip_prefix("schema_hash:").unwrap_or("");
+                    stored_hash == current_hash
+                }
+                Err(_) => false,
+            }
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(feature = "sqlite")]
+fn record_schema_hash_sqlite(connector: &Connector, hash: &str) {
+    let conn_str = connector.get_conn_str();
+    if let Ok(conn) = Connection::open(&conn_str) {
+        let _ = conn.execute(
+            "DELETE FROM \"schema_migrations\" WHERE \"version\" LIKE 'schema_hash:%'",
+            [],
+        );
+        let version = format!("schema_hash:{}", hash);
+        let _ = conn.execute(
+            "INSERT INTO \"schema_migrations\" (\"version\", \"description\", \"applied_at\") VALUES (?1, 'schema version hash', datetime('now'))",
+            [&version],
+        );
+    }
+}
+
+#[cfg(feature = "mysql")]
+fn is_schema_current_mysql(connector: &Connector, current_hash: &str) -> bool {
+    let sql = "SELECT `version` FROM `schema_migrations` WHERE `version` LIKE 'schema_hash:%' LIMIT 1";
+    match deck_mysql::Helper::query_rows(sql, vec![], connector) {
+        Ok(rows) => {
+            if let Some(row) = rows.first() {
+                let stored = row.get::<String, _>("version").unwrap_or_default();
+                let stored_hash = stored.strip_prefix("schema_hash:").unwrap_or("");
+                return stored_hash == current_hash;
+            }
+            false
+        }
+        Err(_) => false,
+    }
+}
+
+#[cfg(feature = "mysql")]
+fn record_schema_hash_mysql(connector: &Connector, hash: &str) {
+    let _ = deck_mysql::Helper::execute(
+        "DELETE FROM `schema_migrations` WHERE `version` LIKE 'schema_hash:%'",
+        vec![],
+        connector,
+    );
+    let version = format!("schema_hash:{}", hash);
+    let _ = deck_mysql::Helper::execute(
+        "INSERT INTO `schema_migrations` (`version`, `description`, `applied_at`) VALUES (:version, 'schema version hash', NOW())",
+        vec![("version".to_string(), tube::Value::from(version))],
+        connector,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -457,9 +572,8 @@ fn run_column_migrations_mysql(connector: &Connector) {
     }
 }
 
-#[cfg(feature = "mysql")]
-fn run_alter_migrations_mysql(connector: &Connector) {
-    let alters: Vec<(&str, &str)> = vec![
+fn collect_alter_migrations_mysql() -> Vec<(&'static str, &'static str)> {
+    vec![
         ("v0_analysis_history_report_json_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN report_json MEDIUMTEXT"),
         ("v0_news_intel_content_mediumtext", "ALTER TABLE news_intel MODIFY COLUMN content MEDIUMTEXT"),
         ("v0_analysis_history_context_snapshot_mediumtext", "ALTER TABLE analysis_history MODIFY COLUMN context_snapshot MEDIUMTEXT"),
@@ -468,7 +582,12 @@ fn run_alter_migrations_mysql(connector: &Connector) {
         ("v3_stock_daily_unique_index", "ALTER TABLE stock_daily ADD UNIQUE INDEX `idx_stock_daily_code_date` (`stock_code`, `trade_date`)"),
         ("v3_stock_daily_date_index", "ALTER TABLE stock_daily ADD INDEX `idx_stock_daily_date` (`trade_date`)"),
         ("v3_stock_daily_status_index", "ALTER TABLE stock_daily ADD INDEX `idx_stock_daily_code_status` (`stock_code`, `status`)"),
-    ];
+    ]
+}
+
+#[cfg(feature = "mysql")]
+fn run_alter_migrations_mysql(connector: &Connector) {
+    let alters = collect_alter_migrations_mysql();
 
     for (version, sql) in &alters {
         if is_migration_applied_mysql(connector, version) {
@@ -513,17 +632,14 @@ fn record_migration_sqlite(connector: &Connector, version: &str, description: &s
 #[cfg(feature = "sqlite")]
 fn execute_ddl_sqlite(connector: &Connector, sql: &str) {
     let conn_str = connector.get_conn_str();
-    tube::log!("execute_ddl_sqlite: conn_str={}, sql_len={}", conn_str, sql.len());
     match Connection::open(&conn_str) {
         Ok(conn) => {
             if let Err(e) = conn.execute_batch(sql) {
-                tube::log!("sqlite DDL execution FAILED: {} — sql: {}", e, &sql[..sql.len().min(200)]);
-            } else {
-                tube::log!("sqlite DDL execution OK");
+                warn!("sqlite DDL execution FAILED: {} — sql: {}", e, &sql[..sql.len().min(200)]);
             }
         }
         Err(e) => {
-            tube::log!("sqlite open FAILED: {}", e);
+            warn!("sqlite open FAILED: {}", e);
         }
     }
 }
@@ -542,9 +658,8 @@ fn sqlite_query_count(connector: &Connector, sql: &str) -> Result<i64, String> {
     }
 }
 
-#[cfg(feature = "sqlite")]
-fn run_alter_migrations_sqlite(connector: &Connector) {
-    let alters: Vec<(&str, &str)> = vec![
+fn collect_alter_migrations_sqlite() -> Vec<(&'static str, &'static str)> {
+    vec![
         ("v1_stock_daily_add_macd_columns", "ALTER TABLE stock_daily ADD COLUMN \"ma60\" REAL NOT NULL DEFAULT 0"),
         ("v1_stock_daily_add_dif", "ALTER TABLE stock_daily ADD COLUMN \"dif\" REAL NOT NULL DEFAULT 0"),
         ("v1_stock_daily_add_dea", "ALTER TABLE stock_daily ADD COLUMN \"dea\" REAL NOT NULL DEFAULT 0"),
@@ -558,7 +673,12 @@ fn run_alter_migrations_sqlite(connector: &Connector) {
         ("v3_stock_daily_unique_index", "CREATE UNIQUE INDEX IF NOT EXISTS \"idx_stock_daily_code_date\" ON \"stock_daily\" (\"stock_code\", \"trade_date\")"),
         ("v3_stock_daily_date_index", "CREATE INDEX IF NOT EXISTS \"idx_stock_daily_date\" ON \"stock_daily\" (\"trade_date\")"),
         ("v3_stock_daily_status_index", "CREATE INDEX IF NOT EXISTS \"idx_stock_daily_code_status\" ON \"stock_daily\" (\"stock_code\", \"status\")"),
-    ];
+    ]
+}
+
+#[cfg(feature = "sqlite")]
+fn run_alter_migrations_sqlite(connector: &Connector) {
+    let alters = collect_alter_migrations_sqlite();
 
     for (version, sql) in &alters {
         if is_migration_applied_sqlite(connector, version) {
