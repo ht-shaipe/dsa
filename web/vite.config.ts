@@ -6,6 +6,9 @@ import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { resolve } from 'path'
 
 export default defineConfig({
+  define: {
+    __DSA_DEV__: JSON.stringify(!!process.env.DSA_DEV),
+  },
   plugins: [
     vue(),
     AutoImport({
@@ -25,7 +28,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    proxy: {
+    proxy: process.env.DSA_STANDALONE ? {
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
@@ -36,6 +39,6 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
-    },
+    } : {},
   },
 })

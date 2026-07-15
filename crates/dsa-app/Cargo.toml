@@ -1,0 +1,32 @@
+[package]
+name = "dsa-app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "DSA Tauri desktop application"
+
+[features]
+default = ["sqlite"]
+mysql = ["dsa-server/mysql", "dsa-core/mysql"]
+sqlite = ["dsa-server/sqlite", "dsa-core/sqlite"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+dsa-core = { workspace = true }
+dsa-server = { workspace = true }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-autostart = "2"
+actix-rt = { workspace = true }
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+deck_connector = { workspace = true }
+tube = { workspace = true }
+tube_web = { workspace = true }

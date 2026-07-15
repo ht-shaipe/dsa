@@ -1,7 +1,7 @@
+use dsa_core::db::query_rows;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 use dsa_core::utils;
-use deck_mysql::{DataRow, Helper};
 
 pub struct SocialSentiment {
     request: RequestParameter,
@@ -14,6 +14,7 @@ impl SocialSentiment {
             request: param.clone(),
             client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
+                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .build()
                 .unwrap_or_default(),
         }
@@ -37,7 +38,9 @@ impl SocialSentiment {
 
     async fn market_sentiment(&self) -> Result<Value> {
         let url = "https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&fields=f2,f3,f12,f14&secids=1.000001,0.399001,0.399006";
-        let resp = self.client.get(url).send().await
+        let resp = self.client.get(url)
+            .header("Referer", "https://quote.eastmoney.com/")
+            .send().await
             .map_err(|e| tube::Error::from(format!("获取市场情绪失败: {}", e)))?;
         let body: Value = resp.json().await
             .unwrap_or(value!({"data": {"diff": []}}));
@@ -69,9 +72,9 @@ impl SocialSentiment {
         }
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = format!("SELECT sentiment_label, sentiment_score, title FROM news_intel WHERE stock_code = '{}' ORDER BY published_at DESC LIMIT 10", code);
-        let rows = Helper::query_rows(&sql, vec![], &connector)
+        let rows = query_rows(&sql, vec![], &connector)
             .map_err(|e| tube::Error::msg(format!("查询新闻情绪出错: {}", e)))?;
-        let items: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
+        let items: Vec<Value> = rows;
         let avg_sentiment = items.iter()
             .filter_map(|i| i.get("sentimentScore").and_then(|v| v.as_f64()))
             .sum::<f64>() / items.len().max(1) as f64;
@@ -85,7 +88,9 @@ impl SocialSentiment {
 
     async fn hot_topics(&self) -> Result<Value> {
         let url = "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f2,f3,f12,f14";
-        let resp = self.client.get(url).send().await
+        let resp = self.client.get(url)
+            .header("Referer", "https://quote.eastmoney.com/")
+            .send().await
             .map_err(|e| tube::Error::from(format!("获取热门题材失败: {}", e)))?;
         let body: Value = resp.json().await
             .unwrap_or(value!({"data": {"diff": []}}));

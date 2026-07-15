@@ -47,7 +47,7 @@ async function searchStock(qs: string, cb: (results: any[]) => void) {
   }
   try {
     const res: any = await stockApi.search(qs)
-    const data = res.data || []
+    const data = Array.isArray(res) ? res : []
     cb(data.map((item: any) => ({
       value: item.code || item.symbol || '',
       code: item.code || item.symbol || '',

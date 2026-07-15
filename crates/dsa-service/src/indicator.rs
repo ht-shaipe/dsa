@@ -1,3 +1,4 @@
+use dsa_core::db::{query_rows, execute, row_get_string, row_get_f64};
 use dsa_core::utils;
 use dsa_pipeline::technical::TechnicalAnalyzer;
 use deck_connector::Connector;
@@ -32,18 +33,18 @@ impl Indicator {
 
     async fn calc_all(&self) -> Result<Value> {
         let connector = utils::get_db_connector()
-            .map_err(|e| error!("DB连接失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
 
         let sql = "SELECT DISTINCT stock_code, stock_name FROM stock_daily WHERE status = 1 ORDER BY stock_code";
-        let rows = deck::Helper::query_rows(sql, vec![], &connector)
-            .map_err(|e| error!("查询股票列表失败: {}", e))?;
+        let rows = query_rows(sql, vec![], &connector)
+            .map_err(|e| tube::Error::from(format!("查询股票列表失败: {}", e)))?;
 
         let mut success = 0u32;
         let mut failed = 0u32;
         let total = rows.len();
 
         for row in &rows {
-            let code = deck::DataRow::get_string(row, 0);
+            let code = row_get_string(row, "stockCode");
             if code.is_empty() {
                 continue;
             }
@@ -65,7 +66,7 @@ impl Indicator {
 
     async fn calc_stock(&self) -> Result<Value> {
         let connector = utils::get_db_connector()
-            .map_err(|e| error!("DB连接失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
         let code = utils::param_string(self.params(), "code");
         if code.is_empty() {
             return Err(error!("请提供股票代码(code参数)"));
@@ -78,18 +79,18 @@ impl Indicator {
              volume_ratio, turnover_rate, status \
              FROM stock_daily WHERE stock_code = :code AND status >= 1 \
              ORDER BY trade_date ASC LIMIT 120";
-        let rows = deck::Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("code".to_string(), Value::from(code.to_string()))],
             connector,
         )
-        .map_err(|e| error!("查询K线数据失败 {}: {}", code, e))?;
+        .map_err(|e| tube::Error::from(format!("查询K线数据失败 {}: {}", code, e)))?;
 
         if rows.len() < 26 {
             return Ok(value!({"code": code, "skipped": true, "reason": "数据不足26天"}));
         }
 
-        let closes: Vec<f64> = rows.iter().map(|r| deck::DataRow::get_value(r, 0).as_f64().unwrap_or(0.0)).collect();
+        let closes: Vec<f64> = rows.iter().map(|r| row_get_f64(r, "close")).collect();
         let analyzer = TechnicalAnalyzer::new();
 
         let macd_pts = analyzer.macd_series(&closes, 12, 26, 9);
@@ -129,7 +130,7 @@ impl Indicator {
             }
 
             let row = &rows[bar_idx];
-            let date_str = deck::DataRow::get_string(row, 3);
+            let date_str = row_get_string(row, "tradeDate");
             if date_str.is_empty() {
                 continue;
             }
@@ -137,7 +138,7 @@ impl Indicator {
             let update_sql = "UPDATE stock_daily SET ma5 = :ma5, ma10 = :ma10, ma20 = :ma20, ma60 = :ma60, \
                  dif = :dif, dea = :dea, macd_hist = :macd_hist \
                  WHERE stock_code = :code AND trade_date = :date AND status >= 1";
-            let res = deck::Helper::execute(
+            let res = execute(
                 update_sql,
                 vec![
                     ("ma5".to_string(), Value::from(ma5)),

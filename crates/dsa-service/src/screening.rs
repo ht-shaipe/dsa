@@ -1,3 +1,4 @@
+use dsa_core::db::{query_rows, execute, get_db_connector, row_get_string, row_get_f64, row_get_value};
 use dsa_core::utils;
 use dsa_pipeline::technical::TechnicalAnalyzer;
 use qta_crawler::EastMoney;
@@ -52,15 +53,15 @@ impl Screening {
     }
 
     async fn check_daily_data(&self) -> bool {
-        let connector = match utils::get_db_connector() {
+        let connector = match get_db_connector() {
             Ok(c) => c,
             Err(_) => return false,
         };
-        let sql = "SELECT COUNT(*) FROM stock_daily WHERE status >= 1";
-        match deck::Helper::query_rows(sql, vec![], &connector) {
+        let sql = "SELECT COUNT(*) AS cnt FROM stock_daily WHERE status >= 1";
+        match query_rows(sql, vec![], &connector) {
             Ok(rows) => {
                 if let Some(row) = rows.first() {
-                    let count = deck::DataRow::get_value(row, 0).as_u64().unwrap_or(0);
+                    let count = row_get_value(row, "cnt").as_u64().unwrap_or(0);
                     return count > 0;
                 }
                 false
@@ -81,7 +82,7 @@ impl Screening {
         let spot = em
             .stock_zh_a_spot()
             .await
-            .map_err(|e| error!("获取行情失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
 
         let codes: Vec<String> = spot
             .iter()
@@ -156,7 +157,7 @@ impl Screening {
                     st.phase = "calculating_indicators".to_string();
                 }
 
-                let connector = match dsa_core::utils::get_db_connector() {
+                let connector = match get_db_connector() {
                     Ok(c) => c,
                     Err(e) => {
                         tracing::error!("指标计算DB连接失败: {}", e);
@@ -168,7 +169,7 @@ impl Screening {
                 };
 
                 let sql = "SELECT DISTINCT stock_code, stock_name FROM stock_daily WHERE status = 1 ORDER BY stock_code";
-                let rows = match deck::Helper::query_rows(sql, vec![], &connector) {
+                let rows = match query_rows(sql, vec![], &connector) {
                     Ok(r) => r,
                     Err(e) => {
                         tracing::error!("查询股票列表失败: {}", e);
@@ -181,12 +182,12 @@ impl Screening {
 
                 let analyzer = TechnicalAnalyzer::new();
                 for row in &rows {
-                    let code = deck::DataRow::get_string(row, 0);
+                    let code = row_get_string(row, "stockCode");
                     let hist_sql = "SELECT close, trade_date FROM stock_daily \
                          WHERE stock_code = :code AND status >= 1 ORDER BY trade_date ASC";
-                    let hist_rows = match deck::Helper::query_rows(
+                    let hist_rows = match query_rows(
                         hist_sql,
-                        vec![("code".to_string(), Value::from(code.to_string()))],
+                        vec![("code".to_string(), Value::from(code.clone()))],
                         &connector,
                     ) {
                         Ok(r) => r,
@@ -194,7 +195,7 @@ impl Screening {
                     };
 
                     let closes: Vec<f64> = hist_rows.iter()
-                        .map(|r| deck::DataRow::get_value(r, 0).as_f64().unwrap_or(0.0))
+                        .map(|r| row_get_f64(r, "close"))
                         .collect();
 
                     if closes.len() < 60 {
@@ -208,13 +209,13 @@ impl Screening {
                     let (dif, dea, macd_hist) = analyzer.macd(&closes, 12, 26, 9);
 
                     let last_date_row = hist_rows.last().unwrap();
-                    let last_date = deck::DataRow::get_string(last_date_row, 1);
+                    let last_date = row_get_string(last_date_row, "tradeDate");
 
                     let update_sql = "UPDATE stock_daily SET \
                          ma5 = :ma5, ma10 = :ma10, ma20 = :ma20, ma60 = :ma60, \
                          dif = :dif, dea = :dea, macd_hist = :macd_hist \
                          WHERE stock_code = :code AND trade_date = :date AND status >= 1";
-                    let _ = deck::Helper::execute(
+                    let _ = execute(
                         update_sql,
                         vec![
                             ("ma5".to_string(), Value::from(ma5)),
@@ -224,8 +225,8 @@ impl Screening {
                             ("dif".to_string(), Value::from(dif)),
                             ("dea".to_string(), Value::from(dea)),
                             ("macd_hist".to_string(), Value::from(macd_hist)),
-                            ("code".to_string(), Value::from(code.to_string())),
-                            ("date".to_string(), Value::from(last_date.as_str())),
+                            ("code".to_string(), Value::from(code.clone())),
+                            ("date".to_string(), Value::from(last_date.clone())),
                         ],
                         &connector,
                     );
@@ -266,9 +267,13 @@ impl Screening {
     async fn hotspots(&self) -> Result<Value> {
         let em = EastMoney::new();
         let industry = em.sector_rank("industry").await
-            .map_err(|e| error!("获取行业热点失败: {}", e))?;
+            .unwrap_or_else(|e| { tube::err_log!("获取行业热点失败: {}", e); vec![] });
         let concept = em.sector_rank("concept").await
-            .map_err(|e| error!("获取概念热点失败: {}", e))?;
+            .unwrap_or_else(|e| { tube::err_log!("获取概念热点失败: {}", e); vec![] });
+
+        if industry.is_empty() && concept.is_empty() {
+            return Err(error!("获取热点数据失败，请检查网络连接"));
+        }
 
         let mut all: Vec<Value> = Vec::new();
         all.extend(industry.into_iter().take(10));
@@ -335,7 +340,7 @@ impl Screening {
         let spot = em
             .stock_zh_a_spot()
             .await
-            .map_err(|e| error!("获取行情失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
 
         let results: Vec<Value> = match strategy.as_str() {
             "dual_low" => Self::filter_dual_low(&spot, limit),
@@ -349,8 +354,8 @@ impl Screening {
     }
 
     async fn filter_macd_golden_cross(&self, limit: usize) -> Result<Value> {
-        let connector = utils::get_db_connector()
-            .map_err(|e| error!("DB连接失败: {}", e))?;
+        let connector = get_db_connector()
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
 
         let sql = "SELECT sd.stock_code, sd.stock_name, sd.close, sd.ma60, sd.dif, sd.dea, sd.macd_hist, \
              sd.trade_date, sd.pct_chg, sd.volume, sd.amount, sd.turnover_rate, sd.volume_ratio \
@@ -363,8 +368,8 @@ impl Screening {
              WHERE sd.status >= 1 AND sd.ma60 > 0 AND sd.close > sd.ma60 AND sd.dif > 0 AND sd.dea > 0 \
              ORDER BY sd.macd_hist DESC";
 
-        let rows = deck::Helper::query_rows(sql, vec![], &connector)
-            .map_err(|e| error!("查询MACD零上金叉候选失败: {}", e))?;
+        let rows = query_rows(sql, vec![], &connector)
+            .map_err(|e| tube::Error::from(format!("查询MACD零上金叉候选失败: {}", e)))?;
 
         let analyzer = TechnicalAnalyzer::new();
         let mut results: Vec<Value> = Vec::new();
@@ -374,18 +379,18 @@ impl Screening {
             if results.len() >= limit {
                 break;
             }
-            let code = deck::DataRow::get_string(row, 0);
+            let code = row_get_string(row, "stockCode");
             let code_val: &str = &code;
 
             let hist_sql = "SELECT macd_hist FROM stock_daily \
                  WHERE stock_code = :code AND status >= 1 AND macd_hist != 0 \
                  ORDER BY trade_date DESC LIMIT 10";
-            let hist_rows = deck::Helper::query_rows(
+            let hist_rows = query_rows(
                 hist_sql,
                 vec![("code".to_string(), Value::from(code_val.to_string()))],
                 &connector,
             )
-            .map_err(|e| error!("查询MACD历史失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("查询MACD历史失败: {}", e)))?;
 
             if hist_rows.len() < 2 {
                 checked += 1;
@@ -393,7 +398,7 @@ impl Screening {
             }
 
             let hist_series: Vec<f64> = hist_rows.iter()
-                .map(|r| deck::DataRow::get_value(r, 0).as_f64().unwrap_or(0.0))
+                .map(|r| row_get_f64(r, "macdHist"))
                 .collect();
             let mut hist_asc = hist_series;
             hist_asc.reverse();
@@ -403,15 +408,15 @@ impl Screening {
                 continue;
             }
 
-            let name = deck::DataRow::get_string(row, 1);
-            let close = deck::DataRow::get_value(row, 2).as_f64().unwrap_or(0.0);
-            let ma60 = deck::DataRow::get_value(row, 3).as_f64().unwrap_or(0.0);
-            let dif = deck::DataRow::get_value(row, 4).as_f64().unwrap_or(0.0);
-            let dea = deck::DataRow::get_value(row, 5).as_f64().unwrap_or(0.0);
-            let macd_hist = deck::DataRow::get_value(row, 6).as_f64().unwrap_or(0.0);
-            let pct_chg = deck::DataRow::get_value(row, 8).as_f64().unwrap_or(0.0);
-            let turnover_rate = deck::DataRow::get_value(row, 11).as_f64().unwrap_or(0.0);
-            let volume_ratio = deck::DataRow::get_value(row, 12).as_f64().unwrap_or(0.0);
+            let name = row_get_string(row, "stockName");
+            let close = row_get_f64(row, "close");
+            let ma60 = row_get_f64(row, "ma60");
+            let dif = row_get_f64(row, "dif");
+            let dea = row_get_f64(row, "dea");
+            let macd_hist = row_get_f64(row, "macdHist");
+            let pct_chg = row_get_f64(row, "pctChg");
+            let turnover_rate = row_get_f64(row, "turnoverRate");
+            let volume_ratio = row_get_f64(row, "volumeRatio");
 
             let above_ma60_pct = if ma60 > 0.0 { (close - ma60) / ma60 * 100.0 } else { 0.0 };
 

@@ -1,3 +1,4 @@
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_i64, row_get_string};
 use dsa_core::models::db::PortfolioAccount as PortfolioAccountModel;
 use dsa_core::models::db::PortfolioCashLedger as PortfolioCashLedgerModel;
 use dsa_core::models::db::PortfolioCorporateAction as PortfolioCorporateActionModel;
@@ -7,8 +8,10 @@ use dsa_core::models::db::PortfolioPosition as PortfolioPositionModel;
 use dsa_core::models::db::PortfolioPositionLot as PortfolioPositionLotModel;
 use dsa_core::models::db::PortfolioTrade as PortfolioTradeModel;
 use dsa_core::utils;
-use deck::{DataTable, Helper, QueryExecutor, SelectExecutor, TableService};
-use deck_mysql::DataRow;
+use deck::sqlite::DataTable;
+use deck::QueryExecutor;
+use deck::TableService;
+
 use qta_crawler::Real;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
@@ -41,9 +44,9 @@ impl TradeTable {
               ORDER BY create_time DESC LIMIT :limit".to_string(),
              vec![("limit".to_string(), Value::from(limit))])
         };
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| tube::Error::msg(format!("查询交易记录失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        Ok(rows)
     }
 
     fn insert_trade(&self, account_id: i64, code: &str, name: &str, direction: &str,
@@ -73,12 +76,12 @@ impl TradeTable {
         let sql = "SELECT SUM(CASE WHEN direction = 'sell' THEN price * quantity - commission \
              ELSE -(price * quantity + commission) END) as realized_pnl \
              FROM portfolio_trades WHERE account_id = :aid AND status = 1";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
         ).map_err(|e| tube::Error::msg(format!("查询交易汇总失败: {}", e)))?;
-        Ok(rows.first().map(|r| r.get_value(0).as_f64().unwrap_or(0.0)).unwrap_or(0.0))
+        Ok(rows.first().map(|r| row_get_f64(r, "realizedPnl")).unwrap_or(0.0))
     }
 
     fn import_one_trade(&self, account_id: i64, code: &str, name: &str, direction: &str,
@@ -104,20 +107,20 @@ impl AccountTable {
         let sql = "SELECT id, name, market, broker, base_currency, initial_capital, \
              remark, status, creator_id, create_time, modify_time \
              FROM portfolio_accounts WHERE status >= 1 ORDER BY id";
-        let rows = Helper::query_rows(sql, vec![], &connector)
+        let rows = query_rows(sql, vec![], &connector)
             .map_err(|e| tube::Error::msg(format!("查询账户列表失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        Ok(rows)
     }
 
     fn get_initial_capital(&self, account_id: i64) -> Result<f64> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT initial_capital FROM portfolio_accounts WHERE id = :id AND status >= 1";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("id".to_string(), Value::from(account_id))],
             &connector,
         ).map_err(|e| tube::Error::msg(format!("查询账户失败: {}", e)))?;
-        Ok(rows.first().map(|r| r.get_value(0).as_f64().unwrap_or(0.0)).unwrap_or(0.0))
+        Ok(rows.first().map(|r| row_get_f64(r, "initialCapital")).unwrap_or(0.0))
     }
 }
 
@@ -137,7 +140,7 @@ impl CashLedgerTable {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT id, account_id, event_date, direction, amount, base_currency, note, create_time \
              FROM portfolio_cash_ledger WHERE account_id = :aid ORDER BY event_date DESC LIMIT :limit";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![
                 ("aid".to_string(), Value::from(account_id)),
@@ -145,7 +148,7 @@ impl CashLedgerTable {
             ],
             &connector,
         ).map_err(|e| tube::Error::msg(format!("查询现金流水失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        Ok(rows)
     }
 
     fn insert_cash_event(&self, account_id: i64, direction: &str, amount: f64, note: &str) -> Result<Value> {
@@ -179,7 +182,7 @@ impl CorporateActionTable {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT * FROM portfolio_corporate_actions \
              WHERE account_id = :aid ORDER BY effective_date DESC LIMIT :limit";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![
                 ("aid".to_string(), Value::from(account_id)),
@@ -187,7 +190,7 @@ impl CorporateActionTable {
             ],
             &connector,
         ).map_err(|e| tube::Error::msg(format!("查询公司行动失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        Ok(rows)
     }
 
     fn insert_corporate_action(&self, account_id: i64, symbol: &str, action_type: &str,
@@ -244,12 +247,12 @@ impl DailySnapshotTable {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT total_equity FROM portfolio_daily_snapshots \
              WHERE account_id = :aid ORDER BY snapshot_date DESC LIMIT 1";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
         ).unwrap_or_default();
-        Ok(rows.first().map(|r| r.get_value(0).as_f64().unwrap_or(fallback)).unwrap_or(fallback))
+        Ok(rows.first().map(|r| row_get_f64(r, "totalEquity")).unwrap_or(fallback))
     }
 }
 
@@ -268,23 +271,29 @@ impl FxRateTable {
     fn query_fx_rates(&self, limit: i64) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT * FROM portfolio_fx_rates ORDER BY rate_date DESC LIMIT :limit";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("limit".to_string(), Value::from(limit))],
             &connector,
         ).map_err(|e| tube::Error::msg(format!("查询汇率失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        Ok(rows)
     }
 
     fn upsert_fx_rate(&self, from_currency: &str, to_currency: &str, rate: f64, source: &str) -> Result<Value> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
-        let sql = "INSERT INTO portfolio_fx_rates \
+        let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+        let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+        let upsert_clause = if is_sqlite {
+            "rate = excluded.rate, source = excluded.source, is_stale = 0, updated_time = datetime('now')"
+        } else {
+            "rate = VALUES(rate), source = VALUES(source), is_stale = 0, updated_time = NOW()"
+        };
+        let sql = format!("INSERT INTO portfolio_fx_rates \
              (from_currency, to_currency, rate_date, rate, source, is_stale, updated_time) \
-             VALUES (:from, :to, NOW(), :rate, :src, 0, NOW()) \
-             ON DUPLICATE KEY UPDATE rate = VALUES(rate), source = VALUES(source), \
-             is_stale = 0, updated_time = NOW()";
-        Helper::execute(
-            sql,
+             VALUES (:from, :to, {}, :rate, :src, 0, {}) \
+             ON DUPLICATE KEY UPDATE {}", now_expr, now_expr, upsert_clause);
+         execute(
+             &sql,
             vec![
                 ("from".to_string(), Value::from(from_currency)),
                 ("to".to_string(), Value::from(to_currency)),
@@ -312,12 +321,12 @@ impl PositionLotTable {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT * FROM portfolio_position_lots \
              WHERE account_id = :aid AND remaining_quantity > 0 ORDER BY open_date ASC";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
         ).map_err(|e| tube::Error::msg(format!("查询FIFO批次失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        Ok(rows)
     }
 }
 
@@ -418,7 +427,7 @@ impl Portfolio {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let check_sql = "SELECT id, quantity, avg_cost FROM portfolio_positions \
              WHERE account_id = :aid AND stock_code = :code AND status = 1 LIMIT 1";
-        let existing = Helper::query_rows(
+        let existing = query_rows(
             check_sql,
             vec![
                 ("aid".to_string(), Value::from(account_id)),
@@ -450,9 +459,9 @@ impl Portfolio {
                 .map_err(|e| tube::Error::msg(format!("创建持仓失败: {}", e)))?;
         } else {
             let row = &existing[0];
-            let pos_id: i64 = row.get_value(0).as_f64().unwrap_or(0.0) as i64;
-            let old_qty: i64 = row.get_value(1).as_f64().unwrap_or(0.0) as i64;
-            let old_cost: f64 = row.get_value(2).as_f64().unwrap_or(0.0);
+            let pos_id: i64 = row_get_i64(row, "id");
+            let old_qty: i64 = row_get_f64(row, "quantity") as i64;
+            let old_cost: f64 = row_get_f64(row, "avgCost");
 
             let new_qty = old_qty + quantity;
             let buy_total = price * quantity as f64 + commission;
@@ -469,13 +478,15 @@ impl Portfolio {
                 0.0
             };
 
-            let update_sql = "UPDATE portfolio_positions SET \
+            let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+            let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+            let update_sql = format!("UPDATE portfolio_positions SET \
                  quantity = :qty, avg_cost = :avg_cost, current_price = :price, \
                  market_value = :mv, unrealized_pnl = :pnl, unrealized_pnl_pct = :pnl_pct, \
-                 snapshot_date = NOW(), modify_time = NOW() \
-                 WHERE id = :id";
-            Helper::execute(
-                update_sql,
+                 snapshot_date = {}, modify_time = {} \
+                 WHERE id = :id", now_expr, now_expr);
+            execute(
+                &update_sql,
                 vec![
                     ("qty".to_string(), Value::from(new_qty)),
                     ("avg_cost".to_string(), Value::from(new_avg)),
@@ -529,7 +540,7 @@ impl Portfolio {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let check_sql = "SELECT id, quantity, avg_cost, stock_name FROM portfolio_positions \
              WHERE account_id = :aid AND stock_code = :code AND status = 1 LIMIT 1";
-        let existing = Helper::query_rows(
+        let existing = query_rows(
             check_sql,
             vec![
                 ("aid".to_string(), Value::from(account_id)),
@@ -543,10 +554,10 @@ impl Portfolio {
         }
 
         let row = &existing[0];
-        let pos_id: i64 = row.get_value(0).as_f64().unwrap_or(0.0) as i64;
-        let old_qty: i64 = row.get_value(1).as_f64().unwrap_or(0.0) as i64;
-        let avg_cost: f64 = row.get_value(2).as_f64().unwrap_or(0.0);
-        let stock_name = row.get_string(3);
+        let pos_id: i64 = row_get_i64(row, "id");
+        let old_qty: i64 = row_get_f64(row, "quantity") as i64;
+        let avg_cost: f64 = row_get_f64(row, "avgCost");
+        let stock_name = row_get_string(row, "stockName");
 
         let sell_qty = if quantity <= 0 || quantity >= old_qty {
             old_qty
@@ -561,9 +572,11 @@ impl Portfolio {
 
         let remaining = old_qty - sell_qty;
         if remaining <= 0 {
-            let update_sql = "UPDATE portfolio_positions SET quantity = 0, status = 0, modify_time = NOW() WHERE id = :id";
-            Helper::execute(
-                update_sql,
+            let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+            let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+            let update_sql = format!("UPDATE portfolio_positions SET quantity = 0, status = 0, modify_time = {} WHERE id = :id", now_expr);
+            execute(
+                &update_sql,
                 vec![("id".to_string(), Value::from(pos_id))],
                 &connector,
             ).map_err(|e| tube::Error::msg(format!("清仓失败: {}", e)))?;
@@ -576,12 +589,14 @@ impl Portfolio {
                 0.0
             };
 
-            let update_sql = "UPDATE portfolio_positions SET \
+            let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+            let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+            let update_sql = format!("UPDATE portfolio_positions SET \
                  quantity = :qty, avg_cost = :avg_cost, current_price = :price, market_value = :mv, \
                  unrealized_pnl = :pnl, unrealized_pnl_pct = :pnl_pct, \
-                 snapshot_date = NOW(), modify_time = NOW() WHERE id = :id";
-            Helper::execute(
-                update_sql,
+                 snapshot_date = {}, modify_time = {} WHERE id = :id", now_expr, now_expr);
+            execute(
+                &update_sql,
                 vec![
                     ("qty".to_string(), Value::from(remaining)),
                     ("avg_cost".to_string(), Value::from(avg_cost)),
@@ -619,7 +634,7 @@ impl Portfolio {
              vec![])
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| tube::Error::msg(format!("查询持仓失败: {}", e)))?;
 
         let mut total_value = 0.0_f64;
@@ -630,10 +645,10 @@ impl Portfolio {
         let real = Real::new();
 
         for row in &rows {
-            let code = row.get_string(2);
-            let qty: i64 = row.get_value(4).as_f64().unwrap_or(0.0) as i64;
-            let avg_cost: f64 = row.get_value(5).as_f64().unwrap_or(0.0);
-            let stock_name = row.get_string(3);
+            let code = row_get_string(row, "stockCode");
+            let qty: i64 = row_get_f64(row, "quantity") as i64;
+            let avg_cost: f64 = row_get_f64(row, "avgCost");
+            let stock_name = row_get_string(row, "stockName");
 
             let pure_code = code.trim_start_matches("sh")
                 .trim_start_matches("sz")
@@ -644,7 +659,7 @@ impl Portfolio {
             let prefix = utils::market_prefix(pure_code);
             let padded = format!("{:0>6}", pure_code);
             let full_code = format!("{}{}", prefix, padded);
-            let db_current_price: f64 = row.get_value(6).as_f64().unwrap_or(0.0);
+            let db_current_price: f64 = row_get_f64(row, "currentPrice");
 
             let current_price = match real.get_price(&full_code).await {
                 Ok(v) => {
@@ -722,18 +737,18 @@ impl Portfolio {
              vec![])
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| tube::Error::msg(format!("查询持仓失败: {}", e)))?;
 
         let real = Real::new();
         let mut results = Vec::new();
 
         for row in &rows {
-            let code = row.get_string(2);
-            let stock_name = row.get_string(3);
-            let qty: i64 = row.get_value(4).as_f64().unwrap_or(0.0) as i64;
-            let avg_cost: f64 = row.get_value(5).as_f64().unwrap_or(0.0);
-            let db_current_price: f64 = row.get_value(6).as_f64().unwrap_or(0.0);
+            let code = row_get_string(row, "stockCode");
+            let stock_name = row_get_string(row, "stockName");
+            let qty: i64 = row_get_f64(row, "quantity") as i64;
+            let avg_cost: f64 = row_get_f64(row, "avgCost");
+            let db_current_price: f64 = row_get_f64(row, "currentPrice");
 
             let pure_code = code.trim_start_matches("sh")
                 .trim_start_matches("sz")
@@ -766,8 +781,8 @@ impl Portfolio {
             let pnl_pct = if cost > 0.0 { pnl / cost * 100.0 } else { 0.0 };
 
             results.push(value!({
-                "id": row.get_value(0).as_f64().unwrap_or(0.0) as i64,
-                "accountId": row.get_value(1).as_f64().unwrap_or(0.0) as i64,
+                "id": row_get_i64(row, "id"),
+                "accountId": row_get_i64(row, "accountId"),
                 "stockCode": code,
                 "stockName": stock_name,
                 "quantity": qty,
@@ -776,8 +791,8 @@ impl Portfolio {
                 "marketValue": mv,
                 "unrealizedPnl": pnl,
                 "unrealizedPnlPct": pnl_pct,
-                "snapshotDate": row.get_string(10),
-                "status": row.get_value(11).as_f64().unwrap_or(0.0) as i64,
+                "snapshotDate": row_get_string(row, "snapshotDate"),
+                "status": row_get_i64(row, "status"),
             }));
         }
 
@@ -816,7 +831,7 @@ impl Portfolio {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let pos_sql = "SELECT SUM(market_value) as mv, SUM(unrealized_pnl) as pnl, \
              SUM(cost_basis) as cost FROM portfolio_positions WHERE account_id = :aid AND status = 1";
-        let pos_rows = Helper::query_rows(
+        let pos_rows = query_rows(
             pos_sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
@@ -824,15 +839,15 @@ impl Portfolio {
 
         let market_value: f64 = pos_rows
             .first()
-            .map(|r| r.get_value(0).as_f64().unwrap_or(0.0))
+            .map(|r| row_get_f64(r, "mv"))
             .unwrap_or(0.0);
         let unrealized_pnl: f64 = pos_rows
             .first()
-            .map(|r| r.get_value(1).as_f64().unwrap_or(0.0))
+            .map(|r| row_get_f64(r, "pnl"))
             .unwrap_or(0.0);
         let total_cost: f64 = pos_rows
             .first()
-            .map(|r| r.get_value(2).as_f64().unwrap_or(0.0))
+            .map(|r| row_get_f64(r, "cost"))
             .unwrap_or(0.0);
 
         let trade_table = TradeTable::new(&self.request);
@@ -1054,7 +1069,7 @@ impl Portfolio {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT p.stock_code, p.market_value, p.unrealized_pnl_pct \
              FROM portfolio_positions WHERE account_id = :aid AND status = 1";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
@@ -1069,7 +1084,7 @@ impl Portfolio {
             }));
         }
 
-        let codes: Vec<String> = rows.iter().map(|r| r.get_string(0)).collect();
+        let codes: Vec<String> = rows.iter().map(|r| row_get_string(r, "stockCode")).collect();
         let mut sector_cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         let em = qta_crawler::EastMoney::new();
         if let Ok(spot_data) = em.stock_zh_a_spot().await {
@@ -1088,9 +1103,9 @@ impl Portfolio {
         let mut sector_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
 
         for row in &rows {
-            let code = row.get_string(0);
-            let mv: f64 = row.get_value(1).as_f64().unwrap_or(0.0);
-            let pnl_pct: f64 = row.get_value(2).as_f64().unwrap_or(0.0);
+            let code = row_get_string(row, "stockCode");
+            let mv: f64 = row_get_f64(row, "marketValue");
+            let pnl_pct: f64 = row_get_f64(row, "unrealizedPnlPct");
 
             total_mv += mv;
             if mv > max_mv {

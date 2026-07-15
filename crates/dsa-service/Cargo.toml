@@ -6,8 +6,13 @@ authors.workspace = true
 license.workspace = true
 description = "DSA business service layer - stock data, analysis, scheduler, portfolio, alerts"
 
+[features]
+default = ["mysql", "sqlite"]
+mysql = ["deck/mysql", "dsa-core/mysql"]
+sqlite = ["deck/sqlite", "dsa-core/sqlite"]
+
 [dependencies]
-dsa-core = { workspace = true }
+dsa-core = { workspace = true, features = ["sqlite"] }
 dsa-pipeline = { workspace = true }
 dsa-agent = { workspace = true }
 dsa-backtest = { workspace = true }

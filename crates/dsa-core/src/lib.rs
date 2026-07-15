@@ -16,26 +16,32 @@ use std::sync::Mutex;
 lazy_static! {
     static ref GLOBAL_CONFIG: Mutex<Option<AppConfig>> = Mutex::new(None);
     static ref CONFIG_PATH: Mutex<String> = Mutex::new(String::new());
-    static ref DSA_PASSWORD_OVERRIDE: Mutex<Option<String>> = Mutex::new(None);
-    static ref DSA_TOKEN: Mutex<Option<String>> = Mutex::new(None);
-}
-
-/// 设置全局密码覆盖值
-pub fn set_password_override(pwd: String) {
-    let mut p = DSA_PASSWORD_OVERRIDE.lock().unwrap_or_else(|e| e.into_inner());
-    *p = Some(pwd);
-}
-
-/// 获取全局密码覆盖值
-pub fn get_password_override() -> Option<String> {
-    let p = DSA_PASSWORD_OVERRIDE.lock().unwrap_or_else(|e| e.into_inner());
-    p.clone()
 }
 
 /// 设置全局应用配置
 pub fn set_global_config(conf: AppConfig) {
+    apply_proxy_env(&conf.proxy);
     let mut cfg = GLOBAL_CONFIG.lock().unwrap_or_else(|e| e.into_inner());
     *cfg = Some(conf);
+}
+
+fn apply_proxy_env(proxy: &config::ProxyConfig) {
+    if !proxy.http_proxy.is_empty() && std::env::var("http_proxy").unwrap_or_default().is_empty() {
+        std::env::set_var("http_proxy", &proxy.http_proxy);
+    }
+    if !proxy.https_proxy.is_empty() && std::env::var("https_proxy").unwrap_or_default().is_empty() {
+        std::env::set_var("https_proxy", &proxy.https_proxy);
+    }
+    if !proxy.no_proxy.is_empty() {
+        let existing = std::env::var("no_proxy").unwrap_or_default();
+        let merged = if existing.is_empty() {
+            proxy.no_proxy.clone()
+        } else {
+            format!("{},{}", existing, proxy.no_proxy)
+        };
+        std::env::set_var("no_proxy", &merged);
+        std::env::set_var("NO_PROXY", &merged);
+    }
 }
 
 /// 获取全局应用配置，未设置则返回默认值
@@ -60,20 +66,4 @@ pub fn get_config_path() -> String {
     }
 }
 
-/// 设置认证令牌
-pub fn set_auth_token(token: String) {
-    let mut t = DSA_TOKEN.lock().unwrap_or_else(|e| e.into_inner());
-    *t = Some(token);
-}
 
-/// 获取当前认证令牌
-pub fn get_auth_token() -> Option<String> {
-    let t = DSA_TOKEN.lock().unwrap_or_else(|e| e.into_inner());
-    t.clone()
-}
-
-/// 清除认证令牌
-pub fn clear_auth_token() {
-    let mut t = DSA_TOKEN.lock().unwrap_or_else(|e| e.into_inner());
-    *t = None;
-}

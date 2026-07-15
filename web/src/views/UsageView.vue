@@ -114,16 +114,15 @@ const summaryCards = computed(() => [
 async function loadSummary() {
   try {
     const res: any = await usageApi.summary(period.value)
-    const d = res.data || {}
-    summary.value = d
-    modelBreakdown.value = d.breakdown || []
+    summary.value = res || {}
+    modelBreakdown.value = (res || {}).breakdown || []
   } catch { /* ignore */ }
 }
 
 async function loadRecords() {
   try {
     const res: any = await usageApi.records({ limit: 50 })
-    records.value = res.data || []
+    records.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 

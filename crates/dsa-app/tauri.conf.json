@@ -1,0 +1,62 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicr9/tauri-v2-schema/main/schema.json",
+  "productName": "DSA",
+  "version": "0.1.0",
+  "identifier": "com.dsa.stock",
+  "build": {
+    "beforeDevCommand": "sh -c 'cd ../web && export DSA_API_PORT=18080 && npm run dev'",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "sh -c 'cd ../web && npx vite build'",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "DSA - Daily Stock Analysis",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600,
+        "center": true,
+        "transparent": false,
+        "visible": true,
+        "decorations": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": "default-src 'self' http://localhost:5173 http://127.0.0.1:18080; connect-src http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://auth.htui.cc; style-src 'self' 'unsafe-inline' http://localhost:5173; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; img-src 'self' data: http: https: blob:; font-src 'self' data: http://localhost:5173 http://127.0.0.1:18080; media-src 'self' data: http: https:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "nsis"],
+    "createUpdaterArtifacts": true,
+    "resources": [
+      "../../conf/config.toml"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15"
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEEwOTQ2NDVBMTYxRURFOEIKUldTTDNoNFdXbVNVb00rNjZyVnQxRmtUVmhLZlZzU1hCTHlISmlac1UyZnozSlo3cm5VdjFJZUwK",
+      "endpoints": [
+        "https://dsa-update.htui.cc/{{target}}/{{arch}}/{{current_version}}"
+      ]
+    }
+  }
+}

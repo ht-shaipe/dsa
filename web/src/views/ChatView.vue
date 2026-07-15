@@ -143,14 +143,14 @@ function deleteSession(idx: number) {
 async function loadSkills() {
   try {
     const res: any = await agentApi.skills()
-    chatStore.setSkills(res.data || res || [])
+    chatStore.setSkills(Array.isArray(res) ? res : [])
   } catch { /* ignore */ }
 }
 
 async function loadHistory() {
   try {
     const res: any = await agentApi.history()
-    const messages: any[] = res.data || res || []
+    const messages: any[] = Array.isArray(res) ? res : []
     if (!messages.length) return
 
     const sessionMap = new Map<string, ChatMessage[]>()
@@ -207,9 +207,12 @@ async function sendMessage() {
   inputMsg.value = ''
   await scrollBottom()
 
+  let streamFailed = false
+
   try {
     const token = authStore.token
-    const response = await fetch(`/api/v1/agent/chat/stream?token=${token}`, {
+    const apiBase = ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) ? 'http://127.0.0.1:18080' : ''
+    const response = await fetch(`${apiBase}/api/v1/agent/chat/stream?token=${token}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: msg, skill: chatStore.currentSkill, session_id: chatStore.sessions[chatStore.currentSessionIdx]?.session_id }),
@@ -220,7 +223,7 @@ async function sendMessage() {
     }
 
     let fullContent = ''
-    chatStore.addAssistantMessage('')
+    let messageAdded = false
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
 
@@ -239,6 +242,10 @@ async function sendMessage() {
         try {
           const event = JSON.parse(jsonStr)
           if (event.type === 'message' && event.content) {
+            if (!messageAdded) {
+              chatStore.addAssistantMessage('')
+              messageAdded = true
+            }
             fullContent += event.content
             chatStore.updateLastAssistant(fullContent)
             await scrollBottom()
@@ -249,21 +256,29 @@ async function sendMessage() {
       }
     }
 
-    if (!fullContent) {
+    if (!fullContent && messageAdded) {
       chatStore.updateLastAssistant('(无响应内容)')
     }
+
+    if (!messageAdded) {
+      streamFailed = true
+    }
   } catch {
+    streamFailed = true
+  }
+
+  if (streamFailed) {
     try {
       const res: any = await agentApi.chat(msg)
-      const content = res.data?.content || res.data?.message || res.data || JSON.stringify(res.data)
+      const content = res?.content || res?.message || (typeof res === 'string' ? res : JSON.stringify(res))
       chatStore.addAssistantMessage(typeof content === 'string' ? content : JSON.stringify(content))
     } catch {
       chatStore.addAssistantMessage('请求失败，请稍后重试')
     }
-  } finally {
-    chatStore.setStreaming(false)
-    await scrollBottom()
   }
+
+  chatStore.setStreaming(false)
+  await scrollBottom()
 }
 
 async function scrollBottom() {

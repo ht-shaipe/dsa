@@ -1,10 +1,12 @@
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_string};
 use dsa_core::models::db::AlertCooldown as AlertCooldownModel;
 use dsa_core::models::db::AlertNotification as AlertNotificationModel;
 use dsa_core::models::db::AlertRule as AlertRuleModel;
 use dsa_core::models::db::AlertTrigger as AlertTriggerModel;
 use dsa_core::utils;
-use deck::{DataTable, Helper, QueryExecutor, SelectExecutor, TableService};
-use deck_mysql::DataRow;
+use deck::sqlite::DataTable;
+use deck::TableService;
+
 use qta_crawler::Real;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
@@ -27,9 +29,8 @@ impl TriggerTable {
              condition_snapshot, notified, create_time \
              FROM alert_triggers WHERE status >= 1 \
              ORDER BY create_time DESC LIMIT :limit";
-        let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
-            .map_err(|e| tube::Error::msg(format!("查询触发历史失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
+            .map_err(|e| tube::Error::msg(format!("查询触发历史失败: {}", e)))
     }
 
     fn query_notifications(&self, limit: i64) -> Result<Vec<Value>> {
@@ -38,9 +39,8 @@ impl TriggerTable {
              condition_snapshot, create_time \
              FROM alert_triggers WHERE status >= 1 AND notified = 1 \
              ORDER BY create_time DESC LIMIT :limit";
-        let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
-            .map_err(|e| tube::Error::msg(format!("查询通知列表失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
+            .map_err(|e| tube::Error::msg(format!("查询通知列表失败: {}", e)))
     }
 
     fn insert_trigger(&self, rule_id: i64, stock_code: &str, current_price: f64, condition_json: &str) -> Result<i64> {
@@ -48,7 +48,7 @@ impl TriggerTable {
         let sql = "INSERT INTO alert_triggers \
              (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time) \
              VALUES (:rid, :code, 'price', :val, :cond, 1, 1, NOW())";
-        let result = Helper::execute(
+        let result = execute(
             sql,
             vec![
                 ("rid".to_string(), Value::from(rule_id)),
@@ -80,9 +80,9 @@ impl NotificationTable {
              retryable, latency_ms, diagnostics, create_time \
              FROM alert_notifications \
              ORDER BY create_time DESC LIMIT :limit";
-        let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
+        let rows = query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
             .map_err(|e| tube::Error::msg(format!("查询通知投递日志失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        Ok(rows)
     }
 
     fn insert_notification_log(&self, trigger_id: i64, channel: &str, success: i64,
@@ -90,8 +90,8 @@ impl NotificationTable {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "INSERT INTO alert_notifications \
              (trigger_id, channel, attempt, success, error_code, retryable, latency_ms, diagnostics, create_time) \
-             VALUES (:tid, :channel, 1, :success, :ec, :retry, :lat, :diag, NOW())";
-        let result = Helper::execute(
+              VALUES (:tid, :channel, 1, :success, :ec, :retry, :lat, :diag, NOW())";
+        let result = execute(
             sql,
             vec![
                 ("tid".to_string(), Value::from(trigger_id)),
@@ -109,7 +109,7 @@ impl NotificationTable {
 
     fn insert_delivery_record(&self, trigger_id: i64, reason_str: &str) -> Result<()> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
-        let _ = Helper::execute(
+        let _ = execute(
             "INSERT INTO alert_notifications \
              (trigger_id, channel, attempt, success, error_code, retryable, latency_ms, diagnostics, create_time) \
              VALUES (:tid, 'system', 1, 1, '', 0, 0, :diag, NOW())",
@@ -141,9 +141,8 @@ impl CooldownTable {
              cooldown_until, reason, state, updated_time \
              FROM alert_cooldowns WHERE state = 'active' \
              ORDER BY cooldown_until ASC LIMIT :limit";
-        let rows = Helper::query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
-            .map_err(|e| tube::Error::msg(format!("查询冷却记录失败: {}", e)))?;
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
+            .map_err(|e| tube::Error::msg(format!("查询冷却记录失败: {}", e)))
     }
 
     fn insert_cooldown(&self, rule_id: i64, target: &str, severity: &str, cooldown_minutes: i64, reason: &str) -> Result<Value> {
@@ -151,7 +150,7 @@ impl CooldownTable {
         let sql = "INSERT INTO alert_cooldowns \
              (rule_id, rule_key, target, severity, last_triggered_at, cooldown_until, reason, state, updated_time) \
              VALUES (:rid, '', :target, :severity, NOW(), DATE_ADD(NOW(), INTERVAL :minutes MINUTE), :reason, 'active', NOW())";
-        let result = Helper::execute(
+        let result = execute(
             sql,
             vec![
                 ("rid".to_string(), Value::from(rule_id)),
@@ -169,7 +168,7 @@ impl CooldownTable {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "UPDATE alert_cooldowns SET state = 'expired', updated_time = NOW() \
              WHERE rule_id = :rid AND target = :target AND state = 'active'";
-        Helper::execute(
+        execute(
             sql,
             vec![
                 ("rid".to_string(), Value::from(rule_id)),
@@ -182,7 +181,7 @@ impl CooldownTable {
 
     fn insert_auto_cooldown(&self, rule_id: i64, stock_code: &str, reason_str: &str) -> Result<()> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
-        let _ = Helper::execute(
+        let _ = execute(
             "INSERT INTO alert_cooldowns \
              (rule_id, rule_key, target, severity, last_triggered_at, cooldown_until, reason, state, updated_time) \
              VALUES (:rid, '', :code, 'warning', NOW(), DATE_ADD(NOW(), INTERVAL 30 MINUTE), :reason, 'active', NOW())",
@@ -257,11 +256,10 @@ impl Alert {
              vec![("code".to_string(), Value::from(code.as_str()))])
         };
 
-        let rows = Helper::query_rows(&sql, p, &connector)
+        let rows = query_rows(&sql, p, &connector)
             .map_err(|e| tube::Error::msg(format!("查询告警规则失败: {}", e)))?;
 
-        let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-        Ok(Value::Array(results))
+        Ok(Value::Array(rows))
     }
 
     async fn rule_create(&self) -> Result<Value> {
@@ -284,7 +282,7 @@ impl Alert {
              (stock_code, stock_name, rule_type, condition_json, enabled, trigger_count, status, create_time, modify_time) \
              VALUES (:code, :name, :type, :cond, 1, 0, 1, NOW(), NOW())";
 
-        let result = Helper::execute(
+        let result = execute(
             sql,
             vec![
                 ("code".to_string(), Value::from(code.as_str())),
@@ -312,7 +310,7 @@ impl Alert {
         let condition_json = utils::param_string(params, "condition");
 
         let sql = "UPDATE alert_rules SET condition_json = :cond, modify_time = NOW() WHERE id = :id";
-        Helper::execute(
+        execute(
             sql,
             vec![
                 ("cond".to_string(), Value::from(condition_json.as_str())),
@@ -336,7 +334,7 @@ impl Alert {
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "UPDATE alert_rules SET status = 0, modify_time = NOW() WHERE id = :id";
-        Helper::execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
+        execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| tube::Error::msg(format!("删除告警规则失败: {}", e)))?;
 
         Ok(value!({"id": id}))
@@ -354,7 +352,7 @@ impl Alert {
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "UPDATE alert_rules SET enabled = 1, modify_time = NOW() WHERE id = :id";
-        Helper::execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
+        execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| tube::Error::msg(format!("启用规则失败: {}", e)))?;
 
         Ok(value!({"id": id, "enabled": true}))
@@ -372,7 +370,7 @@ impl Alert {
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "UPDATE alert_rules SET enabled = 0, modify_time = NOW() WHERE id = :id";
-        Helper::execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
+        execute(sql, vec![("id".to_string(), Value::from(id))], &connector)
             .map_err(|e| tube::Error::msg(format!("禁用规则失败: {}", e)))?;
 
         Ok(value!({"id": id, "enabled": false}))
@@ -577,7 +575,7 @@ impl Alert {
         let sql = "SELECT id, stock_code, stock_name, rule_type, condition_json, \
              enabled, last_triggered_at, trigger_count \
              FROM alert_rules WHERE enabled = 1 AND status >= 1";
-        let rules = Helper::query_rows(sql, vec![], &connector)
+        let rules = query_rows(sql, vec![], &connector)
             .map_err(|e| tube::Error::msg(format!("查询告警规则失败: {}", e)))?;
 
         let mut triggered_count: i64 = 0;
@@ -587,9 +585,9 @@ impl Alert {
         let cooldown_table = CooldownTable::new(&self.request);
 
         for rule_row in &rules {
-            let rule_id: i64 = rule_row.get_value(0).as_f64().unwrap_or(0.0) as i64;
-            let stock_code = rule_row.get_string(1);
-            let condition_json = rule_row.get_string(4);
+            let rule_id: i64 = row_get_f64(rule_row, "id") as i64;
+            let stock_code = row_get_string(rule_row, "stockCode");
+            let condition_json = row_get_string(rule_row, "conditionJson");
 
             if stock_code.is_empty() {
                 continue;
@@ -660,7 +658,7 @@ impl Alert {
                 let _ = cooldown_table.insert_auto_cooldown(rule_id, &stock_code, &reason_str);
             }
 
-            let _ = Helper::execute(
+            let _ = execute(
                 "UPDATE alert_rules SET last_triggered_at = NOW(), trigger_count = trigger_count + 1, modify_time = NOW() WHERE id = :id",
                 vec![("id".to_string(), Value::from(rule_id))],
                 &connector,

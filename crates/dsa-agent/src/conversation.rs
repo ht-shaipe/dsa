@@ -154,7 +154,7 @@ impl Conversation {
         let insert_sql = "INSERT INTO conversation_summaries \
              (sessionId, summary, originalMessageCount, createTime) \
              VALUES (:sid, :summary, :count, NOW())";
-        let _ = deck::Helper::execute(
+        let _ = dsa_core::db::execute(
             insert_sql,
             vec![
                 ("sid".to_string(), Value::from(session_id.to_string())),

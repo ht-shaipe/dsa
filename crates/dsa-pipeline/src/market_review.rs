@@ -103,10 +103,16 @@ impl MarketReviewGenerator {
             "temperature": 0.7,
         });
 
+        let start = std::time::Instant::now();
         let response = llm
             .chat(&body)
             .await
             .map_err(|e| DsaError::LlmAnalysis(format!("LLM调用失败: {}", e)))?;
+        let elapsed = start.elapsed().as_millis() as i64;
+
+        dsa_core::utils::record_llm_usage_from_response(
+            &response, &conf.llm.provider, &conf.llm.model, "market_review", elapsed, "",
+        );
 
         // 提取内容
         let content = response

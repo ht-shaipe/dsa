@@ -174,8 +174,17 @@ impl ReactExecutor {
                 "temperature": 0.7,
             });
 
+            let start = std::time::Instant::now();
             let response = self.llm.chat(&body).await
                 .map_err(|e| DsaError::LlmAnalysis(format!("ReAct LLM调用失败: {}", e)))?;
+            let elapsed = start.elapsed().as_millis() as i64;
+
+            let react_code = context.get("code").and_then(|c| c.as_str()).unwrap_or_default();
+            let conf = dsa_core::get_global_config();
+            dsa_core::utils::record_llm_usage_from_response(
+                &response, &conf.llm.provider, &self.model,
+                &format!("react_step_{}", iteration), elapsed, &react_code,
+            );
 
             let content = response.get("choices")
                 .and_then(|c| Value::as_array(c))

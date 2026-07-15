@@ -18,4 +18,3 @@ tracing = { workspace = true }
 tube = { workspace = true }
 deck = { workspace = true }
 deck_connector = { workspace = true }
-deck_mysql = { path = "/Users/shaipe/workspace/rust/kit/deck/backend/mysql" }

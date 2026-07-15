@@ -107,6 +107,33 @@ impl AnalysisPipeline {
         Ok(report)
     }
 
+    pub fn build_stream_body(
+        &self,
+        code: &str,
+        name: &str,
+        kline_data: &[dsa_core::models::KlineBar],
+        realtime: Option<&Value>,
+        market_context: Option<&str>,
+    ) -> DsaResult<Value> {
+        let technical = self.technical_analyzer.calculate(kline_data, realtime);
+        let context = AnalysisContextBuilder::build(code, name, kline_data, realtime, &technical, market_context);
+        let prompt = build_analysis_prompt(&context);
+
+        Ok(value!({
+            "model": &self.model,
+            "messages": [
+                {"role": "system", "content": &prompt.system},
+                {"role": "user", "content": &prompt.user}
+            ],
+            "temperature": self.temperature,
+            "stream": true,
+        }))
+    }
+
+    pub fn parse_report_from_content(&self, content: &str) -> DsaResult<AnalysisReport> {
+        self.parse_report(content)
+    }
+
     async fn call_llm_and_parse(&self, prompt: &AnalysisPrompt) -> DsaResult<(AnalysisReport, Option<Value>)> {
         let body = value!({
             "model": &self.model,
@@ -193,7 +220,7 @@ impl AnalysisPipeline {
 
     fn find_matching_brace(s: &str) -> Option<usize> {
         let mut depth = 0i32;
-        for (i, (byte_idx, ch)) in s.char_indices().enumerate() {
+        for (_i, (byte_idx, ch)) in s.char_indices().enumerate() {
             match ch {
                 '{' => depth += 1,
                 '}' => {

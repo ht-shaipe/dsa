@@ -32,6 +32,8 @@ pub struct AppConfig {
     pub portfolio_risk: PortfolioRiskConfig,
     #[serde(default)]
     pub data_source: DataSourceConfig,
+    #[serde(default)]
+    pub data_sync: DataSyncConfig,
 }
 
 /// 通知渠道配置（钉钉/飞书/企微/Telegram/邮件等）
@@ -460,6 +462,79 @@ impl Default for DataSourceConfig {
     }
 }
 
+/// 数据同步配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataSyncConfig {
+    #[serde(default = "default_sync_boards")]
+    pub boards: Vec<String>,
+    #[serde(default = "default_true")]
+    pub exclude_st: bool,
+    #[serde(default = "default_true")]
+    pub exclude_new_stock: bool,
+    #[serde(default = "default_exclude_new_days")]
+    pub exclude_new_stock_days: u32,
+    #[serde(default = "default_true")]
+    pub exclude_delisting_risk: bool,
+    #[serde(default = "default_sync_retention_days")]
+    pub retention_days: u32,
+}
+
+fn default_sync_boards() -> Vec<String> {
+    vec!["sh_main".to_string(), "sz_main".to_string(), "sz_gem".to_string()]
+}
+
+fn default_exclude_new_days() -> u32 { 60 }
+
+fn default_sync_retention_days() -> u32 { 120 }
+
+impl Default for DataSyncConfig {
+    fn default() -> Self {
+        Self {
+            boards: default_sync_boards(),
+            exclude_st: true,
+            exclude_new_stock: true,
+            exclude_new_stock_days: 60,
+            exclude_delisting_risk: true,
+            retention_days: 120,
+        }
+    }
+}
+
+impl DataSyncConfig {
+    pub fn should_include_code(&self, code: &str, name: &str) -> bool {
+        let code_prefix = if code.len() >= 2 { &code[..2] } else { "" };
+
+        let board_match = self.boards.iter().any(|b| match b.as_str() {
+            "sh_main" => code.starts_with('6') && !code.starts_with("68"),
+            "sh_kj" => code.starts_with("68"),
+            "sz_main" => code.starts_with('0') && !code.starts_with("03"),
+            "sz_gem" => code.starts_with("30"),
+            "bj_main" => code.starts_with('8') || code.starts_with('4'),
+            _ => code_prefix == b.trim_start_matches(['s', 'h', 'z', '_']),
+        });
+
+        if !board_match {
+            return false;
+        }
+
+        if self.exclude_st {
+            let name_upper = name.to_uppercase();
+            if name_upper.contains("ST") || name_upper.contains("*ST") || name_upper.contains("退") {
+                return false;
+            }
+        }
+
+        if self.exclude_delisting_risk {
+            let name_upper = name.to_uppercase();
+            if name_upper.contains("退市") || name_upper.contains("退") {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
 /// HTTP服务配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -467,10 +542,7 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_cors_origins")]
     pub cors_origins: Vec<String>,
-    #[serde(default)]
-    pub auth_password: String,
-    #[serde(default)]
-    pub auth_password_env: String,
+
 }
 
 /// 股票监控配置
@@ -564,6 +636,8 @@ pub struct LlmConfig {
 /// 数据库连接配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
+    #[serde(default = "default_db_type")]
+    pub db_type: String,
     pub host: String,
     pub port: u16,
     pub name: String,
@@ -572,6 +646,14 @@ pub struct DatabaseConfig {
     pub password_env: String,
     #[serde(default)]
     pub password: String,
+}
+
+fn default_db_type() -> String { "mysql".to_string() }
+
+impl DatabaseConfig {
+    pub fn is_sqlite(&self) -> bool {
+        self.db_type.to_lowercase() == "sqlite"
+    }
 }
 
 /// 定时调度配置
@@ -645,8 +727,7 @@ impl Default for AppConfig {
                 host: "0.0.0.0".to_string(),
                 port: 8000,
                 cors_origins: default_cors_origins(),
-                auth_password: String::new(),
-                auth_password_env: String::new(),
+
             },
             stock: StockConfig {
                 watchlist: vec!["600519".to_string(), "300750".to_string(), "002594".to_string()],
@@ -680,6 +761,7 @@ impl Default for AppConfig {
                 prompt_cache_diagnostics_level: String::new(),
             },
             database: DatabaseConfig {
+                db_type: default_db_type(),
                 host: "127.0.0.1".to_string(),
                 port: 3306,
                 name: "dsa".to_string(),
@@ -726,6 +808,7 @@ impl Default for AppConfig {
             bot: BotConfig::default(),
             portfolio_risk: PortfolioRiskConfig::default(),
             data_source: DataSourceConfig::default(),
+            data_sync: DataSyncConfig::default(),
         }
     }
 }
@@ -776,6 +859,37 @@ impl AppConfig {
             "mysql://{}:{}@{}:{}/{}",
             self.database.user, pwd, self.database.host, self.database.port, self.database.name
         )
+    }
+
+    /// 生成SQLite数据库文件路径
+    /// 如果 name 是绝对路径则直接使用，否则相对于当前目录下的 data/ 目录
+    /// 自动创建 data/ 目录（如果不存在）
+    pub fn sqlite_path(&self) -> String {
+        let name = &self.database.name;
+        let path = if name.starts_with('/') || name.starts_with("./") || name.contains('/') {
+            name.clone()
+        } else {
+            format!("data/{}.db", name)
+        };
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        path
+    }
+
+    /// 根据配置构建数据库连接器
+    pub fn build_connector(&self) -> deck_connector::Connector {
+        if self.database.is_sqlite() {
+            deck_connector::Connector::new("sqlite").db(&self.sqlite_path())
+        } else {
+            let password = self.resolve_db_password();
+            deck_connector::Connector::new("mysql")
+                .server(&self.database.host)
+                .port(self.database.port)
+                .user(&self.database.user)
+                .password(&password)
+                .db(&self.database.name)
+        }
     }
 }
 

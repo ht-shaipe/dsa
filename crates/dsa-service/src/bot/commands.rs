@@ -13,8 +13,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use dsa_core::{DsaError, DsaResult, utils};
-use deck::DataRow;
-use deck_mysql;
+use dsa_core::db::{query_rows, row_get_string};
 use qta_crawler::Real;
 use tube::Value;
 
@@ -149,24 +148,21 @@ impl BotCommand for AnalyzeCommand {
                         ORDER BY create_time DESC LIMIT 1";
             let params = vec![("code".to_string(), Value::from(full_code.as_str()))];
 
-            let rows = deck_mysql::Helper::query_rows(sql, params, &connector)
+            let rows = query_rows(sql, params, &connector)
                 .map_err(|e| DsaError::Database(format!("查询分析记录失败: {}", e)))?;
 
             if let Some(row) = rows.first() {
-                // 使用 get_value(index).as_str() 模式
-                // 列顺序: 0=id, 1=stockCode, 2=stockName, 3=sentimentScore, 4=decisionType,
-                //         5=operationAdvice, 6=analysisSummary, 7=createTime
-                let name = row.get_value(2).as_str().unwrap_or_default().to_string();
+                let name = row_get_string(row, "stockName");
                 let name = if name.is_empty() { code_clean.clone() } else { name };
-                let score = row.get_value(3).as_str().unwrap_or_default().to_string();
+                let score = row_get_string(row, "sentimentScore");
                 let score = if score.is_empty() { "N/A".to_string() } else { score };
-                let decision = row.get_value(4).as_str().unwrap_or_default().to_string();
+                let decision = row_get_string(row, "decisionType");
                 let decision = if decision.is_empty() { "N/A".to_string() } else { decision };
-                let advice = row.get_value(5).as_str().unwrap_or_default().to_string();
+                let advice = row_get_string(row, "operationAdvice");
                 let advice = if advice.is_empty() { "N/A".to_string() } else { advice };
-                let summary = row.get_value(6).as_str().unwrap_or_default().to_string();
+                let summary = row_get_string(row, "analysisSummary");
                 let summary = if summary.is_empty() { "无摘要".to_string() } else { summary };
-                let time = row.get_value(7).as_str().unwrap_or_default().to_string();
+                let time = row_get_string(row, "createTime");
                 let time = if time.is_empty() { "未知".to_string() } else { time };
 
                 // 截断摘要过长内容
@@ -346,7 +342,7 @@ impl BotCommand for HistoryCommand {
                         ORDER BY create_time DESC LIMIT 3";
             let params = vec![("code".to_string(), Value::from(full_code.as_str()))];
 
-            let rows = deck_mysql::Helper::query_rows(sql, params, &connector)
+            let rows = query_rows(sql, params, &connector)
                 .map_err(|e| DsaError::Database(format!("查询历史记录失败: {}", e)))?;
 
             if rows.is_empty() {
@@ -356,17 +352,15 @@ impl BotCommand for HistoryCommand {
             let mut parts: Vec<String> = vec![format!("📋 {} 最近分析记录", full_code), String::new()];
 
             for (i, row) in rows.iter().enumerate() {
-                // 列顺序: 0=id, 1=stockCode, 2=stockName, 3=sentimentScore, 4=decisionType,
-                //         5=operationAdvice, 6=createTime
-                let name = row.get_value(2).as_str().unwrap_or_default().to_string();
+                let name = row_get_string(row, "stockName");
                 let name = if name.is_empty() { code_clean.clone() } else { name };
-                let score = row.get_value(3).as_str().unwrap_or_default().to_string();
+                let score = row_get_string(row, "sentimentScore");
                 let score = if score.is_empty() { "N/A".to_string() } else { score };
-                let decision = row.get_value(4).as_str().unwrap_or_default().to_string();
+                let decision = row_get_string(row, "decisionType");
                 let decision = if decision.is_empty() { "N/A".to_string() } else { decision };
-                let advice = row.get_value(5).as_str().unwrap_or_default().to_string();
+                let advice = row_get_string(row, "operationAdvice");
                 let advice = if advice.is_empty() { "N/A".to_string() } else { advice };
-                let time = row.get_value(6).as_str().unwrap_or_default().to_string();
+                let time = row_get_string(row, "createTime");
                 let time = if time.is_empty() { "未知".to_string() } else { time };
 
                 parts.push(format!("{}. {} | 评分: {} | 决策: {}", i + 1, name, score, decision));

@@ -1,5 +1,5 @@
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_i64, row_get_string};
 use dsa_core::utils;
-use deck_mysql::{DataRow, Helper};
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
@@ -33,7 +33,7 @@ impl DecisionExtractor {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let sql = "SELECT id, stock_code, stock_name, decision_type, confidence_level,             sentiment_score, ideal_buy, stop_loss, take_profit, operation_advice,             risk_warning, market_context, analysis_summary, create_time             FROM analysis_history WHERE id = :id AND status >= 1";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("id".to_string(), Value::from(analysis_id))],
             &connector,
@@ -45,19 +45,19 @@ impl DecisionExtractor {
         }
 
         let row = &rows[0];
-        let stock_code = row.get_string(1);
-        let stock_name = row.get_string(2);
-        let decision_type = row.get_string(3);
-        let confidence_level = row.get_string(4);
-        let sentiment_score: i32 = row.get_value(5).as_f64().unwrap_or(0.0) as i32;
-        let ideal_buy: f64 = row.get_value(6).as_f64().unwrap_or(0.0);
-        let stop_loss: f64 = row.get_value(7).as_f64().unwrap_or(0.0);
-        let take_profit: f64 = row.get_value(8).as_f64().unwrap_or(0.0);
-        let operation_advice = row.get_string(9);
-        let risk_warning = row.get_string(10);
-        let market_context = row.get_string(11);
-        let analysis_summary = row.get_string(12);
-        let create_time = row.get_string(13);
+        let stock_code = row_get_string(row, "stockCode");
+        let stock_name = row_get_string(row, "stockName");
+        let decision_type = row_get_string(row, "decisionType");
+        let confidence_level = row_get_string(row, "confidenceLevel");
+        let sentiment_score: i32 = row_get_f64(row, "sentimentScore") as i32;
+        let ideal_buy: f64 = row_get_f64(row, "idealBuy");
+        let stop_loss: f64 = row_get_f64(row, "stopLoss");
+        let take_profit: f64 = row_get_f64(row, "takeProfit");
+        let operation_advice = row_get_string(row, "operationAdvice");
+        let risk_warning = row_get_string(row, "riskWarning");
+        let market_context = row_get_string(row, "marketContext");
+        let analysis_summary = row_get_string(row, "analysisSummary");
+        let create_time = row_get_string(row, "createTime");
 
         let action = match decision_type.as_str() {
             "强烈推荐" | "推荐" | "买入" => "buy",
@@ -79,7 +79,7 @@ impl DecisionExtractor {
         };
 
         let dedup_sql = "SELECT id FROM decision_signals             WHERE analysis_id = :aid AND source_type = 'analysis' AND status >= 1 LIMIT 1";
-        let dedup_rows = Helper::query_rows(
+        let dedup_rows = query_rows(
             dedup_sql,
             vec![("aid".to_string(), Value::from(analysis_id))],
             &connector,
@@ -87,16 +87,15 @@ impl DecisionExtractor {
         .map_err(|e| tube::Error::from(format!("去重检查失败: {}", e)))?;
 
         if !dedup_rows.is_empty() {
-            let existing_id: i64 = dedup_rows[0].get_value(0).as_f64().unwrap_or(0.0) as i64;
+            let existing_id: i64 = row_get_i64(&dedup_rows[0], "id");
             return Ok(value!({
-                "status": "ok",
-                "data": {"id": existing_id, "message": "信号已存在", "duplicate": true}
+                "id": existing_id, "message": "信号已存在", "duplicate": true
             }));
         }
 
         let insert_sql = "INSERT INTO decision_signals             (stock_code, stock_name, signal_date, action, sentiment_score, confidence_level,              entry_price, stop_loss, target_price, reasoning, evidence, scope_type,              analysis_id, status, market, source_type, market_phase, confidence,              risk_summary, signal_status, create_time, modify_time)             VALUES (:code, :name, :sdate, :action, :score, :conf,              :entry, :sl, :tp, :reasoning, :evidence, 'watchlist',              :aid, 1, 'A', 'analysis', :phase, :confidence,              :risk, 'active', NOW(), NOW())";
 
-        let result = Helper::execute(
+        let result = execute(
             insert_sql,
             vec![
                 ("code".to_string(), Value::from(stock_code.as_str())),
@@ -125,14 +124,11 @@ impl DecisionExtractor {
         .map_err(|e| tube::Error::from(format!("创建决策信号失败: {}", e)))?;
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "id": result as i64,
-                "stock_code": stock_code,
-                "action": action,
-                "market_phase": market_phase,
-                "duplicate": false,
-            }
+            "id": result as i64,
+            "stock_code": stock_code,
+            "action": action,
+            "market_phase": market_phase,
+            "duplicate": false,
         }))
     }
 
@@ -142,7 +138,7 @@ impl DecisionExtractor {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let sql = "SELECT ah.id             FROM analysis_history ah             LEFT JOIN decision_signals ds ON ah.id = ds.analysis_id AND ds.source_type = 'analysis' AND ds.status >= 1             WHERE ah.status >= 1 AND ds.id IS NULL             ORDER BY ah.create_time DESC LIMIT :limit";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("limit".to_string(), Value::from(limit))],
             &connector,
@@ -153,7 +149,7 @@ impl DecisionExtractor {
         let mut errors: Vec<Value> = Vec::new();
 
         for row in &rows {
-            let aid: i64 = row.get_value(0).as_f64().unwrap_or(0.0) as i64;
+            let aid: i64 = row_get_i64(row, "id");
             let extract_params = value!({"analysisId": aid});
             let temp_req = {
                 let mut r = self.request.clone();
@@ -173,12 +169,9 @@ impl DecisionExtractor {
         }
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "extractedCount": extracted_count,
-                "totalOrphans": rows.len() as i64,
-                "errors": errors,
-            }
+            "extractedCount": extracted_count,
+            "totalOrphans": rows.len() as i64,
+            "errors": errors,
         }))
     }
 
@@ -192,8 +185,8 @@ impl DecisionExtractor {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let mut score: i32 = 0;
 
-        let coverage_sql = "SELECT COUNT(*) FROM stock_daily WHERE stock_code = :code AND trade_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status = 1";
-        let coverage_rows = Helper::query_rows(
+        let coverage_sql = "SELECT COUNT(*) as cnt FROM stock_daily WHERE stock_code = :code AND trade_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND status = 1";
+        let coverage_rows = query_rows(
             coverage_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
             &connector,
@@ -201,15 +194,15 @@ impl DecisionExtractor {
         .map_err(|e| tube::Error::from(format!("查询K线覆盖度失败: {}", e)))?;
 
         let daily_count: i64 = if !coverage_rows.is_empty() {
-            coverage_rows[0].get_value(0).as_f64().unwrap_or(0.0) as i64
+            row_get_i64(&coverage_rows[0], "cnt")
         } else {
             0
         };
         let kline_score = if daily_count >= 20 { 2 } else if daily_count >= 10 { 1 } else { 0 };
         score += kline_score;
 
-        let news_sql = "SELECT COUNT(*) FROM news_intel WHERE stock_code = :code AND create_time >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status >= 1";
-        let news_rows = Helper::query_rows(
+        let news_sql = "SELECT COUNT(*) as cnt FROM news_intel WHERE stock_code = :code AND create_time >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status >= 1";
+        let news_rows = query_rows(
             news_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
             &connector,
@@ -217,15 +210,15 @@ impl DecisionExtractor {
         .map_err(|e| tube::Error::from(format!("查询新闻覆盖度失败: {}", e)))?;
 
         let news_count: i64 = if !news_rows.is_empty() {
-            news_rows[0].get_value(0).as_f64().unwrap_or(0.0) as i64
+            row_get_i64(&news_rows[0], "cnt")
         } else {
             0
         };
         let news_score = if news_count >= 3 { 1 } else { 0 };
         score += news_score;
 
-        let analysis_sql = "SELECT COUNT(*) FROM analysis_history WHERE stock_code = :code AND create_time >= DATE_SUB(CURDATE(), INTERVAL 3 DAY) AND status >= 1";
-        let analysis_rows = Helper::query_rows(
+        let analysis_sql = "SELECT COUNT(*) as cnt FROM analysis_history WHERE stock_code = :code AND create_time >= DATE_SUB(CURDATE(), INTERVAL 3 DAY) AND status >= 1";
+        let analysis_rows = query_rows(
             analysis_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
             &connector,
@@ -233,15 +226,15 @@ impl DecisionExtractor {
         .map_err(|e| tube::Error::from(format!("查询分析覆盖度失败: {}", e)))?;
 
         let analysis_count: i64 = if !analysis_rows.is_empty() {
-            analysis_rows[0].get_value(0).as_f64().unwrap_or(0.0) as i64
+            row_get_i64(&analysis_rows[0], "cnt")
         } else {
             0
         };
         let analysis_score = if analysis_count > 0 { 1 } else { 0 };
         score += analysis_score;
 
-        let signal_sql = "SELECT COUNT(*) FROM decision_signals WHERE stock_code = :code AND status = 1";
-        let signal_rows = Helper::query_rows(
+        let signal_sql = "SELECT COUNT(*) as cnt FROM decision_signals WHERE stock_code = :code AND status = 1";
+        let signal_rows = query_rows(
             signal_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],
             &connector,
@@ -249,7 +242,7 @@ impl DecisionExtractor {
         .map_err(|e| tube::Error::from(format!("查询信号覆盖度失败: {}", e)))?;
 
         let signal_count: i64 = if !signal_rows.is_empty() {
-            signal_rows[0].get_value(0).as_f64().unwrap_or(0.0) as i64
+            row_get_i64(&signal_rows[0], "cnt")
         } else {
             0
         };
@@ -257,22 +250,19 @@ impl DecisionExtractor {
         score += signal_score;
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "code": code,
-                "totalScore": score,
-                "maxScore": 5,
-                "breakdown": {
-                    "klineCoverage": daily_count,
-                    "klineScore": kline_score,
-                    "newsCount7d": news_count,
-                    "newsScore": news_score,
-                    "analysisCount3d": analysis_count,
-                    "analysisScore": analysis_score,
-                    "activeSignals": signal_count,
-                    "signalScore": signal_score,
-                },
-            }
+            "code": code,
+            "totalScore": score,
+            "maxScore": 5,
+            "breakdown": {
+                "klineCoverage": daily_count,
+                "klineScore": kline_score,
+                "newsCount7d": news_count,
+                "newsScore": news_score,
+                "analysisCount3d": analysis_count,
+                "analysisScore": analysis_score,
+                "activeSignals": signal_count,
+                "signalScore": signal_score,
+            },
         }))
     }
 }

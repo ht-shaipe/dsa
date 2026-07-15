@@ -3,36 +3,6 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use tube_web::sse_channel;
 
-fn check_stream_auth(req: &HttpRequest) -> Result<(), &'static str> {
-    let has_password = dsa_core::get_password_override().is_some()
-        || std::env::var("DSA_PASSWORD").is_ok()
-        || {
-            let conf = dsa_core::get_global_config();
-            !conf.server.auth_password.is_empty()
-                || (!conf.server.auth_password_env.is_empty()
-                    && std::env::var(&conf.server.auth_password_env).is_ok())
-        };
-    if !has_password {
-        return Ok(());
-    }
-    if let Some(auth_header) = req.headers().get("Authorization").and_then(|v| v.to_str().ok()) {
-        if auth_header.starts_with("Bearer ") {
-            let token = &auth_header[7..];
-            let stored = dsa_core::get_auth_token();
-            if let Some(ref st) = stored { if token == st.as_str() { return Ok(()); } }
-        }
-    }
-    if let Some(query) = req.uri().query() {
-        for pair in query.split('&') {
-            if let Some(token_val) = pair.strip_prefix("token=") {
-                let stored = dsa_core::get_auth_token();
-                if let Some(ref st) = stored { if token_val == st.as_str() { return Ok(()); } }
-            }
-        }
-    }
-    Err("未授权访问")
-}
-
 // ===== 意图识别 =====
 
 #[derive(Debug, Clone)]
@@ -61,8 +31,13 @@ async fn resolve_name_online(keyword: &str) -> Option<(String, String)> {
         "https://searchapi.eastmoney.com/api/suggest/get?input={}&type=14&token=D84BF7C9-6EC6-4CB1-A820-8738966D5C9B&count=3",
         urlencoding::encode(keyword)
     );
-    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().ok()?;
-    let resp = client.get(&url).send().await.ok()?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        .build().ok()?;
+    let resp = client.get(&url)
+        .header("Referer", "https://so.eastmoney.com/")
+        .send().await.ok()?;
     if !resp.status().is_success() { return None; }
     let json: serde_json::Value = resp.json().await.ok()?;
     let items = json.get("QuotationCodeTable").and_then(|v| v.get("Data")).and_then(|v| v.as_array())?;
@@ -72,7 +47,7 @@ async fn resolve_name_online(keyword: &str) -> Option<(String, String)> {
         let mkt = item.get("MktNum").and_then(|m| m.as_str()).unwrap_or_default();
         let pure_code = if code.len() >= 6 { &code[code.len()-6..] } else { code };
         if pure_code.starts_with('6') || pure_code.starts_with('0') || pure_code.starts_with('3') {
-            let full_code = if mkt == "1" { format!("sh{}", pure_code) } else { format!("sz{}", pure_code) };
+            let _full_code = if mkt == "1" { format!("sh{}", pure_code) } else { format!("sz{}", pure_code) };
             return Some((pure_code.to_string(), name.to_string()));
         }
     }
@@ -216,10 +191,6 @@ async fn fetch_market_context(sender: &mut tube_web::SSESender) -> Option<String
 // ===== 主入口 =====
 
 pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpResponse {
-    if let Err(msg) = check_stream_auth(&req) {
-        return HttpResponse::Unauthorized().json(serde_json::json!({"status": "error", "message": msg}));
-    }
-
     let param = tube_web::parse_request(req.clone(), payload).await;
     let (mut sender, receiver) = sse_channel(10);
 

@@ -4,7 +4,7 @@ ifneq ($(filter git,$(MAKECMDGOALS)),)
   $(foreach _g,$(GIT_MSG_ARGS),$(eval $(_g):;@:))
 endif
 
-.PHONY: dev dev-server dev-web build build-server build-web clean check install run stop env db-init git help
+.PHONY: dev dev-server dev-web build build-server build-web clean check install run stop env db-init git help tauri-dev tauri-build tauri-release
 
 # 项目配置
 CONFIG     ?= conf/config.toml
@@ -55,6 +55,11 @@ help: ## 显示帮助信息
 	@echo "  make git          提交并推送 (交互输入 message)"
 	@echo "  make git msg      提交并推送 (直接传入 message)"
 	@echo "  make git MSG=xxx  提交并推送 (通过变量传入 message)"
+	@echo ""
+	@echo "$(GREEN)Tauri 桌面应用:$(NC)"
+	@echo "  make tauri-dev    启动 Tauri 开发模式 (桌面窗口)"
+	@echo "  make tauri-build  构建 Tauri 桌面应用 (Debug)"
+	@echo "  make tauri-release 构建 Tauri 桌面应用 (Release)"
 	@echo ""
 	@echo "$(GREEN)环境变量:$(NC)"
 	@echo "  CONFIG=$(CONFIG)     配置文件路径"
@@ -121,11 +126,11 @@ dev: env build-server ## 启动开发环境 (后端 + 前端)
 
 dev-server: ## 启动后端开发服务 (自动重编译)
 	@echo "$(GREEN)[Backend] Starting on port $(PORT)...$(NC)"
-	cargo run --bin dsa -- --config $(CONFIG)
+	DSA_DEV=1 cargo run --bin dsa -- --config $(CONFIG)
 
 dev-web: install ## 启动前端开发服务器
 	@echo "$(GREEN)[Frontend] Starting on port $(WEB_PORT)...$(NC)"
-	cd web && npm run dev
+	cd web && DSA_STANDALONE=1 DSA_DEV=1 npm run dev
 
 # ============================================================
 # 构建
@@ -200,3 +205,19 @@ git: ## 提交并推送代码 (make git <message> 或 make git MSG=<message>)
 	git pull && \
 	git push && \
 	echo "$(GREEN)git commit and push success$(NC)"
+
+# ============================================================
+# Tauri 桌面应用
+# ============================================================
+
+tauri-dev: install ## 启动 Tauri 桌面应用开发模式
+	@echo "$(CYAN)Starting DSA Tauri dev...$(NC)"
+	cd crates/dsa-app && DSA_API_PORT=18080 TAURI_DEV=1 npx --prefix ../../web tauri dev
+
+tauri-build: build-web ## 构建 Tauri 桌面应用 (Debug)
+	@echo "$(GREEN)[Tauri] Building desktop app...$(NC)"
+	cd crates/dsa-app && cargo tauri build
+
+tauri-release: build-web ## 构建 Tauri 桌面应用 (Release)
+	@echo "$(GREEN)[Tauri] Building release desktop app...$(NC)"
+	cd crates/dsa-app && cargo tauri build --release

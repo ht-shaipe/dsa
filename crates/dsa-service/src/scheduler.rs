@@ -165,7 +165,8 @@ impl Scheduler {
 
         for code in &codes {
             match Self::analyze_single_code(&pipeline, &renderer, code).await {
-                Ok(report_text) => {
+                Ok((report_text, report)) => {
+                    Self::save_scheduled_report(code, &report, &report_text);
                     results.push(value!({"code": code.as_str(), "status": "ok", "text": report_text}));
                 }
                 Err(e) => {
@@ -184,7 +185,7 @@ impl Scheduler {
         pipeline: &dsa_pipeline::pipeline::AnalysisPipeline,
         renderer: &dsa_pipeline::report_renderer::ReportRenderer,
         code: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, dsa_core::models::AnalysisReport)> {
         let bars = utils::fetch_kline(code, "daily").await.map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let realtime = utils::fetch_realtime_quote(code).await.ok();
@@ -202,6 +203,47 @@ impl Scheduler {
             .await.map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let text = renderer.render_text(&report);
-        Ok(text)
+        Ok((text, report))
+    }
+
+    fn save_scheduled_report(code: &str, report: &dsa_core::models::AnalysisReport, _text: &str) {
+        let connector = match utils::get_db_connector() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let sentiment_score = report.sentiment_score.unwrap_or(0);
+        let decision_type = report.decision_type.as_deref().unwrap_or("");
+        let operation_advice = report.operation_advice.as_deref().unwrap_or("");
+        let analysis_summary = report.analysis_summary.as_deref().unwrap_or("");
+        let risk_warning = report.risk_warning.as_deref().unwrap_or("");
+        let name = report.stock_name.as_deref().unwrap_or(code);
+        let conf = dsa_core::get_global_config();
+
+        let report_json_str = serde_json::to_string(report).unwrap_or_else(|_| "{}".to_string());
+
+        let is_sqlite = conf.database.is_sqlite();
+        let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+        let sql = &format!("INSERT INTO analysis_history \
+             (stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
+              analysis_summary, risk_warning, report_json, report_type, status, \
+              llm_provider, llm_model, create_time, modify_time) \
+             VALUES (:code, :name, :score, :dtype, :advice, :summary, :risk, :json, 'scheduled', 1, \
+              :provider, :model, {}, {})", now_expr, now_expr);
+
+        if let Err(e) = dsa_core::db::execute(sql, vec![
+            ("code".to_string(), Value::from(code.to_string())),
+            ("name".to_string(), Value::from(name.to_string())),
+            ("score".to_string(), Value::from(sentiment_score)),
+            ("dtype".to_string(), Value::from(decision_type.to_string())),
+            ("advice".to_string(), Value::from(operation_advice.to_string())),
+            ("summary".to_string(), Value::from(analysis_summary.to_string())),
+            ("risk".to_string(), Value::from(risk_warning.to_string())),
+            ("json".to_string(), Value::from(report_json_str)),
+            ("provider".to_string(), Value::from(conf.llm.provider.clone())),
+            ("model".to_string(), Value::from(conf.llm.model.clone())),
+        ], &connector) {
+            tracing::error!("save_scheduled_report 失败: {}", e);
+        }
     }
 }

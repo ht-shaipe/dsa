@@ -8,7 +8,7 @@ pub async fn distribute(param: &RequestParameter) -> Result<Value> {
         "get" => {
             let conf = dsa_core::get_global_config();
             let json = serde_json::to_value(&conf)
-                .map_err(|e| error!("配置序列化失败: {}", e))?;
+                .map_err(|e| tube::Error::from(format!("配置序列化失败: {}", e)))?;
             Ok(json.into())
         }
         "reload" => {

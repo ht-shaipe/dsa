@@ -3,13 +3,16 @@
 //! 主模型: dsa_core::models::db::AnalysisHistory as AnalysisHistoryModel
 //! 使用 deck DataTable/TableService 模式
 
+use dsa_core::db::query_rows;
 use dsa_core::models::AnalysisReport;
 use dsa_core::models::db::AnalysisHistory as AnalysisHistoryModel;
 use dsa_core::utils;
 use dsa_pipeline::pipeline::AnalysisPipeline;
 use dsa_pipeline::report_renderer::ReportRenderer;
-use deck::{DataTable, Helper, QueryExecutor, SelectExecutor, TableService};
-use deck_mysql::DataRow;
+use deck::sqlite::{DataTable, SelectExecutor};
+use deck::QueryExecutor;
+use deck::TableService;
+
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
@@ -62,20 +65,55 @@ impl Analysis {
             Err(_) => "{}".to_string(),
         };
 
-        let data = value!({
-            "stock_code": code,
-            "stock_name": name,
-            "sentiment_score": sentiment_score,
-            "decision_type": decision_type,
-            "operation_advice": operation_advice,
-            "analysis_summary": analysis_summary,
-            "risk_warning": risk_warning,
-            "report_json": report_json_str,
-            "report_type": "full",
-            "status": 1,
-        });
+        let conf = dsa_core::get_global_config();
+        let connector = match self.get_connector() {
+            Some(c) => c,
+            None => {
+                tracing::error!("save_report_to_db: 数据库连接未初始化");
+                return;
+            }
+        };
 
-        let _ = self.duplicate().data(&data).execute();
+        let is_sqlite = conf.database.is_sqlite();
+        let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+
+        let sql = if is_sqlite {
+            format!(
+                "INSERT INTO analysis_history \
+                 (stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
+                  analysis_summary, risk_warning, report_json, report_type, status, \
+                  llm_provider, llm_model, create_time, modify_time) \
+                 VALUES (:code, :name, :score, :dtype, :advice, :summary, :risk, :rjson, :rtype, 1, \
+                  :provider, :model, {}, {})",
+                now_expr, now_expr
+            )
+        } else {
+            format!(
+                "INSERT INTO analysis_history \
+                 (stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
+                  analysis_summary, risk_warning, report_json, report_type, status, \
+                  llm_provider, llm_model, create_time, modify_time) \
+                 VALUES (:code, :name, :score, :dtype, :advice, :summary, :risk, :rjson, :rtype, 1, \
+                  :provider, :model, {}, {})",
+                now_expr, now_expr
+            )
+        };
+
+        if let Err(e) = dsa_core::db::execute(&sql, vec![
+            ("code".to_string(), Value::from(code.to_string())),
+            ("name".to_string(), Value::from(name.to_string())),
+            ("score".to_string(), Value::from(sentiment_score)),
+            ("dtype".to_string(), Value::from(decision_type.to_string())),
+            ("advice".to_string(), Value::from(operation_advice.to_string())),
+            ("summary".to_string(), Value::from(analysis_summary.to_string())),
+            ("risk".to_string(), Value::from(risk_warning.to_string())),
+            ("rjson".to_string(), Value::from(report_json_str)),
+            ("rtype".to_string(), Value::from("full".to_string())),
+            ("provider".to_string(), Value::from(conf.llm.provider.clone())),
+            ("model".to_string(), Value::from(conf.llm.model.clone())),
+        ], &connector) {
+            tracing::error!("save_report_to_db 失败: {}", e);
+        }
     }
 
     /// 根据ID查询单条记录
@@ -172,7 +210,7 @@ impl Analysis {
               FROM analysis_history WHERE status = 1 \
               AND (stock_name LIKE :kw OR analysis_summary LIKE :kw) \
               ORDER BY create_time DESC LIMIT {}", limit);
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             &sql,
             vec![
                 ("kw".to_string(), Value::from(kw_pattern.as_str())),
@@ -180,7 +218,7 @@ impl Analysis {
             &connector,
         )?;
 
-        Ok(rows.iter().map(|r| r.to_value2()).collect())
+        Ok(rows)
     }
 
     // ─── 业务方法 ────────────────────────────────────────────
@@ -202,12 +240,12 @@ impl Analysis {
             &conf.llm.model,
             conf.llm.temperature,
             conf.llm.timeout_seconds,
-        ).map_err(|e| error!("Pipeline初始化失败: {}", e))?;
+        ).map_err(|e| tube::Error::from(format!("Pipeline初始化失败: {}", e)))?;
 
         let kline_data = utils::fetch_kline(&code, "daily").await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
         let realtime = utils::fetch_realtime_quote(&code).await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
         let market_ctx = utils::fetch_market_context().await;
 
         let stock_name = if name.is_empty() {
@@ -228,14 +266,14 @@ impl Analysis {
                 market_ctx.as_deref(),
             )
             .await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
 
         let renderer = ReportRenderer::new();
         let markdown = renderer.render_markdown(&report);
         let text = renderer.render_text(&report);
 
         let report_json = serde_json::to_value(&report)
-            .map_err(|e| error!("报告序列化失败: {}", e))?;
+            .map_err(|e| tube::Error::from(format!("报告序列化失败: {}", e)))?;
 
         let mut report_json_for_db = report_json.clone();
         if let serde_json::Value::Object(ref mut map) = report_json_for_db {
@@ -281,7 +319,7 @@ impl Analysis {
             &conf.llm.model,
             conf.llm.temperature,
             conf.llm.timeout_seconds,
-        ).map_err(|e| error!("Pipeline初始化失败: {}", e))?;
+        ).map_err(|e| tube::Error::from(format!("Pipeline初始化失败: {}", e)))?;
 
         let mut results = Vec::new();
         for code in codes {
@@ -289,7 +327,17 @@ impl Analysis {
                 Ok(report) => {
                     let renderer = ReportRenderer::new();
                     let text = renderer.render_text(&report);
+                    let markdown = renderer.render_markdown(&report);
                     let json = serde_json::to_value(&report).unwrap_or_default();
+
+                    let name = report.stock_name.clone().unwrap_or_else(|| code.clone());
+                    let mut json_for_db = json.clone();
+                    if let serde_json::Value::Object(ref mut map) = json_for_db {
+                        map.insert("markdown".to_string(), serde_json::Value::String(markdown.clone()));
+                        map.insert("text".to_string(), serde_json::Value::String(text.clone()));
+                    }
+                    self.save_report_to_db(&code, &name, &report, &json_for_db);
+
                     results.push(value!({"code": code, "status": "ok", "text": text, "report": json}));
                 }
                 Err(e) => {
@@ -307,9 +355,9 @@ impl Analysis {
         code: &str,
     ) -> Result<AnalysisReport> {
         let kline_data = utils::fetch_kline(code, "daily").await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
         let realtime = utils::fetch_realtime_quote(code).await
-            .map_err(|e| error!("{}", e))?;
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
         let market_ctx = utils::fetch_market_context().await;
         let name = realtime
             .get("name")
@@ -319,7 +367,7 @@ impl Analysis {
         pipeline
             .analyze_stock(code, &name, &kline_data, Some(&realtime), market_ctx.as_deref())
             .await
-            .map_err(|e| error!("{}", e))
+            .map_err(|e| tube::Error::from(format!("{}", e)))
     }
 
     async fn get_report(&self) -> Result<Value> {
@@ -350,7 +398,7 @@ impl Analysis {
     async fn market_review(&self) -> Result<Value> {
         let gen = dsa_pipeline::market_review::MarketReviewGenerator::new();
         gen.generate(self.params()).await
-            .map_err(|e| error!("{}", e))
+            .map_err(|e| tube::Error::from(format!("{}", e)))
     }
 
     async fn history_list(&self) -> Result<Value> {

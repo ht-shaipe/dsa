@@ -6,12 +6,17 @@ authors.workspace = true
 license.workspace = true
 description = "DSA HTTP server entry point"
 
+[features]
+default = ["mysql", "sqlite"]
+mysql = ["dsa-service/mysql"]
+sqlite = ["dsa-service/sqlite"]
+
 [[bin]]
 name = "dsa"
 path = "src/main.rs"
 
 [dependencies]
-dsa-core = { workspace = true }
+dsa-core = { workspace = true, features = ["sqlite"] }
 dsa-pipeline = { workspace = true }
 dsa-agent = { workspace = true }
 dsa-backtest = { workspace = true }
@@ -31,10 +36,12 @@ actix-web = { workspace = true }
 actix-cors = { workspace = true }
 actix-files = { workspace = true }
 actix-rt = { workspace = true }
+futures = { workspace = true }
 
 tube = { workspace = true }
 tube_web = { workspace = true }
 tube_value = { workspace = true }
+tube_jwt = { workspace = true }
 
 deck_connector = { workspace = true }
 regex = { workspace = true }

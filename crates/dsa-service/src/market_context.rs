@@ -1,5 +1,5 @@
+use dsa_core::db::{query_rows, row_get_f64};
 use dsa_core::utils;
-use deck_mysql::{DataRow, Helper};
 use qta_crawler::Real;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
@@ -65,29 +65,26 @@ impl MarketContext {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sector_sql = "SELECT stock_code, stock_name, close, pct_chg             FROM stock_daily             WHERE trade_date = (SELECT MAX(trade_date) FROM stock_daily WHERE status = 1)             AND stock_code LIKE :sector_prefix AND status = 1             ORDER BY pct_chg DESC LIMIT 10";
         let sector_prefix = if code.starts_with('6') { "6%" } else if code.starts_with('0') || code.starts_with('3') { "0%" } else { "%" };
-        let sector_rows = Helper::query_rows(
+        let sector_rows = query_rows(
             sector_sql,
             vec![("sector_prefix".to_string(), Value::from(sector_prefix))],
             &connector,
         )
         .map_err(|e| tube::Error::from(format!("查询行业数据失败: {}", e)))?;
 
-        let sector_performance: Vec<Value> = sector_rows.iter().map(|r| r.to_value2()).collect();
+        let sector_performance: Vec<Value> = sector_rows;
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "code": code,
-                "stockPrice": stock_price,
-                "stockChangePct": stock_change,
-                "marketPhase": market_phase,
-                "indices": {
-                    "上证指数": {"changePercent": sh_change},
-                    "深证成指": {"changePercent": sz_change},
-                    "创业板指": {"changePercent": cy_change},
-                },
-                "sectorPerformance": sector_performance,
-            }
+            "code": code,
+            "stockPrice": stock_price,
+            "stockChangePct": stock_change,
+            "marketPhase": market_phase,
+            "indices": {
+                "上证指数": {"changePercent": sh_change},
+                "深证成指": {"changePercent": sz_change},
+                "创业板指": {"changePercent": cy_change},
+            },
+            "sectorPerformance": sector_performance,
         }))
     }
 
@@ -98,7 +95,7 @@ impl MarketContext {
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT close FROM stock_daily             WHERE stock_code = :code AND status = 1             ORDER BY trade_date DESC LIMIT 60";
-        let rows = Helper::query_rows(
+        let rows = query_rows(
             sql,
             vec![("code".to_string(), Value::from(index_code.as_str()))],
             &connector,
@@ -107,12 +104,12 @@ impl MarketContext {
 
         if rows.is_empty() {
             return Ok(value!({
-                "status": "ok",
-                "data": {"phase": "unknown", "mas": {}}
+                "phase": "unknown",
+                "mas": {}
             }));
         }
 
-        let closes: Vec<f64> = rows.iter().map(|r| r.get_value(0).as_f64().unwrap_or(0.0)).collect();
+        let closes: Vec<f64> = rows.iter().map(|r| row_get_f64(r, "close")).collect();
 
         let ma5 = if closes.len() >= 5 { closes[..5].iter().sum::<f64>() / 5.0 } else { 0.0 };
         let ma10 = if closes.len() >= 10 { closes[..10].iter().sum::<f64>() / 10.0 } else { 0.0 };
@@ -134,18 +131,15 @@ impl MarketContext {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "indexCode": index_code,
-                "currentPrice": current,
-                "phase": phase,
-                "mas": {
-                    "ma5": ma5,
-                    "ma10": ma10,
-                    "ma20": ma20,
-                    "ma60": ma60,
-                },
-            }
+            "indexCode": index_code,
+            "currentPrice": current,
+            "phase": phase,
+            "mas": {
+                "ma5": ma5,
+                "ma10": ma10,
+                "ma20": ma20,
+                "ma60": ma60,
+            },
         }))
     }
 
@@ -198,20 +192,17 @@ impl MarketContext {
         };
 
         Ok(value!({
-            "status": "ok",
-            "data": {
-                "code": code,
-                "action": action,
-                "allowed": allowed,
-                "reason": reason,
-                "severity": severity,
-                "marketPhase": market_phase,
-                "indices": {
-                    "上证指数": {"changePercent": sh_change},
-                    "深证成指": {"changePercent": sz_change},
-                    "创业板指": {"changePercent": cy_change},
-                },
-            }
+            "code": code,
+            "action": action,
+            "allowed": allowed,
+            "reason": reason,
+            "severity": severity,
+            "marketPhase": market_phase,
+            "indices": {
+                "上证指数": {"changePercent": sh_change},
+                "深证成指": {"changePercent": sz_change},
+                "创业板指": {"changePercent": cy_change},
+            },
         }))
     }
 

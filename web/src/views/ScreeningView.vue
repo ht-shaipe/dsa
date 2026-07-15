@@ -65,26 +65,37 @@
         <el-col :span="24">
           <el-card shadow="hover">
             <template #header>市场热点</template>
-            <el-row :gutter="16">
-              <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="h in hotspots" :key="h.code || h.name">
-                <el-card shadow="hover" class="hotspot-card" @click="showHotspotDetail(h)">
-                  <div class="hotspot-topic">{{ h.name }}</div>
-                  <div class="hotspot-code" v-if="h.code">{{ h.code }}</div>
-                  <div class="hotspot-stats">
-                    <span :class="Number(h.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
-                      {{ Number(h.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(h.changePercent || 0).toFixed(2) }}%
-                    </span>
-                    <span v-if="h.upCount != null && h.downCount != null" class="hotspot-counts">
-                      {{ h.upCount }}涨 / {{ h.downCount }}跌
-                    </span>
-                  </div>
-                  <el-tag v-if="h.sectorType" :type="h.sectorType === 'concept' ? 'warning' : 'primary'" size="small" style="margin-top:6px">
-                    {{ h.sectorType === 'concept' ? '概念' : '行业' }}
-                  </el-tag>
-                </el-card>
-              </el-col>
-            </el-row>
-            <el-empty v-if="!hotspots.length" description="暂无热点数据" />
+            <template v-if="hotspotsLoading">
+              <el-row :gutter="16">
+                <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="i in 8" :key="i">
+                  <el-card shadow="hover" class="hotspot-card">
+                    <el-skeleton :rows="3" animated />
+                  </el-card>
+                </el-col>
+              </el-row>
+            </template>
+            <template v-else>
+              <el-row :gutter="16">
+                <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="h in hotspots" :key="h.code || h.name">
+                  <el-card shadow="hover" class="hotspot-card" @click="showHotspotDetail(h)">
+                    <div class="hotspot-topic">{{ h.name }}</div>
+                    <div class="hotspot-code" v-if="h.code">{{ h.code }}</div>
+                    <div class="hotspot-stats">
+                      <span :class="Number(h.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
+                        {{ Number(h.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(h.changePercent || 0).toFixed(2) }}%
+                      </span>
+                      <span v-if="h.upCount != null && h.downCount != null" class="hotspot-counts">
+                        {{ h.upCount }}涨 / {{ h.downCount }}跌
+                      </span>
+                    </div>
+                    <el-tag v-if="h.sectorType" :type="h.sectorType === 'concept' ? 'warning' : 'primary'" size="small" style="margin-top:6px">
+                      {{ h.sectorType === 'concept' ? '概念' : '行业' }}
+                    </el-tag>
+                  </el-card>
+                </el-col>
+              </el-row>
+              <el-empty v-if="!hotspots.length" description="暂无热点数据" />
+            </template>
           </el-card>
         </el-col>
       </el-row>
@@ -194,6 +205,7 @@ const statusEnabled = ref(false)
 const dailyDataReady = ref(false)
 const strategies = ref<any[]>([])
 const hotspots = ref<any[]>([])
+const hotspotsLoading = ref(false)
 const screenResults = ref<any[]>([])
 const activeStrategy = ref('')
 const screening = ref(false)
@@ -207,9 +219,9 @@ let progressTimer: ReturnType<typeof setInterval> | null = null
 async function loadStatus() {
   try {
     const res: any = await screeningApi.status()
-    statusData.value = res.data || {}
-    statusEnabled.value = !!(res.data?.enabled || res.data?.alphaSift?.enabled)
-    dailyDataReady.value = !!(res.data?.dailyDataReady)
+    statusData.value = res || {}
+    statusEnabled.value = !!(res?.enabled || res?.alphaSift?.enabled)
+    dailyDataReady.value = !!(res?.dailyDataReady)
   } catch {
     statusEnabled.value = false
   }
@@ -218,7 +230,7 @@ async function loadStatus() {
 async function loadStrategies() {
   try {
     const res: any = await screeningApi.strategies()
-    strategies.value = res.data || []
+    strategies.value = Array.isArray(res) ? res : []
     if (strategies.value.length && !activeStrategy.value) {
       activeStrategy.value = strategies.value[0].id || strategies.value[0].name || ''
     }
@@ -226,18 +238,20 @@ async function loadStrategies() {
 }
 
 async function loadHotspots() {
+  hotspotsLoading.value = true
   try {
     const res: any = await screeningApi.hotspots()
-    hotspots.value = res.data || []
+    hotspots.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
+  finally { hotspotsLoading.value = false }
 }
 
 async function runScreen() {
   screening.value = true
   try {
     const res: any = await screeningApi.screen(activeStrategy.value || undefined)
-    screenResults.value = res.data?.results || res.data || []
-    const count = res.data?.count ?? screenResults.value.length
+    screenResults.value = res?.results || (Array.isArray(res) ? res : [])
+    const count = res?.count ?? screenResults.value.length
     ElMessage.success(`筛选完成，找到 ${count} 只股票`)
   } catch(e: any) {
     ElMessage.error(e?.message || '筛选执行失败')
@@ -263,12 +277,12 @@ function startProgressPolling() {
   progressTimer = setInterval(async () => {
     try {
       const res: any = await screeningApi.syncProgress()
-      syncProgress.value = res.data || {}
-      if (!res.data?.running) {
+      syncProgress.value = res || {}
+      if (!res?.running) {
         if (progressTimer) { clearInterval(progressTimer); progressTimer = null }
         syncing.value = false
         dailyDataReady.value = true
-        if (res.data?.phase === 'done') {
+        if (res?.phase === 'done') {
           ElMessage.success('日线数据同步完成')
         }
       }
@@ -286,7 +300,7 @@ async function showHotspotDetail(h: Record<string, any>) {
   try {
     const topic = h.topic || h.name || ''
     const res: any = await screeningApi.hotspotDetail(topic)
-    hotspotDetail.value = res.data || h
+    hotspotDetail.value = res || h
   } catch {
     hotspotDetail.value = h
   }
@@ -297,10 +311,10 @@ onMounted(async () => {
   if (statusEnabled.value) {
     loadStrategies()
     loadHotspots()
-    const res: any = await screeningApi.syncProgress().catch(() => ({ data: {} }))
-    if (res.data?.running) {
+    const res: any = await screeningApi.syncProgress().catch(() => ({} as any))
+    if (res?.running) {
       syncing.value = true
-      syncProgress.value = res.data
+      syncProgress.value = res
       startProgressPolling()
     }
   }

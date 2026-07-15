@@ -110,22 +110,78 @@
         </el-table>
       </el-tab-pane>
 
-      <!-- 认证配置 -->
-      <el-tab-pane label="认证配置" name="auth">
-        <el-form :model="authForm" label-width="120px" style="max-width:400px">
-          <el-form-item label="当前密码">
-            <el-input v-model="authForm.currentPassword" type="password" show-password />
+      <!-- 数据同步 -->
+      <el-tab-pane label="数据同步" name="data_sync">
+        <el-form :model="dataSyncForm" label-width="130px" style="max-width:650px">
+          <el-divider content-position="left">同步范围</el-divider>
+          <el-form-item label="市场板块">
+            <el-checkbox-group v-model="dataSyncForm.boards">
+              <el-checkbox label="沪市主板" value="sh_main" />
+              <el-checkbox label="深市主板" value="sz_main" />
+              <el-checkbox label="创业板" value="sz_gem" />
+              <el-checkbox label="科创板" value="sh_kj" />
+              <el-checkbox label="北交所" value="bj_main" />
+            </el-checkbox-group>
           </el-form-item>
-          <el-form-item label="新密码">
-            <el-input v-model="authForm.newPassword" type="password" show-password />
+          <el-divider content-position="left">风险过滤</el-divider>
+          <el-form-item label="排除ST股票">
+            <el-switch v-model="dataSyncForm.excludeSt" />
+            <span style="margin-left:8px;color:var(--el-text-color-secondary)">过滤名称含ST/*ST的股票</span>
           </el-form-item>
-          <el-form-item label="确认密码">
-            <el-input v-model="authForm.confirmPassword" type="password" show-password />
+          <el-form-item label="排除退市风险">
+            <el-switch v-model="dataSyncForm.excludeDelistingRisk" />
+            <span style="margin-left:8px;color:var(--el-text-color-secondary)">过滤名称含退市/退的股票</span>
+          </el-form-item>
+          <el-form-item label="排除次新股">
+            <el-switch v-model="dataSyncForm.excludeNewStock" />
+            <span style="margin-left:8px;color:var(--el-text-color-secondary)">上市不足60天的股票波动大、数据少</span>
+          </el-form-item>
+          <el-divider content-position="left">数据管理</el-divider>
+          <el-form-item label="保留天数">
+            <el-input-number v-model="dataSyncForm.retentionDays" :min="60" :max="1000" :step="30" style="width:180px" />
+            <span style="margin-left:8px;color:var(--el-text-color-secondary)">超过此天数的日线数据将被清理</span>
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" @click="changePassword" :loading="changingPassword">修改密码</el-button>
+            <el-button type="primary" @click="saveDataSyncConfig" :loading="saving">保存配置</el-button>
           </el-form-item>
         </el-form>
+
+        <el-divider content-position="left">操作</el-divider>
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <el-button type="primary" @click="initDailyData" :loading="syncRunning" :disabled="syncRunning">
+            {{ syncRunning ? '同步进行中...' : '初始化日线数据' }}
+          </el-button>
+          <el-button type="danger" @click="cleanDailyData" :loading="cleaning" :disabled="syncRunning">清理过期数据</el-button>
+          <el-button @click="loadSyncStatus">刷新状态</el-button>
+          <el-button type="success" @click="exportDailyData" :loading="dailyExporting" :disabled="syncRunning">导出日线数据</el-button>
+          <el-button type="warning" @click="triggerImportDailyData" :loading="dailyImporting" :disabled="syncRunning">导入日线数据</el-button>
+          <input ref="importFileInput" type="file" accept=".dsa-daily.json" style="display:none" @change="handleImportFile" />
+        </div>
+
+        <el-card v-if="syncStatus.running || syncStatus.total > 0" shadow="never" style="max-width:650px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+            <el-tag :type="syncStatus.running ? 'warning' : 'success'">
+              {{ syncStatus.running ? '同步中' : (syncStatus.phase === 'done' ? '已完成' : '未开始') }}
+            </el-tag>
+            <span v-if="syncStatus.running && syncStatus.phase" style="color:var(--el-text-color-secondary)">
+              {{ syncPhaseLabel }}
+            </span>
+          </div>
+          <el-progress
+            v-if="syncStatus.total > 0"
+            :percentage="Math.round((syncStatus.done / syncStatus.total) * 100)"
+            :status="syncStatus.running ? '' : 'success'"
+            :stroke-width="18"
+            :format="() => `${syncStatus.done} / ${syncStatus.total}`"
+          />
+          <div style="margin-top:6px;font-size:12px;color:var(--el-text-color-secondary)">
+            <span v-if="syncStatus.running">已完成 {{ Math.round((syncStatus.done / syncStatus.total) * 100) }}%，约需 {{ estimatedTime }}</span>
+            <span v-else-if="syncStatus.phase === 'done'">全部 {{ syncStatus.total }} 只股票日线数据已同步完成</span>
+          </div>
+          <div v-if="syncStatus.failed > 0" style="margin-top:4px;color:var(--el-color-danger)">
+            失败: {{ syncStatus.failed }}
+          </div>
+        </el-card>
       </el-tab-pane>
 
       <!-- 情报源配置 -->
@@ -189,6 +245,82 @@
           </template>
         </el-dialog>
       </el-tab-pane>
+
+      <!-- 更新管理 -->
+      <el-tab-pane label="更新管理" name="update">
+        <template v-if="!updater.isTauri">
+          <el-alert title="自动更新仅在桌面客户端中可用" description="请下载安装 DSA 桌面版以使用自动更新功能" type="info" show-icon :closable="false" />
+        </template>
+        <template v-else>
+          <el-form label-width="120px" style="max-width:600px">
+            <el-form-item label="当前版本">
+              <span style="font-weight:600">{{ appVersion }}</span>
+            </el-form-item>
+            <el-form-item label="更新状态">
+              <el-tag :type="statusTagType">{{ statusLabel }}</el-tag>
+              <span v-if="updater.status.value === 'available' && updater.updateInfo.value" style="margin-left:12px;color:var(--el-text-color-secondary)">
+                新版本 {{ updater.updateInfo.value.version }} 可用
+              </span>
+            </el-form-item>
+            <el-form-item v-if="updater.updateInfo.value" label="新版本信息">
+              <div>
+                <div style="font-weight:600;margin-bottom:6px">v{{ updater.updateInfo.value.version }}
+                  <span v-if="updater.updateInfo.value.date" style="font-size:12px;color:var(--el-text-color-secondary);margin-left:8px">
+                    {{ updater.updateInfo.value.date }}
+                  </span>
+                </div>
+                <div v-if="updater.updateInfo.value.body" style="white-space:pre-wrap;font-size:13px;color:var(--el-text-color-regular);line-height:1.6">
+                  {{ updater.updateInfo.value.body }}
+                </div>
+              </div>
+            </el-form-item>
+            <el-form-item v-if="updater.status.value === 'downloading'" label="下载进度">
+              <el-progress
+                :percentage="downloadPercent"
+                :format="() => `${downloadedMB} / ${totalMB}`"
+                :stroke-width="18"
+                style="width:100%"
+              />
+            </el-form-item>
+            <el-form-item v-if="updater.errorMessage.value" label="">
+              <el-alert :title="updater.errorMessage.value" type="error" show-icon :closable="false" />
+            </el-form-item>
+            <el-form-item>
+              <el-button
+                type="primary"
+                :loading="updater.status.value === 'checking'"
+                :disabled="updater.status.value === 'checking' || updater.status.value === 'downloading'"
+                @click="updater.checkForUpdate()"
+              >
+                {{ updater.status.value === 'checking' ? '检查中...' : '检查更新' }}
+              </el-button>
+              <el-button
+                v-if="updater.status.value === 'available' || updater.status.value === 'downloading'"
+                type="success"
+                :loading="updater.status.value === 'downloading'"
+                @click="updater.downloadAndInstall()"
+              >
+                {{ updater.status.value === 'downloading' ? '下载中...' : '下载并安装' }}
+              </el-button>
+              <el-button
+                v-if="updater.status.value === 'ready'"
+                type="success"
+                @click="updater.restartApp()"
+              >
+                立即重启应用更新
+              </el-button>
+            </el-form-item>
+          </el-form>
+
+          <el-divider content-position="left">自动更新</el-divider>
+          <el-form label-width="120px" style="max-width:600px">
+            <el-form-item label="启动时检查">
+              <el-switch v-model="autoCheckEnabled" @change="(val: any) => saveAutoCheck(!!val)" />
+              <span style="margin-left:8px;color:var(--el-text-color-secondary)">每次启动应用时自动检查新版本</span>
+            </el-form-item>
+          </el-form>
+        </template>
+      </el-tab-pane>
     </el-tabs>
 
     <el-card shadow="hover" style="margin-top: 20px">
@@ -205,13 +337,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { systemApi } from '@/api/system'
 import { notificationApi } from '@/api/notification'
 import { schedulerApi } from '@/api/scheduler'
 import { intelligenceApi } from '@/api/intelligence'
-import { authApi } from '@/api/auth'
+import { useUpdater } from '@/composables/useUpdater'
 
 const activeTab = ref('llm')
 const saving = ref(false)
@@ -249,13 +381,21 @@ const schedulerStatus = ref<Record<string, any>>({})
 const schedulerJobs = ref<any[]>([])
 const schedulerActionLoading = ref(false)
 
-// Auth
-const authForm = ref({
-  currentPassword: '',
-  newPassword: '',
-  confirmPassword: '',
+// Data sync
+const dataSyncForm = ref({
+  boards: ['sh_main', 'sz_main', 'sz_gem'] as string[],
+  excludeSt: true,
+  excludeNewStock: true,
+  excludeDelistingRisk: true,
+  retentionDays: 120,
 })
-const changingPassword = ref(false)
+const syncStatus = ref<Record<string, any>>({})
+const syncRunning = ref(false)
+const cleaning = ref(false)
+const dailyExporting = ref(false)
+const dailyImporting = ref(false)
+const importFileInput = ref<HTMLInputElement | null>(null)
+let syncPollTimer: ReturnType<typeof setInterval> | null = null
 
 // Intelligence
 const sources = ref<any[]>([])
@@ -269,10 +409,75 @@ const reloading = ref(false)
 const exporting = ref(false)
 const importing = ref(false)
 
+const updater = useUpdater()
+const appVersion = ref('0.1.0')
+const autoCheckEnabled = ref(localStorage.getItem('dsa_auto_update_check') !== 'false')
+
+const statusTagType = computed(() => {
+  switch (updater.status.value) {
+    case 'idle': return 'info'
+    case 'checking': return 'warning'
+    case 'available': return 'success'
+    case 'downloading': return 'warning'
+    case 'ready': return 'success'
+    case 'error': return 'danger'
+    default: return 'info'
+  }
+})
+
+const statusLabel = computed(() => {
+  switch (updater.status.value) {
+    case 'idle': return '已是最新版本'
+    case 'checking': return '检查中...'
+    case 'available': return '发现新版本'
+    case 'downloading': return '下载中'
+    case 'ready': return '更新就绪'
+    case 'error': return '更新出错'
+    case 'unsupported': return '不支持自动更新'
+    default: return '未知'
+  }
+})
+
+const downloadPercent = computed(() => {
+  const { downloaded, total } = updater.progress.value
+  if (!total || total === 0) return 0
+  return Math.min(Math.round((downloaded / total) * 100), 100)
+})
+
+const syncPhaseLabel = computed(() => {
+  const phase = syncStatus.value.phase || ''
+  if (phase === 'fetching') return '正在获取日线数据...'
+  if (phase.startsWith('calculating_indicators')) return '正在计算技术指标...'
+  if (phase === 'calculating_indicators') return '正在计算技术指标...'
+  if (phase === 'done') return '同步完成'
+  return phase
+})
+
+const estimatedTime = computed(() => {
+  const s = syncStatus.value
+  if (!s.running || !s.total || s.done < 1) return '计算中...'
+  const remaining = s.total - s.done
+  const secsPerItem = s.phase === 'fetching' ? 0.35 : 0.01
+  const totalSecs = Math.round(remaining * secsPerItem)
+  if (totalSecs < 60) return `${totalSecs} 秒`
+  if (totalSecs < 3600) return `${Math.round(totalSecs / 60)} 分钟`
+  return `${(totalSecs / 3600).toFixed(1)} 小时`
+})
+
+const downloadedMB = computed(() => (updater.progress.value.downloaded / 1048576).toFixed(1) + ' MB')
+const totalMB = computed(() => {
+  const t = updater.progress.value.total
+  return t > 0 ? (t / 1048576).toFixed(1) + ' MB' : '未知'
+})
+
+function saveAutoCheck(val: boolean) {
+  localStorage.setItem('dsa_auto_update_check', val ? 'true' : 'false')
+}
+
 async function loadConfig() {
   try {
     const res: any = await systemApi.get()
-    const config = res.data || res || {}
+    const config = res || {}
     const llm = config.llm || {}
     llmForm.value = {
       provider: llm.provider || 'openai',
@@ -305,6 +510,15 @@ async function loadConfig() {
     schedulerForm.value = {
       enabled: !!sched.enabled,
       times: sched.times || ['09:30'],
+    }
+    // Load data sync
+    const ds = config.data_sync || config.dataSync || {}
+    dataSyncForm.value = {
+      boards: ds.boards || ['sh_main', 'sz_main', 'sz_gem'],
+      excludeSt: ds.excludeSt ?? ds.exclude_st ?? true,
+      excludeNewStock: ds.excludeNewStock ?? ds.exclude_new_stock ?? true,
+      excludeDelistingRisk: ds.excludeDelistingRisk ?? ds.exclude_delisting_risk ?? true,
+      retentionDays: ds.retentionDays ?? ds.retention_days ?? 120,
     }
   } catch { /* ignore */ }
 }
@@ -346,6 +560,13 @@ async function saveConfig() {
         return n
       })(),
       scheduler: schedulerForm.value,
+      data_sync: {
+        boards: dataSyncForm.value.boards,
+        exclude_st: dataSyncForm.value.excludeSt,
+        exclude_new_stock: dataSyncForm.value.excludeNewStock,
+        exclude_delisting_risk: dataSyncForm.value.excludeDelistingRisk,
+        retention_days: dataSyncForm.value.retentionDays,
+      },
     })
     ElMessage.success('配置已保存')
     loadConfig()
@@ -361,7 +582,7 @@ async function testLlm() {
   testResult.value = null
   try {
     const res: any = await systemApi.testLlm()
-    testResult.value = { success: true, message: res.data?.message || '连接正常' }
+    testResult.value = { success: true, message: res?.message || '连接正常' }
   } catch (e: any) {
     testResult.value = { success: false, message: e.message || '连接失败' }
   } finally {
@@ -373,7 +594,7 @@ async function discoverModels() {
   discovering.value = true
   try {
     const res: any = await systemApi.discoverModels()
-    discoveredModels.value = res.data || []
+    discoveredModels.value = Array.isArray(res) ? res : []
     ElMessage.success(`发现 ${discoveredModels.value.length} 个模型`)
   } catch {
     ElMessage.error('发现模型失败')
@@ -399,14 +620,14 @@ async function testNotifChannel(key: string) {
 async function loadSchedulerStatus() {
   try {
     const res: any = await schedulerApi.status()
-    schedulerStatus.value = res.data || {}
+    schedulerStatus.value = res || {}
   } catch { /* ignore */ }
 }
 
 async function loadSchedulerJobs() {
   try {
     const res: any = await schedulerApi.jobs()
-    schedulerJobs.value = res.data || []
+    schedulerJobs.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 
@@ -436,25 +657,121 @@ async function stopScheduler() {
   }
 }
 
-async function changePassword() {
-  if (!authForm.value.currentPassword || !authForm.value.newPassword) {
-    ElMessage.warning('请填写密码')
-    return
-  }
-  if (authForm.value.newPassword !== authForm.value.confirmPassword) {
-    ElMessage.warning('两次密码不一致')
-    return
-  }
-  changingPassword.value = true
+async function loadSyncStatus() {
   try {
-    await (authApi as any).changePassword?.(authForm.value.currentPassword, authForm.value.newPassword)
-      || Promise.resolve()
-    ElMessage.success('密码已修改')
-    authForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' }
+    const res: any = await systemApi.syncStatus()
+    syncStatus.value = res || {}
+    syncRunning.value = !!res?.running
+    if (res?.config) {
+      dataSyncForm.value = {
+        boards: res.config.boards || ['sh_main', 'sz_main', 'sz_gem'],
+        excludeSt: res.config.excludeSt ?? true,
+        excludeNewStock: res.config.excludeNewStock ?? true,
+        excludeDelistingRisk: res.config.excludeDelistingRisk ?? true,
+        retentionDays: res.config.retentionDays ?? 120,
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+async function initDailyData() {
+  try {
+    const res: any = await systemApi.initDailyData()
+    ElMessage.success(res?.message || '同步已启动')
+    syncRunning.value = true
+    startSyncPolling()
   } catch {
-    ElMessage.error('修改密码失败')
+    // error already shown by api interceptor
+  }
+}
+
+async function cleanDailyData() {
+  cleaning.value = true
+  try {
+    const res: any = await systemApi.cleanDailyData()
+    ElMessage.success(`已清理 ${res?.deleted ?? 0} 条过期数据`)
+  } catch {
+    // error already shown by api interceptor
   } finally {
-    changingPassword.value = false
+    cleaning.value = false
+  }
+}
+
+async function saveDataSyncConfig() {
+  saving.value = true
+  try {
+    await systemApi.save({
+      data_sync: dataSyncForm.value,
+    })
+    ElMessage.success('数据同步配置已保存')
+  } catch {
+    // error already shown by api interceptor
+  } finally {
+    saving.value = false
+  }
+}
+
+function startSyncPolling() {
+  if (syncPollTimer) clearInterval(syncPollTimer)
+  syncPollTimer = setInterval(() => {
+    loadSyncStatus()
+    if (!syncRunning.value && syncPollTimer) {
+      clearInterval(syncPollTimer)
+      syncPollTimer = null
+    }
+  }, 3000)
+}
+
+async function exportDailyData() {
+  dailyExporting.value = true
+  try {
+    const res: any = await systemApi.exportDailyData()
+    const jsonStr = JSON.stringify(res)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `dsa-daily-${new Date().toISOString().slice(0, 10)}.dsa-daily.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success(`导出成功: ${res?.stockCount ?? 0} 只股票, ${res?.recordCount ?? 0} 条记录`)
+  } catch {
+    ElMessage.error('导出失败')
+  } finally {
+    dailyExporting.value = false
+  }
+}
+
+function triggerImportDailyData() {
+  importFileInput.value?.click()
+}
+
+async function handleImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  input.value = ''
+
+  dailyImporting.value = true
+  try {
+    const text = await file.text()
+    let data: any
+    try {
+      data = JSON.parse(text)
+    } catch {
+      ElMessage.error('文件格式错误，请选择有效的 .dsa-daily.json 文件')
+      return
+    }
+    if (!data?.records || !Array.isArray(data.records)) {
+      ElMessage.error('文件内容无效，缺少 records 数据')
+      return
+    }
+    const res: any = await systemApi.importDailyData(data)
+    ElMessage.success(`导入完成: 成功 ${res?.imported ?? 0} 条, 跳过 ${res?.skipped ?? 0} 条`)
+  } catch {
+    ElMessage.error('导入失败')
+  } finally {
+    dailyImporting.value = false
   }
 }
 
@@ -462,7 +779,7 @@ async function changePassword() {
 async function loadSources() {
   try {
     const res: any = await intelligenceApi.sources()
-    sources.value = res.data || []
+    sources.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 
@@ -510,7 +827,7 @@ async function submitSource() {
 async function testSource(row: Record<string, any>) {
   try {
     const res: any = await intelligenceApi.sourceTest(row.url)
-    ElMessage.success(res.data?.success !== false ? '测试通过' : '测试未通过')
+    ElMessage.success(res?.success !== false ? '测试通过' : '测试未通过')
   } catch {
     ElMessage.error('测试失败')
   }
@@ -538,8 +855,8 @@ async function deleteSource(row: Record<string, any>) {
 async function loadTemplates() {
   try {
     const res: any = await intelligenceApi.templates()
-    const data = res.data || []
-    if (data.length) {
+    const data = res || []
+    if (Array.isArray(data) && data.length) {
       ElMessage.info(`发现 ${data.length} 个模板`)
     }
   } catch {
@@ -584,7 +901,7 @@ async function exportConfig() {
   exporting.value = true
   try {
     const res: any = await systemApi.exportConfig()
-    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+    const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -614,11 +931,18 @@ async function importConfig(file: File) {
   return false
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadConfig()
   loadSchedulerStatus()
   loadSchedulerJobs()
   loadSources()
+  loadSyncStatus()
+  try {
+    const { getVersion } = await import('@tauri-apps/api/app')
+    appVersion.value = await getVersion()
+  } catch {
+    appVersion.value = '0.1.0'
+  }
 })
 </script>
 

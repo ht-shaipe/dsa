@@ -222,21 +222,21 @@ function formatCondition(row: any): string {
 async function loadRules() {
   try {
     const res: any = await alertApi.rules()
-    rules.value = res.data || []
+    rules.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 
 async function loadTriggers() {
   try {
     const res: any = await alertApi.triggers(50)
-    triggers.value = res.data || []
+    triggers.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 
 async function loadChannels() {
   try {
     const res: any = await notificationApi.channels()
-    channels.value = res.data || []
+    channels.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
 }
 
@@ -294,7 +294,7 @@ async function testNewRule() {
   try {
     const condition = buildCondition()
     const res: any = await alertApi.ruleTest(ruleForm.value.code, condition)
-    testResult.value = res.data || { triggered: false }
+    testResult.value = res || { triggered: false }
   } catch (e) {
     ElMessage.error('测试失败')
   } finally {
@@ -305,7 +305,7 @@ async function testNewRule() {
 async function testRule(row: Record<string, any>) {
   try {
     const res: any = await alertApi.ruleTest(row.code, row.condition || {})
-    const data = res.data || {}
+    const data = res || {}
     ElMessage.success(data.triggered ? '条件已触发' : '条件未触发')
   } catch {
     ElMessage.error('测试失败')

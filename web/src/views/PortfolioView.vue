@@ -371,10 +371,10 @@ async function loadData() {
       portfolioApi.trades(),
       portfolioApi.accounts(),
     ])
-    summary.value = (summaryRes as any).data || {}
-    positions.value = (positionsRes as any).data || []
-    trades.value = (tradesRes as any).data || []
-    accounts.value = (accountsRes as any).data || []
+    summary.value = (summaryRes as any) || {}
+    positions.value = (positionsRes as any) || []
+    trades.value = (tradesRes as any) || []
+    accounts.value = (accountsRes as any) || []
   } catch { /* ignore */ }
 }
 
