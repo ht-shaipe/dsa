@@ -3,7 +3,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "alert_triggers", comment = "告警触发记录", primary = "identity")]
+#[table(
+    name = "alert_triggers",
+    comment = "告警触发记录",
+    primary = "identity"
+)]
 pub struct AlertTrigger {
     #[field(primary = true, increment = 1)]
     pub id: i64,
@@ -44,12 +48,22 @@ pub struct AlertTrigger {
     #[field(default_value = "''", comment = "原因")]
     pub reason: String,
 
-    #[field(rename = "data_source", length = 64, default_value = "''", comment = "数据源")]
+    #[field(
+        rename = "data_source",
+        length = 64,
+        default_value = "''",
+        comment = "数据源"
+    )]
     pub data_source: String,
 
     #[field(rename = "data_timestamp", comment = "数据时间戳")]
     pub data_timestamp: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "trigger_status", length = 16, default_value = "'fired'", comment = "触发状态")]
+    #[field(
+        rename = "trigger_status",
+        length = 16,
+        default_value = "'fired'",
+        comment = "触发状态"
+    )]
     pub trigger_status: String,
 }

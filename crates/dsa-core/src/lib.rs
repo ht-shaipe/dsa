@@ -29,7 +29,8 @@ fn apply_proxy_env(proxy: &config::ProxyConfig) {
     if !proxy.http_proxy.is_empty() && std::env::var("http_proxy").unwrap_or_default().is_empty() {
         std::env::set_var("http_proxy", &proxy.http_proxy);
     }
-    if !proxy.https_proxy.is_empty() && std::env::var("https_proxy").unwrap_or_default().is_empty() {
+    if !proxy.https_proxy.is_empty() && std::env::var("https_proxy").unwrap_or_default().is_empty()
+    {
         std::env::set_var("https_proxy", &proxy.https_proxy);
     }
     if !proxy.no_proxy.is_empty() {
@@ -65,5 +66,3 @@ pub fn get_config_path() -> String {
         p.clone()
     }
 }
-
-

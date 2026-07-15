@@ -53,72 +53,100 @@ impl ReactExecutor {
     async fn execute_tool(&self, tool_name: &str, args: &Value) -> DsaResult<Value> {
         match tool_name {
             "get_realtime_quote" => {
-                let code = args.get("stock_code")
+                let code = args
+                    .get("stock_code")
                     .or_else(|| args.get("code"))
                     .and_then(|v| v.as_str())
                     .unwrap_or_default();
-                DataTools::get_realtime_quote(&code).await
+                DataTools::get_realtime_quote(&code)
+                    .await
                     .map_err(|e| DsaError::StockData(format!("获取行情失败: {}", e)))
             }
             "get_kline_data" => {
-                let code = args.get("code").and_then(|v| v.as_str()).unwrap_or_default();
-                let period = args.get("period").and_then(|v| v.as_str()).unwrap_or_else(|| "daily".to_string());
-                DataTools::get_kline_data(&code, &period).await
+                let code = args
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let period = args
+                    .get("period")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_else(|| "daily".to_string());
+                DataTools::get_kline_data(&code, &period)
+                    .await
                     .map_err(|e| DsaError::StockData(format!("获取K线失败: {}", e)))
             }
             "analyze_trend" => {
-                let data = args.get("kline_data")
+                let data = args
+                    .get("kline_data")
                     .and_then(|v| Value::as_array(v))
                     .unwrap_or_default();
                 Ok(AnalysisTools::analyze_trend(&data))
             }
             "analyze_volume" => {
-                let data = args.get("kline_data")
+                let data = args
+                    .get("kline_data")
                     .and_then(|v| Value::as_array(v))
                     .unwrap_or_default();
                 Ok(AnalysisTools::analyze_volume(&data))
             }
             "analyze_patterns" => {
-                let data = args.get("kline_data")
+                let data = args
+                    .get("kline_data")
                     .and_then(|v| Value::as_array(v))
                     .unwrap_or_default();
                 Ok(PatternTools::analyze_patterns(&data))
             }
             "get_chip_distribution" => {
-                let code = args.get("code").and_then(|v| v.as_str()).unwrap_or_default();
+                let code = args
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 Ok(ChipTools::get_chip_distribution(&code))
             }
             "search_stock_news" => {
-                let code = args.get("code").and_then(|v| v.as_str()).unwrap_or_default();
+                let code = args
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 let tools = SearchTools::new();
-                tools.search_stock_news(&code).await
+                tools
+                    .search_stock_news(&code)
+                    .await
                     .map_err(|e| DsaError::StockData(format!("搜索新闻失败: {}", e)))
             }
-            "get_market_overview" => {
-                MarketTools::get_market_overview().await
-                    .map_err(|e| DsaError::StockData(format!("获取市场概览失败: {}", e)))
-            }
-            "get_hot_sectors" => {
-                MarketTools::get_hot_sectors().await
-                    .map_err(|e| DsaError::StockData(format!("获取板块失败: {}", e)))
-            }
+            "get_market_overview" => MarketTools::get_market_overview()
+                .await
+                .map_err(|e| DsaError::StockData(format!("获取市场概览失败: {}", e))),
+            "get_hot_sectors" => MarketTools::get_hot_sectors()
+                .await
+                .map_err(|e| DsaError::StockData(format!("获取板块失败: {}", e))),
             "get_portfolio_snapshot" => {
-                let code = args.get("code").and_then(|v| v.as_str()).unwrap_or_default();
+                let code = args
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 Ok(PortfolioTools::get_portfolio_snapshot(&code))
             }
             "get_capital_flow" => {
-                let code = args.get("code").and_then(|v| v.as_str()).unwrap_or_default();
+                let code = args
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 PortfolioTools::get_capital_flow(&code).await
             }
             "get_analysis_context" => {
-                let code = args.get("code").and_then(|v| v.as_str()).unwrap_or_default();
-                let limit = args.get("limit")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(5.0) as i64;
+                let code = args
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let limit = args.get("limit").and_then(|v| v.as_f64()).unwrap_or(5.0) as i64;
                 Ok(HistoryTools::get_analysis_context(&code, limit))
             }
             "get_backtest_summary" => {
-                let code = args.get("code").and_then(|v| v.as_str()).unwrap_or_default();
+                let code = args
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 Ok(BacktestTools::get_backtest_summary(&code))
             }
             _ => Err(DsaError::Agent(format!("未知工具: {}", tool_name))),
@@ -127,8 +155,8 @@ impl ReactExecutor {
 
     /// 运行ReAct循环: Think → Act → Observe → 重复直到Final Answer
     pub async fn run(&self, query: &str, context: &Value) -> DsaResult<Value> {
-        let tools_json = serde_json::to_string(&Self::tool_definitions())
-            .unwrap_or_else(|_| "[]".to_string());
+        let tools_json =
+            serde_json::to_string(&Self::tool_definitions()).unwrap_or_else(|_| "[]".to_string());
 
         let system_prompt = format!(
             "你是一个股票分析助手，可以使用工具来获取数据和分析。\n\
@@ -175,18 +203,29 @@ impl ReactExecutor {
             });
 
             let start = std::time::Instant::now();
-            let response = self.llm.chat(&body).await
+            let response = self
+                .llm
+                .chat(&body)
+                .await
                 .map_err(|e| DsaError::LlmAnalysis(format!("ReAct LLM调用失败: {}", e)))?;
             let elapsed = start.elapsed().as_millis() as i64;
 
-            let react_code = context.get("code").and_then(|c| c.as_str()).unwrap_or_default();
+            let react_code = context
+                .get("code")
+                .and_then(|c| c.as_str())
+                .unwrap_or_default();
             let conf = dsa_core::get_global_config();
             dsa_core::utils::record_llm_usage_from_response(
-                &response, &conf.llm.provider, &self.model,
-                &format!("react_step_{}", iteration), elapsed, &react_code,
+                &response,
+                &conf.llm.provider,
+                &self.model,
+                &format!("react_step_{}", iteration),
+                elapsed,
+                &react_code,
             );
 
-            let content = response.get("choices")
+            let content = response
+                .get("choices")
                 .and_then(|c| Value::as_array(c))
                 .and_then(|a| a.first().cloned())
                 .and_then(|f| f.get("message").cloned())
@@ -210,7 +249,9 @@ impl ReactExecutor {
             // 尝试提取工具调用
             if let Some((tool_name, tool_input)) = Self::extract_tool_call(&content) {
                 let observation = match self.execute_tool(&tool_name, &tool_input).await {
-                    Ok(result) => serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string()),
+                    Ok(result) => {
+                        serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string())
+                    }
                     Err(e) => format!("工具执行错误: {}", e),
                 };
 
@@ -223,7 +264,9 @@ impl ReactExecutor {
 
                 // 追加到消息列表
                 messages.push(value!({"role": "assistant", "content": content}));
-                messages.push(value!({"role": "user", "content": format!("Observation: {}", observation)}));
+                messages.push(
+                    value!({"role": "user", "content": format!("Observation: {}", observation)}),
+                );
             } else {
                 // 未找到工具调用，当作最终答案
                 return Ok(value!({

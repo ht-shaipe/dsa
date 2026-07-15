@@ -7,8 +7,8 @@ use ai_llm_kit::{LlmFactory, LlmProvider, LlmService};
 use dsa_core::models::AnalysisReport;
 use dsa_core::{DsaError, DsaResult};
 use std::sync::Arc;
-use tube::Value;
 use tracing::{info, warn};
+use tube::Value;
 
 pub struct AnalysisPipeline {
     llm: Arc<Box<dyn LlmService>>,
@@ -19,7 +19,13 @@ pub struct AnalysisPipeline {
 }
 
 impl AnalysisPipeline {
-    pub fn new(provider: &str, api_key: &str, model: &str, temperature: f64, timeout_seconds: u64) -> DsaResult<Self> {
+    pub fn new(
+        provider: &str,
+        api_key: &str,
+        model: &str,
+        temperature: f64,
+        timeout_seconds: u64,
+    ) -> DsaResult<Self> {
         let llm_provider = LlmProvider::instance(provider)
             .map_err(|e| DsaError::LlmAnalysis(format!("不支持的 LLM provider: {}", e)))?;
         let llm: Box<dyn LlmService> = LlmFactory::create(llm_provider, api_key);
@@ -28,7 +34,11 @@ impl AnalysisPipeline {
             llm: Arc::new(llm),
             model: model.to_string(),
             temperature,
-            timeout_secs: if timeout_seconds > 0 { timeout_seconds } else { 60 },
+            timeout_secs: if timeout_seconds > 0 {
+                timeout_seconds
+            } else {
+                60
+            },
             technical_analyzer: TechnicalAnalyzer::new(),
         })
     }
@@ -45,7 +55,14 @@ impl AnalysisPipeline {
 
         let technical = self.technical_analyzer.calculate(kline_data, realtime);
 
-        let context = AnalysisContextBuilder::build(code, name, kline_data, realtime, &technical, market_context);
+        let context = AnalysisContextBuilder::build(
+            code,
+            name,
+            kline_data,
+            realtime,
+            &technical,
+            market_context,
+        );
 
         let prompt = build_analysis_prompt(&context);
 
@@ -54,14 +71,20 @@ impl AnalysisPipeline {
             Ok(r) => r,
             Err(e) => {
                 let conf = dsa_core::get_global_config();
-                if let (Some(fb_provider), Some(fb_api_key_env), Some(fb_model)) =
-                    (&conf.llm.fallback_provider, &conf.llm.fallback_api_key_env, &conf.llm.fallback_model)
-                {
-                    warn!("主LLM调用失败({}), 尝试回退: {}/{}", e, fb_provider, fb_model);
+                if let (Some(fb_provider), Some(fb_api_key_env), Some(fb_model)) = (
+                    &conf.llm.fallback_provider,
+                    &conf.llm.fallback_api_key_env,
+                    &conf.llm.fallback_model,
+                ) {
+                    warn!(
+                        "主LLM调用失败({}), 尝试回退: {}/{}",
+                        e, fb_provider, fb_model
+                    );
                     let fb_key = std::env::var(fb_api_key_env).unwrap_or_default();
                     if !fb_key.is_empty() {
                         if let Ok(provider) = LlmProvider::instance(fb_provider) {
-                            let fallback_llm: Box<dyn LlmService> = LlmFactory::create(provider, &fb_key);
+                            let fallback_llm: Box<dyn LlmService> =
+                                LlmFactory::create(provider, &fb_key);
                             let fallback_pipeline = AnalysisPipeline {
                                 llm: Arc::new(fallback_llm),
                                 model: fb_model.clone(),
@@ -85,8 +108,14 @@ impl AnalysisPipeline {
 
         let usage_default = value!({});
         let usage = usage_val.as_ref().unwrap_or(&usage_default);
-        let prompt_tokens = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-        let completion_tokens = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+        let prompt_tokens = usage
+            .get("prompt_tokens")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as i32;
+        let completion_tokens = usage
+            .get("completion_tokens")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as i32;
 
         let conf = dsa_core::get_global_config();
         dsa_core::utils::record_llm_usage(
@@ -116,7 +145,14 @@ impl AnalysisPipeline {
         market_context: Option<&str>,
     ) -> DsaResult<Value> {
         let technical = self.technical_analyzer.calculate(kline_data, realtime);
-        let context = AnalysisContextBuilder::build(code, name, kline_data, realtime, &technical, market_context);
+        let context = AnalysisContextBuilder::build(
+            code,
+            name,
+            kline_data,
+            realtime,
+            &technical,
+            market_context,
+        );
         let prompt = build_analysis_prompt(&context);
 
         Ok(value!({
@@ -134,7 +170,10 @@ impl AnalysisPipeline {
         self.parse_report(content)
     }
 
-    async fn call_llm_and_parse(&self, prompt: &AnalysisPrompt) -> DsaResult<(AnalysisReport, Option<Value>)> {
+    async fn call_llm_and_parse(
+        &self,
+        prompt: &AnalysisPrompt,
+    ) -> DsaResult<(AnalysisReport, Option<Value>)> {
         let body = value!({
             "model": &self.model,
             "messages": [
@@ -169,17 +208,18 @@ impl AnalysisPipeline {
                 }
             }
         }
-        Err(DsaError::LlmAnalysis("无法从 LLM 响应中提取内容".to_string()))
+        Err(DsaError::LlmAnalysis(
+            "无法从 LLM 响应中提取内容".to_string(),
+        ))
     }
 
     fn parse_report(&self, content: &str) -> DsaResult<AnalysisReport> {
         let json_str = self.extract_json_from_content(content);
 
-        let report: AnalysisReport = serde_json::from_str(&json_str)
-            .map_err(|e| {
-                warn!("报告 JSON 解析失败: {}", e);
-                DsaError::ReportParse(format!("JSON 解析失败: {}", e))
-            })?;
+        let report: AnalysisReport = serde_json::from_str(&json_str).map_err(|e| {
+            warn!("报告 JSON 解析失败: {}", e);
+            DsaError::ReportParse(format!("JSON 解析失败: {}", e))
+        })?;
 
         Ok(report)
     }

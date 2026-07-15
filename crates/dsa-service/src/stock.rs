@@ -1,10 +1,10 @@
-use dsa_core::models::db::WatchlistStock as WatchlistStockModel;
-use dsa_core::utils;
 use deck::sqlite::{DataTable, SelectExecutor};
 use deck::QueryExecutor;
 use deck::TableService;
+use dsa_core::models::db::WatchlistStock as WatchlistStockModel;
+use dsa_core::utils;
 
-use qta_crawler::{Basic, EastMoney, History, QQ, Real, Stock as QtaStock};
+use qta_crawler::{Basic, EastMoney, History, Real, Stock as QtaStock, QQ};
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
@@ -147,7 +147,13 @@ impl Stock {
                 ("", raw_code)
             };
 
-            let stock_type = if is_stock { "stock" } else if is_fund { "fund" } else { "other" };
+            let stock_type = if is_stock {
+                "stock"
+            } else if is_fund {
+                "fund"
+            } else {
+                "other"
+            };
 
             results.push(value!({
                 "code": code,
@@ -167,7 +173,10 @@ impl Stock {
 
     async fn get_quote(&self) -> Result<Value> {
         let code = Self::param_code(&self.value());
-        let pure_code = code.trim_start_matches("sh").trim_start_matches("sz").trim_start_matches("bj");
+        let pure_code = code
+            .trim_start_matches("sh")
+            .trim_start_matches("sz")
+            .trim_start_matches("bj");
         let prefix = utils::market_prefix(pure_code);
         let symbol = format!("{}{}", prefix, pure_code);
 
@@ -191,7 +200,10 @@ impl Stock {
         let mut results = Vec::new();
         for code in codes_val.split(',') {
             let code = code.trim();
-            let pure_code = code.trim_start_matches("sh").trim_start_matches("sz").trim_start_matches("bj");
+            let pure_code = code
+                .trim_start_matches("sh")
+                .trim_start_matches("sz")
+                .trim_start_matches("bj");
             if pure_code.len() >= 6 {
                 let prefix = utils::market_prefix(pure_code);
                 if let Ok(v) = real.get_price(&format!("{}{}", prefix, pure_code)).await {
@@ -260,7 +272,11 @@ impl Stock {
         if !db_results.is_empty() {
             let codes: Vec<String> = db_results
                 .iter()
-                .filter_map(|r| r.get("stockCode").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .filter_map(|r| {
+                    r.get("stockCode")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
                 .collect();
 
             let real = Real::new();
@@ -282,13 +298,22 @@ impl Stock {
                         .and_then(|v| v.as_str())
                         .unwrap_or_default();
                     let prefixed = format!("{}{}", utils::market_prefix(code.as_str()), code);
-                    if let Some(quote) = quote_map.get(prefixed.as_str()).or_else(|| quote_map.get(code.as_str())) {
+                    if let Some(quote) = quote_map
+                        .get(prefixed.as_str())
+                        .or_else(|| quote_map.get(code.as_str()))
+                    {
                         let mut merged = db_item.clone();
                         if let Value::Object(ref mut map) = merged {
                             if let Value::Object(ref quote_map_inner) = quote {
                                 for k in quote_map_inner.keys() {
                                     if !map.contains_key(k.as_str()) {
-                                        map.insert(k.clone(), quote_map_inner.get(k.as_str()).cloned().unwrap_or(Value::Null));
+                                        map.insert(
+                                            k.clone(),
+                                            quote_map_inner
+                                                .get(k.as_str())
+                                                .cloned()
+                                                .unwrap_or(Value::Null),
+                                        );
                                     }
                                 }
                             }
@@ -334,7 +359,10 @@ impl Stock {
                     if let Value::Object(ref quote) = v {
                         for k in quote.keys() {
                             if !map.contains_key(k.as_str()) {
-                                map.insert(k.clone(), quote.get(k.as_str()).cloned().unwrap_or(Value::Null));
+                                map.insert(
+                                    k.clone(),
+                                    quote.get(k.as_str()).cloned().unwrap_or(Value::Null),
+                                );
                             }
                         }
                     }
@@ -409,7 +437,11 @@ impl Stock {
             if !remark.is_empty() {
                 map.insert("remark".to_string(), Value::from(remark));
             }
-            if let Some(so) = params.get("sort_order").and_then(|v| v.as_f64()).map(|v| v as i32) {
+            if let Some(so) = params
+                .get("sort_order")
+                .and_then(|v| v.as_f64())
+                .map(|v| v as i32)
+            {
                 map.insert("sort_order".to_string(), Value::from(so));
             }
         }
@@ -497,7 +529,8 @@ impl Stock {
     }
 
     fn count_all(&self) -> Result<i64> {
-        let connector = self.get_connector()
+        let connector = self
+            .get_connector()
             .ok_or_else(|| error!("数据库连接未初始化"))?;
         let sql = "SELECT COUNT(*) as cnt FROM watchlist_stocks";
         let rows = dsa_core::db::query_rows(sql, vec![], &connector)
@@ -506,7 +539,8 @@ impl Stock {
     }
 
     fn find_by_code(&self, code: &str) -> Result<Option<Value>> {
-        let res = self.select()
+        let res = self
+            .select()
             .r#where(conds![{ "stock_code" = code }, { "enabled" = 1 }])
             .one()?;
         Ok(if res.is_null() { None } else { Some(res) })
@@ -563,7 +597,8 @@ impl Stock {
     }
 
     fn find_existing_by_code(&self, code: &str) -> Result<Option<Value>> {
-        let res = self.select()
+        let res = self
+            .select()
             .r#where(conds![{ "stock_code" = code }])
             .one()?;
         Ok(if res.is_null() { None } else { Some(res) })

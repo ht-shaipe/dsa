@@ -4,14 +4,14 @@
 //! 辅助模型: DecisionSignalOutcome, DecisionSignalFeedback
 //! 使用 deck DataTable/TableService 模式
 
+use deck::sqlite::{DataTable, SelectExecutor};
+use deck::QueryExecutor;
+use deck::TableService;
 use dsa_core::db::{query_rows, row_get_f64, row_get_i64, row_get_string};
 use dsa_core::models::db::DecisionSignal as DecisionSignalModel;
 use dsa_core::models::db::DecisionSignalFeedback as DecisionSignalFeedbackModel;
 use dsa_core::models::db::DecisionSignalOutcome as DecisionSignalOutcomeModel;
 use dsa_core::utils;
-use deck::sqlite::{DataTable, SelectExecutor};
-use deck::QueryExecutor;
-use deck::TableService;
 
 use qta_crawler::Real;
 use tube::{Result, Value};
@@ -19,24 +19,46 @@ use tube_web::RequestParameter;
 
 // ─── 辅助表: DecisionSignalOutcome ────────────────────────────────
 
-struct OutcomeTable { request: RequestParameter }
+struct OutcomeTable {
+    request: RequestParameter,
+}
 
 impl DataTable<DecisionSignalOutcomeModel> for OutcomeTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<DecisionSignalOutcomeModel> for OutcomeTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl OutcomeTable {
-    fn new(param: &RequestParameter) -> Self { OutcomeTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        OutcomeTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_outcomes(&self, signal_id: i64, limit: i64) -> Result<Vec<Value>> {
-        let mut q = self.select()
+        let mut q = self
+            .select()
             .columns(cols![
-                "id", "signal_id", "stock_code", "eval_horizon", "eval_date",
-                "actual_return", "max_drawdown", "direction_correct",
-                "hit_target", "hit_stop_loss", "status", "create_time"
+                "id",
+                "signal_id",
+                "stock_code",
+                "eval_horizon",
+                "eval_date",
+                "actual_return",
+                "max_drawdown",
+                "direction_correct",
+                "hit_target",
+                "hit_stop_loss",
+                "status",
+                "create_time"
             ])
             .r#where(conds![{ "status" = 1 }])
             .order(ord!("eval_date DESC"))
@@ -52,30 +74,53 @@ impl OutcomeTable {
 
 // ─── 辅助表: DecisionSignalFeedback ──────────────────────────────
 
-struct FeedbackTable { request: RequestParameter }
+struct FeedbackTable {
+    request: RequestParameter,
+}
 
 impl DataTable<DecisionSignalFeedbackModel> for FeedbackTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<DecisionSignalFeedbackModel> for FeedbackTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl FeedbackTable {
-    fn new(param: &RequestParameter) -> Self { FeedbackTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        FeedbackTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_feedback_list(&self, signal_id: i64) -> Result<Vec<Value>> {
         self.select()
             .columns(cols![
-                "id", "signal_id", "feedback_value", "reason_code",
-                "note", "source", "create_time"
+                "id",
+                "signal_id",
+                "feedback_value",
+                "reason_code",
+                "note",
+                "source",
+                "create_time"
             ])
             .r#where(conds![{ "signal_id" = signal_id }])
             .order(ord!("create_time DESC"))
             .query_values()
     }
 
-    fn upsert_feedback(&self, signal_id: i64, feedback: &str, reason_code: &str, note: &str) -> Result<Value> {
+    fn upsert_feedback(
+        &self,
+        signal_id: i64,
+        feedback: &str,
+        reason_code: &str,
+        note: &str,
+    ) -> Result<Value> {
         let data = value!({
             "signal_id": signal_id,
             "feedback_value": feedback,
@@ -89,20 +134,30 @@ impl FeedbackTable {
 
 // ─── 主服务: Decision ────────────────────────────────────────────
 
-pub struct Decision { request: RequestParameter }
+pub struct Decision {
+    request: RequestParameter,
+}
 
 impl DataTable<DecisionSignalModel> for Decision {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 
 impl TableService<DecisionSignalModel> for Decision {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 
 impl Decision {
     pub fn new(param: &RequestParameter) -> Self {
-        Decision { request: param.clone() }
+        Decision {
+            request: param.clone(),
+        }
     }
 
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
@@ -132,7 +187,8 @@ impl Decision {
 
     /// 去重检查: 同一股票+动作+日期的活跃信号
     fn check_duplicate(&self, code: &str, action: &str, signal_date: &str) -> Result<Option<i64>> {
-        let res = self.select()
+        let res = self
+            .select()
             .columns(cols!["id"])
             .r#where(conds![
                 { "stock_code" = code },
@@ -150,10 +206,22 @@ impl Decision {
     }
 
     /// 创建决策信号
-    fn insert_signal(&self, code: &str, name: &str, signal_date: &str, action: &str,
-                     sentiment_score: i32, confidence_level: &str,
-                     entry_price: f64, stop_loss: f64, target_price: f64,
-                     reasoning: &str, evidence: &str, scope_type: &str, analysis_id: i64) -> Result<Value> {
+    fn insert_signal(
+        &self,
+        code: &str,
+        name: &str,
+        signal_date: &str,
+        action: &str,
+        sentiment_score: i32,
+        confidence_level: &str,
+        entry_price: f64,
+        stop_loss: f64,
+        target_price: f64,
+        reasoning: &str,
+        evidence: &str,
+        scope_type: &str,
+        analysis_id: i64,
+    ) -> Result<Value> {
         let confidence: i32 = match confidence_level {
             "high" => 90,
             "medium" => 60,
@@ -183,12 +251,26 @@ impl Decision {
 
     /// 获取最新活跃信号
     fn query_latest(&self, code: &str) -> Result<Option<Value>> {
-        let res = self.select()
+        let res = self
+            .select()
             .columns(cols![
-                "id", "stock_code", "stock_name", "signal_date", "action",
-                "sentiment_score", "confidence_level", "entry_price",
-                "stop_loss", "target_price", "reasoning", "evidence",
-                "scope_type", "analysis_id", "plan_quality", "status", "create_time"
+                "id",
+                "stock_code",
+                "stock_name",
+                "signal_date",
+                "action",
+                "sentiment_score",
+                "confidence_level",
+                "entry_price",
+                "stop_loss",
+                "target_price",
+                "reasoning",
+                "evidence",
+                "scope_type",
+                "analysis_id",
+                "plan_quality",
+                "status",
+                "create_time"
             ])
             .r#where(conds![{ "stock_code" = code }, { "status" = 1 }])
             .order(ord!("create_time DESC"))
@@ -199,13 +281,29 @@ impl Decision {
 
     /// 获取信号详情
     fn query_detail(&self, id: i64) -> Result<Option<Value>> {
-        let res = self.select()
+        let res = self
+            .select()
             .columns(cols![
-                "id", "stock_code", "stock_name", "signal_date", "action",
-                "sentiment_score", "confidence_level", "entry_price",
-                "stop_loss", "target_price", "reasoning", "evidence",
-                "scope_type", "scope_value", "analysis_id", "plan_quality",
-                "status", "creator_id", "create_time", "modify_time"
+                "id",
+                "stock_code",
+                "stock_name",
+                "signal_date",
+                "action",
+                "sentiment_score",
+                "confidence_level",
+                "entry_price",
+                "stop_loss",
+                "target_price",
+                "reasoning",
+                "evidence",
+                "scope_type",
+                "scope_value",
+                "analysis_id",
+                "plan_quality",
+                "status",
+                "creator_id",
+                "create_time",
+                "modify_time"
             ])
             .r#where(conds![{ "id" = id }])
             .one()?;
@@ -278,12 +376,23 @@ impl Decision {
             &scope_type
         };
 
-        let result = self.insert_signal(
-            &code, &name, &signal_date, &action,
-            sentiment_score, &confidence_level,
-            entry_price, stop_loss, target_price,
-            &reasoning, &evidence, scope_val, analysis_id,
-        ).map_err(|e| tube::Error::from(format!("创建决策信号失败: {}", e)))?;
+        let result = self
+            .insert_signal(
+                &code,
+                &name,
+                &signal_date,
+                &action,
+                sentiment_score,
+                &confidence_level,
+                entry_price,
+                stop_loss,
+                target_price,
+                &reasoning,
+                &evidence,
+                scope_val,
+                analysis_id,
+            )
+            .map_err(|e| tube::Error::from(format!("创建决策信号失败: {}", e)))?;
 
         Ok(value!({
             "id": result, "code": code, "action": action, "duplicate": false
@@ -298,13 +407,12 @@ impl Decision {
         let holding_only = params
             .get("holdingOnly")
             .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) > 0.0;
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+            .unwrap_or(0.0)
+            > 0.0;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
-        let connector = self.get_connector()
+        let connector = self
+            .get_connector()
             .ok_or_else(|| error!("MySQL连接未初始化"))?;
 
         let mut conditions = vec!["ds.status >= 1".to_string()];
@@ -368,10 +476,7 @@ impl Decision {
 
     async fn detail(&self) -> Result<Value> {
         let params = self.params();
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = params.get("id").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if id == 0 {
             return Err(error!("请提供信号ID"));
         }
@@ -384,10 +489,7 @@ impl Decision {
 
     async fn update_status(&self) -> Result<Value> {
         let params = self.params();
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = params.get("id").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if id == 0 {
             return Err(error!("请提供信号ID"));
         }
@@ -417,10 +519,7 @@ impl Decision {
             .get("signalId")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0) as i64;
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let table = OutcomeTable::new(&self.request);
         let results = table.query_outcomes(signal_id, limit)?;
@@ -444,7 +543,12 @@ impl Decision {
 
         let fb_val = match feedback.as_str() {
             "agree" | "disagree" | "partial" => feedback.as_str(),
-            _ => return Err(error!("无效反馈值: {}，支持: agree/disagree/partial", feedback)),
+            _ => {
+                return Err(error!(
+                    "无效反馈值: {}，支持: agree/disagree/partial",
+                    feedback
+                ))
+            }
         };
 
         let reason_code = utils::param_string(params, "reasonCode");
@@ -472,7 +576,8 @@ impl Decision {
     }
 
     async fn reassess(&self) -> Result<Value> {
-        let connector = self.get_connector()
+        let connector = self
+            .get_connector()
             .ok_or_else(|| error!("MySQL连接未初始化"))?;
 
         // Find active signals older than 1 day
@@ -496,10 +601,7 @@ impl Decision {
 
             // Fetch current price
             let prefix = utils::market_prefix(&code);
-            let quote = real
-                .get_price(&format!("{}{}", prefix, code))
-                .await
-                .ok();
+            let quote = real.get_price(&format!("{}{}", prefix, code)).await.ok();
 
             let current_price = quote
                 .as_ref()
@@ -515,11 +617,15 @@ impl Decision {
             let is_bearish = matches!(action.as_str(), "sell" | "reduce" | "avoid");
 
             let (hit_stop, hit_target) = if is_bearish {
-                (stop_loss > 0.0 && current_price >= stop_loss,
-                 target_price > 0.0 && current_price <= target_price)
+                (
+                    stop_loss > 0.0 && current_price >= stop_loss,
+                    target_price > 0.0 && current_price <= target_price,
+                )
             } else {
-                (stop_loss > 0.0 && current_price <= stop_loss,
-                 target_price > 0.0 && current_price >= target_price)
+                (
+                    stop_loss > 0.0 && current_price <= stop_loss,
+                    target_price > 0.0 && current_price >= target_price,
+                )
             };
 
             if hit_stop {
@@ -544,12 +650,18 @@ impl Decision {
             return Err(error!("请提供信号ID"));
         }
 
-        let connector = self.get_connector()
+        let connector = self
+            .get_connector()
             .ok_or_else(|| error!("MySQL连接未初始化"))?;
-        let sql = "SELECT id, stock_code, reasoning, evidence, entry_price, stop_loss, target_price \
+        let sql =
+            "SELECT id, stock_code, reasoning, evidence, entry_price, stop_loss, target_price \
              FROM decision_signals WHERE id = :id";
-        let rows = query_rows(sql, vec![("id".to_string(), Value::from(signal_id))], &connector)
-            .map_err(|e| tube::Error::from(format!("查询信号详情失败: {}", e)))?;
+        let rows = query_rows(
+            sql,
+            vec![("id".to_string(), Value::from(signal_id))],
+            &connector,
+        )
+        .map_err(|e| tube::Error::from(format!("查询信号详情失败: {}", e)))?;
 
         if rows.is_empty() {
             return Ok(Value::Null);
@@ -584,21 +696,27 @@ impl Decision {
 
         if has_entry {
             score += 1;
-            breakdown.push(value!({"item": "entryPrice", "present": true, "value": entry_price, "score": 1}));
+            breakdown.push(
+                value!({"item": "entryPrice", "present": true, "value": entry_price, "score": 1}),
+            );
         } else {
             breakdown.push(value!({"item": "entryPrice", "present": false, "score": 0}));
         }
 
         if has_stop {
             score += 1;
-            breakdown.push(value!({"item": "stopLoss", "present": true, "value": stop_loss, "score": 1}));
+            breakdown.push(
+                value!({"item": "stopLoss", "present": true, "value": stop_loss, "score": 1}),
+            );
         } else {
             breakdown.push(value!({"item": "stopLoss", "present": false, "score": 0}));
         }
 
         if has_target {
             score += 1;
-            breakdown.push(value!({"item": "targetPrice", "present": true, "value": target_price, "score": 1}));
+            breakdown.push(
+                value!({"item": "targetPrice", "present": true, "value": target_price, "score": 1}),
+            );
         } else {
             breakdown.push(value!({"item": "targetPrice", "present": false, "score": 0}));
         }
@@ -641,7 +759,9 @@ impl Decision {
             .unwrap_or(0.0) as i64;
 
         let tracker = dsa_backtest::SignalTracker::new();
-        let outcomes = tracker.evaluate_outcomes(eval_window).await
+        let outcomes = tracker
+            .evaluate_outcomes(eval_window)
+            .await
             .map_err(|e| tube::Error::from(format!("{}", e)))?;
 
         Ok(Value::Array(outcomes))
@@ -651,25 +771,32 @@ impl Decision {
         let params = self.params();
         let code = utils::param_string(params, "code");
 
-        let connector = self.get_connector()
+        let connector = self
+            .get_connector()
             .ok_or_else(|| error!("MySQL连接未初始化"))?;
 
         let (sql, p) = if code.is_empty() {
-            ("SELECT COUNT(*) as total, \
+            (
+                "SELECT COUNT(*) as total, \
               SUM(CASE WHEN action IN ('buy','add') THEN 1 ELSE 0 END) as bullish, \
               SUM(CASE WHEN action IN ('sell','reduce','avoid') THEN 1 ELSE 0 END) as bearish, \
               SUM(CASE WHEN action = 'hold' THEN 1 ELSE 0 END) as neutral, \
               AVG(sentiment_score) as avg_score \
-              FROM decision_signals WHERE status = 1".to_string(),
-             vec![])
+              FROM decision_signals WHERE status = 1"
+                    .to_string(),
+                vec![],
+            )
         } else {
-            ("SELECT COUNT(*) as total, \
+            (
+                "SELECT COUNT(*) as total, \
               SUM(CASE WHEN action IN ('buy','add') THEN 1 ELSE 0 END) as bullish, \
               SUM(CASE WHEN action IN ('sell','reduce','avoid') THEN 1 ELSE 0 END) as bearish, \
               SUM(CASE WHEN action = 'hold' THEN 1 ELSE 0 END) as neutral, \
               AVG(sentiment_score) as avg_score \
-              FROM decision_signals WHERE status = 1 AND stock_code = :code".to_string(),
-             vec![("code".to_string(), Value::from(code.as_str()))])
+              FROM decision_signals WHERE status = 1 AND stock_code = :code"
+                    .to_string(),
+                vec![("code".to_string(), Value::from(code.as_str()))],
+            )
         };
 
         let rows = query_rows(&sql, p, &connector)

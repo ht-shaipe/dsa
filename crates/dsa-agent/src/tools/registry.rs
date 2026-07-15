@@ -75,7 +75,11 @@ impl ToolRegistry {
     }
 
     /// 执行指定工具
-    pub fn execute(&self, name: &str, params: Value) -> Pin<Box<dyn Future<Output = DsaResult<Value>>>> {
+    pub fn execute(
+        &self,
+        name: &str,
+        params: Value,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<Value>>>> {
         let def = match self.tools.get(name) {
             Some(d) => d,
             None => {
@@ -220,7 +224,10 @@ mod tests {
 
         let list = reg.list_tools();
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].get("name").and_then(|v| v.as_str()), Some("t1".to_string()));
+        assert_eq!(
+            list[0].get("name").and_then(|v| v.as_str()),
+            Some("t1".to_string())
+        );
     }
 
     #[test]
@@ -229,15 +236,13 @@ mod tests {
         reg.register(
             "get_chip_concentration",
             "Analyze chip concentration",
-            vec![
-                ToolParameter {
-                    name: "code".into(),
-                    param_type: "string".into(),
-                    description: "Stock code".into(),
-                    required: true,
-                    default_value: None,
-                },
-            ],
+            vec![ToolParameter {
+                name: "code".into(),
+                param_type: "string".into(),
+                description: "Stock code".into(),
+                required: true,
+                default_value: None,
+            }],
             dummy_handler,
         );
 

@@ -18,7 +18,13 @@ fn extract_stock_code(message: &str) -> Option<String> {
     let re = regex::Regex::new(r"(?i)(?:sh|sz)?(\d{6})").ok()?;
     let caps = re.captures(message)?;
     let code = caps.get(1)?.as_str().to_string();
-    if code.starts_with('6') || code.starts_with('9') || code.starts_with('0') || code.starts_with('3') || code.starts_with('8') || code.starts_with('4') {
+    if code.starts_with('6')
+        || code.starts_with('9')
+        || code.starts_with('0')
+        || code.starts_with('3')
+        || code.starts_with('8')
+        || code.starts_with('4')
+    {
         Some(code)
     } else {
         None
@@ -35,19 +41,44 @@ async fn resolve_name_online(keyword: &str) -> Option<(String, String)> {
         .timeout(std::time::Duration::from_secs(5))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build().ok()?;
-    let resp = client.get(&url)
+    let resp = client
+        .get(&url)
         .header("Referer", "https://so.eastmoney.com/")
-        .send().await.ok()?;
-    if !resp.status().is_success() { return None; }
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
     let json: serde_json::Value = resp.json().await.ok()?;
-    let items = json.get("QuotationCodeTable").and_then(|v| v.get("Data")).and_then(|v| v.as_array())?;
+    let items = json
+        .get("QuotationCodeTable")
+        .and_then(|v| v.get("Data"))
+        .and_then(|v| v.as_array())?;
     for item in items {
-        let code = item.get("Code").and_then(|c| c.as_str()).unwrap_or_default();
-        let name = item.get("Name").and_then(|n| n.as_str()).unwrap_or_default();
-        let mkt = item.get("MktNum").and_then(|m| m.as_str()).unwrap_or_default();
-        let pure_code = if code.len() >= 6 { &code[code.len()-6..] } else { code };
+        let code = item
+            .get("Code")
+            .and_then(|c| c.as_str())
+            .unwrap_or_default();
+        let name = item
+            .get("Name")
+            .and_then(|n| n.as_str())
+            .unwrap_or_default();
+        let mkt = item
+            .get("MktNum")
+            .and_then(|m| m.as_str())
+            .unwrap_or_default();
+        let pure_code = if code.len() >= 6 {
+            &code[code.len() - 6..]
+        } else {
+            code
+        };
         if pure_code.starts_with('6') || pure_code.starts_with('0') || pure_code.starts_with('3') {
-            let _full_code = if mkt == "1" { format!("sh{}", pure_code) } else { format!("sz{}", pure_code) };
+            let _full_code = if mkt == "1" {
+                format!("sh{}", pure_code)
+            } else {
+                format!("sz{}", pure_code)
+            };
             return Some((pure_code.to_string(), name.to_string()));
         }
     }
@@ -57,26 +88,72 @@ async fn resolve_name_online(keyword: &str) -> Option<(String, String)> {
 /// 意图解析：判断用户想问什么
 async fn parse_intent(message: &str) -> ChatIntent {
     if let Some(code) = extract_stock_code(message) {
-        return ChatIntent::StockQuery { code, name: String::new() };
+        return ChatIntent::StockQuery {
+            code,
+            name: String::new(),
+        };
     }
 
-    let market_keywords = ["大盘", "指数", "上证", "深证", "创业板", "沪深", "A股", "市场"];
+    let market_keywords = [
+        "大盘",
+        "指数",
+        "上证",
+        "深证",
+        "创业板",
+        "沪深",
+        "A股",
+        "市场",
+    ];
     if market_keywords.iter().any(|k| message.contains(k)) {
         return ChatIntent::MarketOverview;
     }
 
     let sector_keywords = ["板块", "概念", "行业", "题材"];
     if sector_keywords.iter().any(|k| message.contains(k)) {
-        let kw = message.replace(|c: char| "板块概念行业题材的分析一下看看怎么最近请给推荐有哪些".contains(c), "").trim().to_string();
-        return ChatIntent::SectorQuery { keyword: if kw.is_empty() { message.to_string() } else { kw } };
+        let kw = message
+            .replace(
+                |c: char| "板块概念行业题材的分析一下看看怎么最近请给推荐有哪些".contains(c),
+                "",
+            )
+            .trim()
+            .to_string();
+        return ChatIntent::SectorQuery {
+            keyword: if kw.is_empty() {
+                message.to_string()
+            } else {
+                kw
+            },
+        };
     }
 
     let stock_patterns = [
-        "分析", "看看", "怎么样", "走势", "买入", "卖出", "持仓", "关注",
-        "推荐", "估值", "财报", "业绩", "分红", "市盈", "市净",
+        "分析",
+        "看看",
+        "怎么样",
+        "走势",
+        "买入",
+        "卖出",
+        "持仓",
+        "关注",
+        "推荐",
+        "估值",
+        "财报",
+        "业绩",
+        "分红",
+        "市盈",
+        "市净",
     ];
     if stock_patterns.iter().any(|k| message.contains(k)) {
-        let cleaned = message.replace(|c: char| "的分析一下看看怎么样走势买入卖出持仓关注推荐估值财报业绩分红市盈市净请给".contains(c), "").trim().to_string();
+        let cleaned = message
+            .replace(
+                |c: char| {
+                    "的分析一下看看怎么样走势买入卖出持仓关注推荐估值财报业绩分红市盈市净请给"
+                        .contains(c)
+                },
+                "",
+            )
+            .trim()
+            .to_string();
         if !cleaned.is_empty() && cleaned.len() >= 2 {
             if let Some((code, name)) = resolve_name_online(&cleaned).await {
                 return ChatIntent::StockQuery { code, name };
@@ -96,28 +173,60 @@ async fn parse_intent(message: &str) -> ChatIntent {
 // ===== 工具调用 =====
 
 fn symbol_from_code(code: &str) -> String {
-    if code.starts_with('6') || code.starts_with('9') { format!("sh{}", code) } else { format!("sz{}", code) }
+    if code.starts_with('6') || code.starts_with('9') {
+        format!("sh{}", code)
+    } else {
+        format!("sz{}", code)
+    }
 }
 
-async fn fetch_stock_context(code: &str, name: &str, sender: &mut tube_web::SSESender) -> Option<String> {
+async fn fetch_stock_context(
+    code: &str,
+    name: &str,
+    sender: &mut tube_web::SSESender,
+) -> Option<String> {
     let symbol = symbol_from_code(code);
-    let display = if name.is_empty() { code.to_string() } else { format!("{} {}", code, name) };
+    let display = if name.is_empty() {
+        code.to_string()
+    } else {
+        format!("{} {}", code, name)
+    };
     let mut parts: Vec<String> = Vec::new();
 
     let s = serde_json::json!({"type": "data_loading", "content": format!("正在获取 {} 实时行情...", display)});
-    let _ = sender.send_data(&serde_json::to_string(&s).unwrap_or_default()).await;
+    let _ = sender
+        .send_data(&serde_json::to_string(&s).unwrap_or_default())
+        .await;
 
     let quote = match dsa_agent::tools::data_tools::DataTools::get_realtime_quote(&symbol).await {
         Ok(q) => q,
         Err(_) => {
-            let alt = if symbol.starts_with("sh") { format!("sz{}", code) } else { format!("sh{}", code) };
-            dsa_agent::tools::data_tools::DataTools::get_realtime_quote(&alt).await.ok()?
+            let alt = if symbol.starts_with("sh") {
+                format!("sz{}", code)
+            } else {
+                format!("sh{}", code)
+            };
+            dsa_agent::tools::data_tools::DataTools::get_realtime_quote(&alt)
+                .await
+                .ok()?
         }
     };
 
-    let price = quote.get("price").or_else(|| quote.get("current_price")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let change_pct = quote.get("changePercent").or_else(|| quote.get("change_pct")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let turnover = quote.get("turnoverRate").or_else(|| quote.get("turnover_rate")).and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let price = quote
+        .get("price")
+        .or_else(|| quote.get("current_price"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let change_pct = quote
+        .get("changePercent")
+        .or_else(|| quote.get("change_pct"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let turnover = quote
+        .get("turnoverRate")
+        .or_else(|| quote.get("turnover_rate"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     let volume = quote.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let amount = quote.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
     let high = quote.get("high").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -130,62 +239,155 @@ async fn fetch_stock_context(code: &str, name: &str, sender: &mut tube_web::SSES
     ));
 
     let s = serde_json::json!({"type": "data_loading", "content": "正在获取K线和技术指标..."});
-    let _ = sender.send_data(&serde_json::to_string(&s).unwrap_or_default()).await;
+    let _ = sender
+        .send_data(&serde_json::to_string(&s).unwrap_or_default())
+        .await;
 
-    if let Ok(kline_result) = dsa_agent::tools::data_tools::DataTools::get_kline_data(code, "daily").await {
-        if let Some(kline_data) = kline_result.get("data").and_then(|d| tube::Value::as_array(&d.clone())) {
+    if let Ok(kline_result) =
+        dsa_agent::tools::data_tools::DataTools::get_kline_data(code, "daily").await
+    {
+        if let Some(kline_data) = kline_result
+            .get("data")
+            .and_then(|d| tube::Value::as_array(&d.clone()))
+        {
             if !kline_data.is_empty() {
-                let trend = dsa_agent::tools::analysis_tools::AnalysisTools::analyze_trend(&kline_data);
-                let vol_analysis = dsa_agent::tools::analysis_tools::AnalysisTools::analyze_volume(&kline_data);
-                let trend_dir = trend.get("trend").and_then(|t| t.as_str()).unwrap_or_default();
-                let trend_str = trend.get("strength").and_then(|s| s.as_f64()).unwrap_or(0.0);
-                let vol_sig = vol_analysis.get("signal").and_then(|v| v.as_str()).unwrap_or_default();
+                let trend =
+                    dsa_agent::tools::analysis_tools::AnalysisTools::analyze_trend(&kline_data);
+                let vol_analysis =
+                    dsa_agent::tools::analysis_tools::AnalysisTools::analyze_volume(&kline_data);
+                let trend_dir = trend
+                    .get("trend")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or_default();
+                let trend_str = trend
+                    .get("strength")
+                    .and_then(|s| s.as_f64())
+                    .unwrap_or(0.0);
+                let vol_sig = vol_analysis
+                    .get("signal")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 let last_n: Vec<_> = kline_data.iter().rev().take(5).cloned().collect();
-                let kline_summary: Vec<String> = last_n.iter().filter_map(|bar| {
-                    let date = bar.get("日期").or_else(|| bar.get("date")).and_then(|d| d.as_str()).unwrap_or_default();
-                    let close = bar.get("收盘").or_else(|| bar.get("close")).and_then(|c| c.as_f64()).unwrap_or(0.0);
-                    let vol = bar.get("成交量").or_else(|| bar.get("volume")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                    if !date.is_empty() { Some(format!("{}: 收盘{:.2} 量{:.0}", date, close, vol)) } else { None }
-                }).collect();
-                parts.push(format!("【技术分析】\n趋势: {} (强度{:.1}), 量能信号: {}\n近5日K线:\n{}", trend_dir, trend_str, vol_sig, kline_summary.join("\n")));
+                let kline_summary: Vec<String> = last_n
+                    .iter()
+                    .filter_map(|bar| {
+                        let date = bar
+                            .get("日期")
+                            .or_else(|| bar.get("date"))
+                            .and_then(|d| d.as_str())
+                            .unwrap_or_default();
+                        let close = bar
+                            .get("收盘")
+                            .or_else(|| bar.get("close"))
+                            .and_then(|c| c.as_f64())
+                            .unwrap_or(0.0);
+                        let vol = bar
+                            .get("成交量")
+                            .or_else(|| bar.get("volume"))
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                        if !date.is_empty() {
+                            Some(format!("{}: 收盘{:.2} 量{:.0}", date, close, vol))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                parts.push(format!(
+                    "【技术分析】\n趋势: {} (强度{:.1}), 量能信号: {}\n近5日K线:\n{}",
+                    trend_dir,
+                    trend_str,
+                    vol_sig,
+                    kline_summary.join("\n")
+                ));
             }
         }
     }
 
     let s = serde_json::json!({"type": "data_loading", "content": "正在获取最新新闻..."});
-    let _ = sender.send_data(&serde_json::to_string(&s).unwrap_or_default()).await;
+    let _ = sender
+        .send_data(&serde_json::to_string(&s).unwrap_or_default())
+        .await;
 
     let search = dsa_agent::tools::search_tools::SearchTools::new();
-    if let Ok(news_result) = search.search_stock_news(&format!("{} {}", code, name)).await {
-        if let Some(items) = news_result.get("results").and_then(|v| tube::Value::as_array(&v.clone())) {
-            let headlines: Vec<String> = items.iter().take(3).filter_map(|n| {
-                let title = n.get("title").and_then(|t| t.as_str()).unwrap_or_default();
-                if !title.is_empty() { Some(format!("- {}", title)) } else { None }
-            }).collect();
-            if !headlines.is_empty() { parts.push(format!("【最新新闻】\n{}", headlines.join("\n"))); }
+    if let Ok(news_result) = search
+        .search_stock_news(&format!("{} {}", code, name))
+        .await
+    {
+        if let Some(items) = news_result
+            .get("results")
+            .and_then(|v| tube::Value::as_array(&v.clone()))
+        {
+            let headlines: Vec<String> = items
+                .iter()
+                .take(3)
+                .filter_map(|n| {
+                    let title = n.get("title").and_then(|t| t.as_str()).unwrap_or_default();
+                    if !title.is_empty() {
+                        Some(format!("- {}", title))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if !headlines.is_empty() {
+                parts.push(format!("【最新新闻】\n{}", headlines.join("\n")));
+            }
         }
     }
 
-    if parts.is_empty() { None } else { Some(parts.join("\n\n")) }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    }
 }
 
 async fn fetch_market_context(sender: &mut tube_web::SSESender) -> Option<String> {
     let s = serde_json::json!({"type": "data_loading", "content": "正在获取大盘数据..."});
-    let _ = sender.send_data(&serde_json::to_string(&s).unwrap_or_default()).await;
+    let _ = sender
+        .send_data(&serde_json::to_string(&s).unwrap_or_default())
+        .await;
 
-    let overview = dsa_agent::tools::market_tools::MarketTools::get_market_overview().await.ok()?;
+    let overview = dsa_agent::tools::market_tools::MarketTools::get_market_overview()
+        .await
+        .ok()?;
     let mut parts: Vec<String> = Vec::new();
 
-    for (key, label) in [("shanghai", "上证指数"), ("shenzhen", "深证成指"), ("chinext", "创业板指")] {
+    for (key, label) in [
+        ("shanghai", "上证指数"),
+        ("shenzhen", "深证成指"),
+        ("chinext", "创业板指"),
+    ] {
         if let Some(idx) = overview.get(key) {
-            let price = idx.get("close").or_else(|| idx.get("price")).and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let change = idx.get("changePercent").or_else(|| idx.get("change_pct")).and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let price = idx
+                .get("close")
+                .or_else(|| idx.get("price"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let change = idx
+                .get("changePercent")
+                .or_else(|| idx.get("change_pct"))
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
             let amount = idx.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            if price > 0.0 { parts.push(format!("{}: {:.2} ({:.2}%) 成交额: {:.0}亿", label, price, change, amount / 1e8)); }
+            if price > 0.0 {
+                parts.push(format!(
+                    "{}: {:.2} ({:.2}%) 成交额: {:.0}亿",
+                    label,
+                    price,
+                    change,
+                    amount / 1e8
+                ));
+            }
         }
     }
 
-    if parts.is_empty() { None } else { Some(format!("【大盘指数】\n{}", parts.join("\n"))) }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(format!("【大盘指数】\n{}", parts.join("\n")))
+    }
 }
 
 // ===== 主入口 =====
@@ -194,9 +396,24 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
     let param = tube_web::parse_request(req.clone(), payload).await;
     let (mut sender, receiver) = sse_channel(10);
 
-    let message = param.value.get("message").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-    let session_id = param.value.get("sessionId").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-    let skill_name = param.value.get("skill").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let message = param
+        .value
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let session_id = param
+        .value
+        .get("sessionId")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let skill_name = param
+        .value
+        .get("skill")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
 
     actix_rt::spawn(async move {
         let conf = dsa_core::get_global_config();
@@ -204,7 +421,9 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
 
         if api_key.is_empty() {
             let msg = serde_json::json!({"type": "error", "content": "API Key未配置"});
-            let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+            let _ = sender
+                .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+                .await;
             let _ = sender.done("{}").await;
             return;
         }
@@ -213,7 +432,9 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
             Ok(p) => p,
             Err(_) => {
                 let msg = serde_json::json!({"type": "error", "content": "Provider错误"});
-                let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+                let _ = sender
+                    .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+                    .await;
                 let _ = sender.done("{}").await;
                 return;
             }
@@ -221,7 +442,9 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
         let llm = ai_llm_kit::LlmFactory::create(llm_provider, &api_key);
 
         let msg = serde_json::json!({"type": "thinking"});
-        let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+        let _ = sender
+            .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+            .await;
 
         // ===== 意图识别 + 工具调用 =====
         let intent = parse_intent(&message).await;
@@ -268,7 +491,10 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
         };
 
         let user_content = if let Some(ctx) = data_context {
-            format!("{}\n\n---\n以下是实时市场数据，请基于这些数据回答：\n{}", message, ctx)
+            format!(
+                "{}\n\n---\n以下是实时市场数据，请基于这些数据回答：\n{}",
+                message, ctx
+            )
         } else {
             message.clone()
         };
@@ -285,30 +511,71 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
         match llm.chat(&body).await {
             Ok(resp) => {
                 let elapsed = start.elapsed().as_millis() as i64;
-                let content = resp.get("choices").and_then(|c| tube::Value::as_array(&c.clone()))
-                    .and_then(|a| a.first().cloned()).and_then(|f| f.get("message").cloned())
-                    .and_then(|m| m.get("content").and_then(|c| c.as_str())).unwrap_or_default();
+                let content = resp
+                    .get("choices")
+                    .and_then(|c| tube::Value::as_array(&c.clone()))
+                    .and_then(|a| a.first().cloned())
+                    .and_then(|f| f.get("message").cloned())
+                    .and_then(|m| m.get("content").and_then(|c| c.as_str()))
+                    .unwrap_or_default();
 
                 let usage_default = value!({});
                 let usage = resp.get("usage").unwrap_or(&usage_default);
-                let pt = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-                let ct = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+                let pt = usage
+                    .get("prompt_tokens")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as i32;
+                let ct = usage
+                    .get("completion_tokens")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as i32;
 
                 dsa_core::utils::record_llm_usage(
-                    &conf.llm.provider, &conf.llm.model,
-                    &format!("chat_stream{}", if skill_name.is_empty() { "".to_string() } else { format!("/{}", skill_name) }),
-                    pt, ct, elapsed, &detected_code,
+                    &conf.llm.provider,
+                    &conf.llm.model,
+                    &format!(
+                        "chat_stream{}",
+                        if skill_name.is_empty() {
+                            "".to_string()
+                        } else {
+                            format!("/{}", skill_name)
+                        }
+                    ),
+                    pt,
+                    ct,
+                    elapsed,
+                    &detected_code,
                 );
-                dsa_core::utils::record_conversation_message(&session_id, "user", &message, &conf.llm.provider, &conf.llm.model, 0, 0);
-                dsa_core::utils::record_conversation_message(&session_id, "assistant", &content, &conf.llm.provider, &conf.llm.model, pt, ct);
+                dsa_core::utils::record_conversation_message(
+                    &session_id,
+                    "user",
+                    &message,
+                    &conf.llm.provider,
+                    &conf.llm.model,
+                    0,
+                    0,
+                );
+                dsa_core::utils::record_conversation_message(
+                    &session_id,
+                    "assistant",
+                    &content,
+                    &conf.llm.provider,
+                    &conf.llm.model,
+                    pt,
+                    ct,
+                );
 
                 let json_content = serde_json::to_string(&content).unwrap_or_default();
                 let out = serde_json::json!({"type": "message", "content": serde_json::from_str::<serde_json::Value>(&json_content).unwrap_or_default()});
-                let _ = sender.send_data(&serde_json::to_string(&out).unwrap_or_default()).await;
+                let _ = sender
+                    .send_data(&serde_json::to_string(&out).unwrap_or_default())
+                    .await;
             }
             Err(e) => {
                 let out = serde_json::json!({"type": "error", "content": format!("{}", e)});
-                let _ = sender.send_data(&serde_json::to_string(&out).unwrap_or_default()).await;
+                let _ = sender
+                    .send_data(&serde_json::to_string(&out).unwrap_or_default())
+                    .await;
             }
         }
         let _ = sender.done("{}").await;

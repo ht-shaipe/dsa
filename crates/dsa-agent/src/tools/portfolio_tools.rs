@@ -1,7 +1,7 @@
 //! 组合工具 - 组合快照与资金流向
 
-use dsa_core::{DsaError, DsaResult, utils};
 use deck_mysql::{DataRow, Helper};
+use dsa_core::{utils, DsaError, DsaResult};
 use tube::Value;
 
 use super::registry::{ToolParameter, ToolRegistry};
@@ -9,7 +9,9 @@ use super::registry::{ToolParameter, ToolRegistry};
 pub struct PortfolioTools;
 
 impl PortfolioTools {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// 获取组合快照
     pub fn get_portfolio_snapshot(_code: &str) -> Value {
@@ -32,19 +34,27 @@ impl PortfolioTools {
         match Helper::query_rows(sql, vec![], &connector) {
             Ok(rows) => {
                 let positions: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
-                let total_mv: f64 = positions.iter()
+                let total_mv: f64 = positions
+                    .iter()
                     .filter_map(|p| p.get("market_value").and_then(|v| v.as_f64()))
                     .sum();
-                let initial_opt: Option<f64> = rows.first()
+                let initial_opt: Option<f64> = rows
+                    .first()
                     .map(|r| r.get_value(8).as_f64().unwrap_or(0.0))
                     .filter(|v| *v > 0.0);
                 match initial_opt {
                     Some(initial) => {
-                        let cash = initial - positions.iter()
-                            .filter_map(|p| p.get("avg_cost").and_then(|v| v.as_f64()))
-                            .zip(positions.iter().filter_map(|p| p.get("quantity").and_then(|v| v.as_f64())))
-                            .map(|(cost, qty)| cost * qty)
-                            .sum::<f64>();
+                        let cash = initial
+                            - positions
+                                .iter()
+                                .filter_map(|p| p.get("avg_cost").and_then(|v| v.as_f64()))
+                                .zip(
+                                    positions
+                                        .iter()
+                                        .filter_map(|p| p.get("quantity").and_then(|v| v.as_f64())),
+                                )
+                                .map(|(cost, qty)| cost * qty)
+                                .sum::<f64>();
                         value!({
                             "totalAssets": total_mv + cash.max(0.0),
                             "cash": cash.max(0.0),
@@ -56,12 +66,29 @@ impl PortfolioTools {
                     }
                     None => {
                         let mut m = tube::Map::new();
-                        m.insert("totalAssets".to_string(), if total_mv > 0.0 { Value::from(total_mv) } else { Value::Null });
+                        m.insert(
+                            "totalAssets".to_string(),
+                            if total_mv > 0.0 {
+                                Value::from(total_mv)
+                            } else {
+                                Value::Null
+                            },
+                        );
                         m.insert("marketValue".to_string(), Value::from(total_mv));
-                        m.insert("positionCount".to_string(), Value::from(positions.len() as i64));
+                        m.insert(
+                            "positionCount".to_string(),
+                            Value::from(positions.len() as i64),
+                        );
                         m.insert("positions".to_string(), Value::Array(positions));
                         m.insert("dataAvailable".to_string(), Value::from(total_mv > 0.0));
-                        m.insert("message".to_string(), Value::from(if total_mv <= 0.0 { "无持仓数据" } else { "无账户初始资金数据，仅显示持仓市值" }));
+                        m.insert(
+                            "message".to_string(),
+                            Value::from(if total_mv <= 0.0 {
+                                "无持仓数据"
+                            } else {
+                                "无账户初始资金数据，仅显示持仓市值"
+                            }),
+                        );
                         Value::Object(m)
                     }
                 }
@@ -79,7 +106,8 @@ impl PortfolioTools {
 
     /// 获取资金流向 (capital flow from eastmoney)
     pub async fn get_capital_flow(code: &str) -> DsaResult<Value> {
-        let pure_code = code.trim_start_matches("sh")
+        let pure_code = code
+            .trim_start_matches("sh")
             .trim_start_matches("sz")
             .trim_start_matches("bj")
             .trim_start_matches("SH")
@@ -92,7 +120,8 @@ impl PortfolioTools {
         match qq.get_capital_flow(&symbol).await {
             Ok(data) => {
                 let parse_f64 = |key: &str| -> f64 {
-                    data.get(key).and_then(|v| v.as_str())
+                    data.get(key)
+                        .and_then(|v| v.as_str())
                         .and_then(|s| s.parse::<f64>().ok())
                         .unwrap_or(0.0)
                 };

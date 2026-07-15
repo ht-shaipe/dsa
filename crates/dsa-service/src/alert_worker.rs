@@ -10,7 +10,9 @@ pub struct AlertWorker {
 
 impl AlertWorker {
     pub fn new(param: &RequestParameter) -> Self {
-        AlertWorker { request: param.clone() }
+        AlertWorker {
+            request: param.clone(),
+        }
     }
 
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
@@ -19,11 +21,16 @@ impl AlertWorker {
             "run_single" => self.run_single().await,
             "indicators" => self.indicators().await,
             "market_light" => self.market_light().await,
-            _ => Err(tube::Error::from(format!("alert_worker不支持方法: {}", method))),
+            _ => Err(tube::Error::from(format!(
+                "alert_worker不支持方法: {}",
+                method
+            ))),
         }
     }
 
-    fn params(&self) -> &Value { &self.request.value }
+    fn params(&self) -> &Value {
+        &self.request.value
+    }
 
     async fn run(&self) -> Result<Value> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
@@ -226,10 +233,26 @@ impl AlertWorker {
         let closes: Vec<f64> = hist_rows.iter().map(|r| row_get_f64(r, "close")).collect();
         let volumes: Vec<f64> = hist_rows.iter().map(|r| row_get_f64(r, "volume")).collect();
 
-        let ma5 = if closes.len() >= 5 { closes[..5].iter().sum::<f64>() / 5.0 } else { 0.0 };
-        let ma10 = if closes.len() >= 10 { closes[..10].iter().sum::<f64>() / 10.0 } else { 0.0 };
-        let ma20 = if closes.len() >= 20 { closes[..20].iter().sum::<f64>() / 20.0 } else { 0.0 };
-        let ma60 = if closes.len() >= 60 { closes[..60].iter().sum::<f64>() / 60.0 } else { 0.0 };
+        let ma5 = if closes.len() >= 5 {
+            closes[..5].iter().sum::<f64>() / 5.0
+        } else {
+            0.0
+        };
+        let ma10 = if closes.len() >= 10 {
+            closes[..10].iter().sum::<f64>() / 10.0
+        } else {
+            0.0
+        };
+        let ma20 = if closes.len() >= 20 {
+            closes[..20].iter().sum::<f64>() / 20.0
+        } else {
+            0.0
+        };
+        let ma60 = if closes.len() >= 60 {
+            closes[..60].iter().sum::<f64>() / 60.0
+        } else {
+            0.0
+        };
 
         let ma_position = if current_price > ma5 && current_price > ma20 {
             "above"
@@ -241,7 +264,11 @@ impl AlertWorker {
 
         let (bb_upper, bb_lower, bb_status) = if closes.len() >= 20 {
             let mean = ma20;
-            let variance: f64 = closes[..20].iter().map(|&c| (c - mean).powi(2)).sum::<f64>() / 20.0;
+            let variance: f64 = closes[..20]
+                .iter()
+                .map(|&c| (c - mean).powi(2))
+                .sum::<f64>()
+                / 20.0;
             let std_dev = variance.sqrt();
             let upper = mean + 2.0 * std_dev;
             let lower = mean - 2.0 * std_dev;
@@ -262,11 +289,19 @@ impl AlertWorker {
             let mut losses = 0.0_f64;
             for i in 0..14.min(closes.len() - 1) {
                 let diff = closes[i] - closes[i + 1];
-                if diff > 0.0 { gains += diff; } else { losses += diff.abs(); }
+                if diff > 0.0 {
+                    gains += diff;
+                } else {
+                    losses += diff.abs();
+                }
             }
             let avg_gain = gains / 14.0;
             let avg_loss = losses / 14.0;
-            if avg_loss == 0.0 { 100.0 } else { 100.0 - (100.0 / (1.0 + avg_gain / avg_loss)) }
+            if avg_loss == 0.0 {
+                100.0
+            } else {
+                100.0 - (100.0 / (1.0 + avg_gain / avg_loss))
+            }
         } else {
             50.0
         };
@@ -277,7 +312,11 @@ impl AlertWorker {
             let dif = ema12 - ema26;
             let dea = dif * 2.0 / 10.0;
             let histogram = (dif - dea) * 2.0;
-            let signal = if histogram > 0.0 { "bullish" } else { "bearish" };
+            let signal = if histogram > 0.0 {
+                "bullish"
+            } else {
+                "bearish"
+            };
             (dif, dea, signal)
         } else {
             (0.0, 0.0, "insufficient_data")
@@ -288,7 +327,11 @@ impl AlertWorker {
         } else {
             1.0
         };
-        let volume_ratio = if avg_volume_5 > 0.0 { current_volume / avg_volume_5 } else { 1.0 };
+        let volume_ratio = if avg_volume_5 > 0.0 {
+            current_volume / avg_volume_5
+        } else {
+            1.0
+        };
 
         Ok(value!({
             "code": code,
@@ -321,18 +364,27 @@ impl AlertWorker {
         let sz = real.get_price("sz399001").await.ok();
         let cy = real.get_price("sz399006").await.ok();
 
-        let sh_change = sh.as_ref()
+        let sh_change = sh
+            .as_ref()
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
-        let sz_change = sz.as_ref()
+        let sz_change = sz
+            .as_ref()
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
-        let cy_change = cy.as_ref()
+        let cy_change = cy
+            .as_ref()
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
 
-        let up_count = [sh_change, sz_change, cy_change].iter().filter(|&&c| c > 0.0).count();
-        let down_count = [sh_change, sz_change, cy_change].iter().filter(|&&c| c < 0.0).count();
+        let up_count = [sh_change, sz_change, cy_change]
+            .iter()
+            .filter(|&&c| c > 0.0)
+            .count();
+        let down_count = [sh_change, sz_change, cy_change]
+            .iter()
+            .filter(|&&c| c < 0.0)
+            .count();
 
         let light = if up_count == 3 {
             "green"
@@ -369,26 +421,63 @@ impl AlertWorker {
         change_pct: f64,
         volume: f64,
     ) -> bool {
-        let price_above = condition.get("priceAbove").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let price_below = condition.get("priceBelow").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let change_above = condition.get("changeAbove").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let change_below = condition.get("changeBelow").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let volume_above = condition.get("volumeAbove").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let price_above = condition
+            .get("priceAbove")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let price_below = condition
+            .get("priceBelow")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let change_above = condition
+            .get("changeAbove")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let change_below = condition
+            .get("changeBelow")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let volume_above = condition
+            .get("volumeAbove")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
 
-        if price_above > 0.0 && current_price >= price_above { return true; }
-        if price_below > 0.0 && current_price <= price_below { return true; }
-        if change_above > 0.0 && change_pct >= change_above { return true; }
-        if change_below < 0.0 && change_pct <= change_below { return true; }
-        if volume_above > 0.0 && volume >= volume_above { return true; }
+        if price_above > 0.0 && current_price >= price_above {
+            return true;
+        }
+        if price_below > 0.0 && current_price <= price_below {
+            return true;
+        }
+        if change_above > 0.0 && change_pct >= change_above {
+            return true;
+        }
+        if change_below < 0.0 && change_pct <= change_below {
+            return true;
+        }
+        if volume_above > 0.0 && volume >= volume_above {
+            return true;
+        }
         false
     }
 
     fn describe_trigger(&self, condition: &Value, current_price: f64, change_pct: f64) -> String {
         let mut reasons = Vec::new();
-        let price_above = condition.get("priceAbove").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let price_below = condition.get("priceBelow").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let change_above = condition.get("changeAbove").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let change_below = condition.get("changeBelow").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let price_above = condition
+            .get("priceAbove")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let price_below = condition
+            .get("priceBelow")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let change_above = condition
+            .get("changeAbove")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let change_below = condition
+            .get("changeBelow")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
 
         if price_above > 0.0 && current_price >= price_above {
             reasons.push(format!("price {:.2}>={:.2}", current_price, price_above));
@@ -406,7 +495,9 @@ impl AlertWorker {
     }
 
     fn calc_ema(data: &[f64], period: usize) -> f64 {
-        if data.len() < period { return 0.0; }
+        if data.len() < period {
+            return 0.0;
+        }
         let k = 2.0 / (period as f64 + 1.0);
         let mut ema = data[..period].iter().sum::<f64>() / period as f64;
         for &val in &data[period..] {

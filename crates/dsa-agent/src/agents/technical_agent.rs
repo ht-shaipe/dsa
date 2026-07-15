@@ -17,18 +17,26 @@ pub struct TechnicalAgent {
 
 impl TechnicalAgent {
     pub fn new(llm: Box<dyn LlmService>, model: &str) -> Self {
-        Self { llm, model: model.to_string() }
+        Self {
+            llm,
+            model: model.to_string(),
+        }
     }
 }
 
 #[async_trait(?Send)]
 impl BaseAgent for TechnicalAgent {
-    fn name(&self) -> &str { "technical" }
-    fn role(&self) -> &str { "技术面分析专家" }
+    fn name(&self) -> &str {
+        "technical"
+    }
+    fn role(&self) -> &str {
+        "技术面分析专家"
+    }
 
     async fn process(&self, input: &Value) -> DsaResult<Value> {
         // 从输入获取代码
-        let code = input.get("code")
+        let code = input
+            .get("code")
             .and_then(|c| c.as_str())
             .unwrap_or_default();
 
@@ -37,7 +45,8 @@ impl BaseAgent for TechnicalAgent {
         }
 
         // 获取已有的K线数据(如果输入中有)
-        let kline_data = input.get("klineData")
+        let kline_data = input
+            .get("klineData")
             .and_then(|k| Value::as_array(k))
             .unwrap_or_default();
 
@@ -46,16 +55,20 @@ impl BaseAgent for TechnicalAgent {
         let volume_analysis = AnalysisTools::analyze_volume(&kline_data);
 
         // 提取趋势和量能信号用于prompt
-        let trend_str = trend_analysis.get("trend")
+        let trend_str = trend_analysis
+            .get("trend")
             .and_then(|t| t.as_str())
             .unwrap_or_default();
-        let vol_signal = volume_analysis.get("signal")
+        let vol_signal = volume_analysis
+            .get("signal")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
-        let ma5 = trend_analysis.get("ma5")
+        let ma5 = trend_analysis
+            .get("ma5")
             .and_then(|m| m.as_f64())
             .unwrap_or(0.0);
-        let ma20 = trend_analysis.get("ma20")
+        let ma20 = trend_analysis
+            .get("ma20")
             .and_then(|m| m.as_f64())
             .unwrap_or(0.0);
 
@@ -99,16 +112,25 @@ impl BaseAgent for TechnicalAgent {
         });
 
         let start = std::time::Instant::now();
-        let response = self.llm.chat(&body).await
+        let response = self
+            .llm
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("技术分析Agent调用LLM失败: {}", e)))?;
         let elapsed = start.elapsed().as_millis() as i64;
 
         let conf = dsa_core::get_global_config();
         dsa_core::utils::record_llm_usage_from_response(
-            &response, &conf.llm.provider, &self.model, "agent_technical", elapsed, &code,
+            &response,
+            &conf.llm.provider,
+            &self.model,
+            "agent_technical",
+            elapsed,
+            &code,
         );
 
-        let content = response.get("choices")
+        let content = response
+            .get("choices")
             .and_then(|c| Value::as_array(c))
             .and_then(|a| a.first().cloned())
             .and_then(|f| f.get("message").cloned())

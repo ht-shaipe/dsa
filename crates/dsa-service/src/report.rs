@@ -1,7 +1,7 @@
 use dsa_core::db::query_rows;
+use dsa_core::{get_global_config, utils};
 use tube::{Result, Value};
 use tube_web::RequestParameter;
-use dsa_core::{utils, get_global_config};
 
 pub struct Report {
     request: RequestParameter,
@@ -21,10 +21,7 @@ impl Report {
             "render_wechat" => self.render_wechat().await,
             "history_compare" => self.history_compare().await,
             "labels" => self.labels(),
-            _ => Err(tube::Error::from(format!(
-                "report不支持方法: {}",
-                method
-            ))),
+            _ => Err(tube::Error::from(format!("report不支持方法: {}", method))),
         }
     }
 
@@ -41,9 +38,7 @@ impl Report {
             .unwrap_or(0.0) as i64;
 
         if code.is_empty() && analysis_id <= 0 {
-            return Err(tube::Error::from(
-                "请提供code或analysis_id".to_string(),
-            ));
+            return Err(tube::Error::from("请提供code或analysis_id".to_string()));
         }
 
         let row = self.load_analysis(code.as_str(), analysis_id).await?;
@@ -80,17 +75,33 @@ impl Report {
             stock_name,
             lbl_decision_label,
             lbl_overview,
-            if market_context.is_empty() { "-" } else { &market_context },
+            if market_context.is_empty() {
+                "-"
+            } else {
+                &market_context
+            },
             lbl_trend,
-            if analysis_summary.is_empty() { "-" } else { &analysis_summary },
+            if analysis_summary.is_empty() {
+                "-"
+            } else {
+                &analysis_summary
+            },
             lbl_decision,
             lbl_decision_label,
             lbl_confidence,
             lbl_confidence_label,
             lbl_risk,
-            if risk_warning.is_empty() { "-" } else { &risk_warning },
+            if risk_warning.is_empty() {
+                "-"
+            } else {
+                &risk_warning
+            },
             lbl_indicators,
-            if report_json.is_empty() { "-" } else { &report_json },
+            if report_json.is_empty() {
+                "-"
+            } else {
+                &report_json
+            },
         );
 
         let html_preview = markdown_to_html_preview(&markdown);
@@ -114,9 +125,7 @@ impl Report {
             .unwrap_or(0.0) as i64;
 
         if code.is_empty() && analysis_id <= 0 {
-            return Err(tube::Error::from(
-                "请提供code或analysis_id".to_string(),
-            ));
+            return Err(tube::Error::from("请提供code或analysis_id".to_string()));
         }
 
         let row = self.load_analysis(code.as_str(), analysis_id).await?;
@@ -147,13 +156,21 @@ impl Report {
             stock_name,
             lbl_decision_label,
             lbl_overview,
-            if market_context.is_empty() { "-" } else { &market_context },
+            if market_context.is_empty() {
+                "-"
+            } else {
+                &market_context
+            },
             lbl_decision,
             lbl_decision_label,
             lbl_confidence,
             lbl_confidence_label,
             lbl_risk,
-            if risk_warning.is_empty() { "-" } else { &risk_warning },
+            if risk_warning.is_empty() {
+                "-"
+            } else {
+                &risk_warning
+            },
         );
 
         let html_preview = markdown_to_html_preview(&markdown);
@@ -177,9 +194,7 @@ impl Report {
             .unwrap_or(0.0) as i64;
 
         if code.is_empty() && analysis_id <= 0 {
-            return Err(tube::Error::from(
-                "请提供code或analysis_id".to_string(),
-            ));
+            return Err(tube::Error::from("请提供code或analysis_id".to_string()));
         }
 
         let row = self.load_analysis(code.as_str(), analysis_id).await?;
@@ -217,13 +232,21 @@ impl Report {
             decision_emoji,
             lbl_decision_label,
             lbl_overview,
-            if market_context.is_empty() { "-" } else { &market_context },
+            if market_context.is_empty() {
+                "-"
+            } else {
+                &market_context
+            },
             lbl_decision,
             lbl_decision_label,
             lbl_confidence,
             lbl_confidence_label,
             lbl_risk,
-            if risk_warning.is_empty() { "-" } else { &risk_warning },
+            if risk_warning.is_empty() {
+                "-"
+            } else {
+                &risk_warning
+            },
         );
 
         Ok(value!({
@@ -314,11 +337,7 @@ impl Report {
         Ok(get_labels(&lang))
     }
 
-    async fn load_analysis(
-        &self,
-        code: &str,
-        analysis_id: i64,
-    ) -> Result<Value> {
+    async fn load_analysis(&self, code: &str, analysis_id: i64) -> Result<Value> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let (sql, p) = if analysis_id > 0 {
@@ -354,7 +373,10 @@ impl Report {
 }
 
 fn str_val(v: &Value, key: &str) -> String {
-    v.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string()
+    v.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn translate_decision(decision: &str, labels: &Value) -> String {
@@ -397,8 +419,15 @@ fn build_compare_summary(comparisons: &[Value], labels: &Value) -> String {
         let confidence = str_val(c, "confidenceLabel");
         let date_ref = if date.is_empty() { "-" } else { &date };
         let decision_ref = if decision.is_empty() { "-" } else { &decision };
-        let confidence_ref = if confidence.is_empty() { "-" } else { &confidence };
-        lines.push(format!("| {} | {} | {} |", date_ref, decision_ref, confidence_ref));
+        let confidence_ref = if confidence.is_empty() {
+            "-"
+        } else {
+            &confidence
+        };
+        lines.push(format!(
+            "| {} | {} | {} |",
+            date_ref, decision_ref, confidence_ref
+        ));
     }
 
     lines.join("\n")
@@ -412,7 +441,9 @@ fn markdown_to_html_preview(md: &str) -> String {
         } else if line.starts_with("## ") {
             html.push_str(&format!("<h2>{}</h2>\n", &line[3..]));
         } else if line.starts_with("**") && line.contains("**") {
-            let replaced = line.replace("**", "<strong>").replacen("<strong>", "</strong>", 1);
+            let replaced = line
+                .replace("**", "<strong>")
+                .replacen("<strong>", "</strong>", 1);
             html.push_str(&format!("<p>{}</p>\n", replaced));
         } else if !line.is_empty() {
             html.push_str(&format!("<p>{}</p>\n", line));

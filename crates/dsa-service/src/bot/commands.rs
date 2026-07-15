@@ -12,8 +12,8 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use dsa_core::{DsaError, DsaResult, utils};
 use dsa_core::db::{query_rows, row_get_string};
+use dsa_core::{utils, DsaError, DsaResult};
 use qta_crawler::Real;
 use tube::Value;
 
@@ -23,7 +23,11 @@ use super::dispatcher::BotContext;
 pub trait BotCommand {
     fn name(&self) -> &str;
     fn description(&self) -> &str;
-    fn execute(&self, args: &str, context: &BotContext) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>>;
+    fn execute(
+        &self,
+        args: &str,
+        context: &BotContext,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>>;
 }
 
 // ============================================================
@@ -32,10 +36,18 @@ pub trait BotCommand {
 pub struct HelpCommand;
 
 impl BotCommand for HelpCommand {
-    fn name(&self) -> &str { "help" }
-    fn description(&self) -> &str { "显示所有可用命令" }
+    fn name(&self) -> &str {
+        "help"
+    }
+    fn description(&self) -> &str {
+        "显示所有可用命令"
+    }
 
-    fn execute(&self, _args: &str, _context: &BotContext) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
+    fn execute(
+        &self,
+        _args: &str,
+        _context: &BotContext,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
         Box::pin(async move {
             let help_text = [
                 ("📖 可用命令列表", ""),
@@ -73,10 +85,18 @@ impl BotCommand for HelpCommand {
 pub struct StatusCommand;
 
 impl BotCommand for StatusCommand {
-    fn name(&self) -> &str { "status" }
-    fn description(&self) -> &str { "查看系统运行状态" }
+    fn name(&self) -> &str {
+        "status"
+    }
+    fn description(&self) -> &str {
+        "查看系统运行状态"
+    }
 
-    fn execute(&self, _args: &str, _context: &BotContext) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
+    fn execute(
+        &self,
+        _args: &str,
+        _context: &BotContext,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
         Box::pin(async move {
             let mut parts: Vec<String> = vec!["🔍 系统状态检查".to_string()];
 
@@ -118,10 +138,18 @@ impl BotCommand for StatusCommand {
 pub struct AnalyzeCommand;
 
 impl BotCommand for AnalyzeCommand {
-    fn name(&self) -> &str { "analyze" }
-    fn description(&self) -> &str { "快速股票分析" }
+    fn name(&self) -> &str {
+        "analyze"
+    }
+    fn description(&self) -> &str {
+        "快速股票分析"
+    }
 
-    fn execute(&self, args: &str, _context: &BotContext) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
+    fn execute(
+        &self,
+        args: &str,
+        _context: &BotContext,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
         let code = args.trim().to_string();
         Box::pin(async move {
             if code.is_empty() {
@@ -153,17 +181,41 @@ impl BotCommand for AnalyzeCommand {
 
             if let Some(row) = rows.first() {
                 let name = row_get_string(row, "stockName");
-                let name = if name.is_empty() { code_clean.clone() } else { name };
+                let name = if name.is_empty() {
+                    code_clean.clone()
+                } else {
+                    name
+                };
                 let score = row_get_string(row, "sentimentScore");
-                let score = if score.is_empty() { "N/A".to_string() } else { score };
+                let score = if score.is_empty() {
+                    "N/A".to_string()
+                } else {
+                    score
+                };
                 let decision = row_get_string(row, "decisionType");
-                let decision = if decision.is_empty() { "N/A".to_string() } else { decision };
+                let decision = if decision.is_empty() {
+                    "N/A".to_string()
+                } else {
+                    decision
+                };
                 let advice = row_get_string(row, "operationAdvice");
-                let advice = if advice.is_empty() { "N/A".to_string() } else { advice };
+                let advice = if advice.is_empty() {
+                    "N/A".to_string()
+                } else {
+                    advice
+                };
                 let summary = row_get_string(row, "analysisSummary");
-                let summary = if summary.is_empty() { "无摘要".to_string() } else { summary };
+                let summary = if summary.is_empty() {
+                    "无摘要".to_string()
+                } else {
+                    summary
+                };
                 let time = row_get_string(row, "createTime");
-                let time = if time.is_empty() { "未知".to_string() } else { time };
+                let time = if time.is_empty() {
+                    "未知".to_string()
+                } else {
+                    time
+                };
 
                 // 截断摘要过长内容
                 let summary_truncated = if summary.len() > 200 {
@@ -185,10 +237,23 @@ impl BotCommand for AnalyzeCommand {
                 // 无历史记录, 尝试获取实时行情
                 match Real::new().get_price(&full_code).await {
                     Ok(quote) => {
-                        let name = quote.get("name").and_then(|v| v.as_str()).unwrap_or_default();
-                        let name = if name.is_empty() { code_clean.clone() } else { name.to_string() };
-                        let price = quote.get("price").and_then(|v| v.as_str()).unwrap_or_default();
-                        let change = quote.get("changePercent").and_then(|v| v.as_str()).unwrap_or_default();
+                        let name = quote
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let name = if name.is_empty() {
+                            code_clean.clone()
+                        } else {
+                            name.to_string()
+                        };
+                        let price = quote
+                            .get("price")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let change = quote
+                            .get("changePercent")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
                         Ok(format!(
                             "📊 {} ({}) 实时行情\n\n\
                              当前价: {}\n\
@@ -213,10 +278,18 @@ impl BotCommand for AnalyzeCommand {
 pub struct MarketCommand;
 
 impl BotCommand for MarketCommand {
-    fn name(&self) -> &str { "market" }
-    fn description(&self) -> &str { "大盘指数概览" }
+    fn name(&self) -> &str {
+        "market"
+    }
+    fn description(&self) -> &str {
+        "大盘指数概览"
+    }
 
-    fn execute(&self, _args: &str, _context: &BotContext) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
+    fn execute(
+        &self,
+        _args: &str,
+        _context: &BotContext,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
         Box::pin(async move {
             let real = Real::new();
 
@@ -231,11 +304,28 @@ impl BotCommand for MarketCommand {
             for (label, code) in &indices {
                 match real.get_price(code).await {
                     Ok(data) => {
-                        let name = data.get("name").and_then(|v| v.as_str()).unwrap_or_default();
-                        let name = if name.is_empty() { label.to_string() } else { name.to_string() };
-                        let price = data.get("price").and_then(|v| v.as_str()).unwrap_or_default();
-                        let change = data.get("changePercent").and_then(|v| v.as_str()).unwrap_or_default();
-                        let change_dir = if change.starts_with('-') { "📉" } else { "📈" };
+                        let name = data
+                            .get("name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let name = if name.is_empty() {
+                            label.to_string()
+                        } else {
+                            name.to_string()
+                        };
+                        let price = data
+                            .get("price")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let change = data
+                            .get("changePercent")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
+                        let change_dir = if change.starts_with('-') {
+                            "📉"
+                        } else {
+                            "📈"
+                        };
                         parts.push(format!("  {} {}: {}  {}%", change_dir, name, price, change));
                     }
                     Err(e) => {
@@ -256,10 +346,18 @@ impl BotCommand for MarketCommand {
 pub struct AskCommand;
 
 impl BotCommand for AskCommand {
-    fn name(&self) -> &str { "ask" }
-    fn description(&self) -> &str { "Agent 分析提问" }
+    fn name(&self) -> &str {
+        "ask"
+    }
+    fn description(&self) -> &str {
+        "Agent 分析提问"
+    }
 
-    fn execute(&self, args: &str, _context: &BotContext) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
+    fn execute(
+        &self,
+        args: &str,
+        _context: &BotContext,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
         let question = args.trim().to_string();
         Box::pin(async move {
             if question.is_empty() {
@@ -285,10 +383,18 @@ impl BotCommand for AskCommand {
 pub struct ChatCommand;
 
 impl BotCommand for ChatCommand {
-    fn name(&self) -> &str { "chat" }
-    fn description(&self) -> &str { "自由对话" }
+    fn name(&self) -> &str {
+        "chat"
+    }
+    fn description(&self) -> &str {
+        "自由对话"
+    }
 
-    fn execute(&self, args: &str, _context: &BotContext) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
+    fn execute(
+        &self,
+        args: &str,
+        _context: &BotContext,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
         let message = args.trim().to_string();
         Box::pin(async move {
             if message.is_empty() {
@@ -313,10 +419,18 @@ impl BotCommand for ChatCommand {
 pub struct HistoryCommand;
 
 impl BotCommand for HistoryCommand {
-    fn name(&self) -> &str { "history" }
-    fn description(&self) -> &str { "查看最近分析记录" }
+    fn name(&self) -> &str {
+        "history"
+    }
+    fn description(&self) -> &str {
+        "查看最近分析记录"
+    }
 
-    fn execute(&self, args: &str, _context: &BotContext) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
+    fn execute(
+        &self,
+        args: &str,
+        _context: &BotContext,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<String>> + '_>> {
         let code = args.trim().to_string();
         Box::pin(async move {
             if code.is_empty() {
@@ -349,21 +463,48 @@ impl BotCommand for HistoryCommand {
                 return Ok(format!("📭 暂无 {} 的分析记录", full_code));
             }
 
-            let mut parts: Vec<String> = vec![format!("📋 {} 最近分析记录", full_code), String::new()];
+            let mut parts: Vec<String> =
+                vec![format!("📋 {} 最近分析记录", full_code), String::new()];
 
             for (i, row) in rows.iter().enumerate() {
                 let name = row_get_string(row, "stockName");
-                let name = if name.is_empty() { code_clean.clone() } else { name };
+                let name = if name.is_empty() {
+                    code_clean.clone()
+                } else {
+                    name
+                };
                 let score = row_get_string(row, "sentimentScore");
-                let score = if score.is_empty() { "N/A".to_string() } else { score };
+                let score = if score.is_empty() {
+                    "N/A".to_string()
+                } else {
+                    score
+                };
                 let decision = row_get_string(row, "decisionType");
-                let decision = if decision.is_empty() { "N/A".to_string() } else { decision };
+                let decision = if decision.is_empty() {
+                    "N/A".to_string()
+                } else {
+                    decision
+                };
                 let advice = row_get_string(row, "operationAdvice");
-                let advice = if advice.is_empty() { "N/A".to_string() } else { advice };
+                let advice = if advice.is_empty() {
+                    "N/A".to_string()
+                } else {
+                    advice
+                };
                 let time = row_get_string(row, "createTime");
-                let time = if time.is_empty() { "未知".to_string() } else { time };
+                let time = if time.is_empty() {
+                    "未知".to_string()
+                } else {
+                    time
+                };
 
-                parts.push(format!("{}. {} | 评分: {} | 决策: {}", i + 1, name, score, decision));
+                parts.push(format!(
+                    "{}. {} | 评分: {} | 决策: {}",
+                    i + 1,
+                    name,
+                    score,
+                    decision
+                ));
                 parts.push(format!("   建议: {} | 时间: {}", advice, time));
                 if i < rows.len() - 1 {
                     parts.push(String::new());

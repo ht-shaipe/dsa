@@ -3,16 +3,15 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use tube_web::sse_channel;
 
-use dsa_core::utils;
+use ai_llm_kit::{LlmFactory, LlmProvider, LlmService};
 use dsa_core::models::AnalysisReport;
+use dsa_core::utils;
 use dsa_pipeline::pipeline::AnalysisPipeline;
 use dsa_pipeline::report_renderer::ReportRenderer;
-use ai_llm_kit::{LlmFactory, LlmProvider, LlmService};
 use std::sync::Arc;
 use tracing::info;
 
 pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpResponse {
-
     let param = tube_web::parse_request(req.clone(), payload).await;
     let (mut sender, receiver) = sse_channel(32);
 
@@ -21,7 +20,9 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
 
     if code.is_empty() {
         let msg = serde_json::json!({"type": "error", "content": "请提供股票代码"});
-        let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+        let _ = sender
+            .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+            .await;
         let _ = sender.done("{}").await;
         return receiver.respond_to(&req);
     }
@@ -32,19 +33,26 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
 
         if api_key.is_empty() {
             let msg = serde_json::json!({"type": "error", "content": "API Key 未配置"});
-            let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+            let _ = sender
+                .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+                .await;
             let _ = sender.done("{}").await;
             return;
         }
 
         let status_msg = serde_json::json!({"type": "status", "content": "正在获取行情数据..."});
-        let _ = sender.send_data(&serde_json::to_string(&status_msg).unwrap_or_default()).await;
+        let _ = sender
+            .send_data(&serde_json::to_string(&status_msg).unwrap_or_default())
+            .await;
 
         let kline_data = match utils::fetch_kline(&code, "daily").await {
             Ok(d) => d,
             Err(e) => {
-                let msg = serde_json::json!({"type": "error", "content": format!("获取K线失败: {}", e)});
-                let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+                let msg =
+                    serde_json::json!({"type": "error", "content": format!("获取K线失败: {}", e)});
+                let _ = sender
+                    .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+                    .await;
                 let _ = sender.done("{}").await;
                 return;
             }
@@ -54,7 +62,9 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
             Ok(r) => r,
             Err(e) => {
                 let msg = serde_json::json!({"type": "error", "content": format!("获取实时行情失败: {}", e)});
-                let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+                let _ = sender
+                    .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+                    .await;
                 let _ = sender.done("{}").await;
                 return;
             }
@@ -62,13 +72,19 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
         let market_ctx = utils::fetch_market_context().await;
 
         let stock_name = if name.is_empty() {
-            realtime.get("name").and_then(|v| v.as_str()).unwrap_or_else(|| code.clone()).to_string()
+            realtime
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| code.clone())
+                .to_string()
         } else {
             name.clone()
         };
 
         let status_msg = serde_json::json!({"type": "status", "content": "正在进行AI分析..."});
-        let _ = sender.send_data(&serde_json::to_string(&status_msg).unwrap_or_default()).await;
+        let _ = sender
+            .send_data(&serde_json::to_string(&status_msg).unwrap_or_default())
+            .await;
 
         let pipeline = match AnalysisPipeline::new(
             &conf.llm.provider,
@@ -80,7 +96,9 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
             Ok(p) => p,
             Err(e) => {
                 let msg = serde_json::json!({"type": "error", "content": format!("Pipeline初始化失败: {}", e)});
-                let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+                let _ = sender
+                    .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+                    .await;
                 let _ = sender.done("{}").await;
                 return;
             }
@@ -90,17 +108,28 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
             Ok(p) => p,
             Err(_) => {
                 let msg = serde_json::json!({"type": "error", "content": "Provider错误"});
-                let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+                let _ = sender
+                    .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+                    .await;
                 let _ = sender.done("{}").await;
                 return;
             }
         };
         let llm: Arc<Box<dyn LlmService>> = Arc::new(LlmFactory::create(llm_provider, &api_key));
 
-        let body = pipeline.build_stream_body(&code, &stock_name, &kline_data, Some(&realtime), market_ctx.as_deref());
+        let body = pipeline.build_stream_body(
+            &code,
+            &stock_name,
+            &kline_data,
+            Some(&realtime),
+            market_ctx.as_deref(),
+        );
         if let Err(e) = body {
-            let msg = serde_json::json!({"type": "error", "content": format!("构建请求失败: {}", e)});
-            let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+            let msg =
+                serde_json::json!({"type": "error", "content": format!("构建请求失败: {}", e)});
+            let _ = sender
+                .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+                .await;
             let _ = sender.done("{}").await;
             return;
         }
@@ -111,26 +140,31 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
         let full_content_clone = full_content.clone();
         let sender_clone = sender.clone();
 
-        let callback: Arc<ai_llm_kit::StreamCallback> = Arc::new(move |chunk: String, is_over: bool| {
-            let full_content = full_content_clone.clone();
-            let mut sender = sender_clone.clone();
-            Box::pin(async move {
-                if !chunk.is_empty() {
-                    {
-                        let mut fc = full_content.lock().await;
-                        fc.push_str(&chunk);
+        let callback: Arc<ai_llm_kit::StreamCallback> =
+            Arc::new(move |chunk: String, is_over: bool| {
+                let full_content = full_content_clone.clone();
+                let mut sender = sender_clone.clone();
+                Box::pin(async move {
+                    if !chunk.is_empty() {
+                        {
+                            let mut fc = full_content.lock().await;
+                            fc.push_str(&chunk);
+                        }
+                        let text_msg = serde_json::json!({"type": "text", "content": chunk});
+                        let _ = sender
+                            .send_data(&serde_json::to_string(&text_msg).unwrap_or_default())
+                            .await;
                     }
-                    let text_msg = serde_json::json!({"type": "text", "content": chunk});
-                    let _ = sender.send_data(&serde_json::to_string(&text_msg).unwrap_or_default()).await;
-                }
-                if is_over {
-                    let fc = full_content.lock().await;
-                    let complete_msg = serde_json::json!({"type": "complete", "content": &*fc});
-                    let _ = sender.send_data(&serde_json::to_string(&complete_msg).unwrap_or_default()).await;
-                }
-                Ok(tube::value!("ok"))
-            }) as ai_llm_kit::StreamCallbackFuture
-        });
+                    if is_over {
+                        let fc = full_content.lock().await;
+                        let complete_msg = serde_json::json!({"type": "complete", "content": &*fc});
+                        let _ = sender
+                            .send_data(&serde_json::to_string(&complete_msg).unwrap_or_default())
+                            .await;
+                    }
+                    Ok(tube::value!("ok"))
+                }) as ai_llm_kit::StreamCallbackFuture
+            });
 
         let stream_result = llm.chat_stream(&body, callback).await;
 
@@ -143,17 +177,27 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
                 drop(fc);
 
                 let (pt, ct) = if let Some(usage) = stream_val.get("usage") {
-                    let p = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-                    let c = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+                    let p = usage
+                        .get("prompt_tokens")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0) as i32;
+                    let c = usage
+                        .get("completion_tokens")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0) as i32;
                     (p, c)
                 } else {
                     let est = estimate_tokens(&content_str);
                     (est, est)
                 };
                 dsa_core::utils::record_llm_usage(
-                    &conf.llm.provider, &conf.llm.model,
+                    &conf.llm.provider,
+                    &conf.llm.model,
                     "analyze_stream",
-                    pt, ct, elapsed, &code,
+                    pt,
+                    ct,
+                    elapsed,
+                    &code,
                 );
 
                 let report = pipeline.parse_report_from_content(&content_str);
@@ -170,7 +214,10 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
 
                         let mut report_json_for_db = report_json.clone();
                         if let serde_json::Value::Object(ref mut map) = report_json_for_db {
-                            map.insert("markdown".to_string(), serde_json::Value::String(markdown.clone()));
+                            map.insert(
+                                "markdown".to_string(),
+                                serde_json::Value::String(markdown.clone()),
+                            );
                             map.insert("text".to_string(), serde_json::Value::String(text.clone()));
                         }
 
@@ -184,7 +231,9 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
                             "code": code,
                             "name": stock_name,
                         });
-                        let _ = sender.send_data(&serde_json::to_string(&result_msg).unwrap_or_default()).await;
+                        let _ = sender
+                            .send_data(&serde_json::to_string(&result_msg).unwrap_or_default())
+                            .await;
                     }
                     Err(e) => {
                         let content_display: String = if content_str.len() > 200 {
@@ -192,7 +241,10 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
                         } else {
                             content_str.clone()
                         };
-                        info!("流式分析完成但报告解析失败: {}, 原始内容前200字符: {}", e, content_display);
+                        info!(
+                            "流式分析完成但报告解析失败: {}, 原始内容前200字符: {}",
+                            e, content_display
+                        );
 
                         let result_msg = serde_json::json!({
                             "type": "raw",
@@ -201,13 +253,18 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
                             "name": stock_name,
                             "parse_error": format!("{}", e),
                         });
-                        let _ = sender.send_data(&serde_json::to_string(&result_msg).unwrap_or_default()).await;
+                        let _ = sender
+                            .send_data(&serde_json::to_string(&result_msg).unwrap_or_default())
+                            .await;
                     }
                 }
             }
             Err(e) => {
-                let msg = serde_json::json!({"type": "error", "content": format!("LLM调用失败: {}", e)});
-                let _ = sender.send_data(&serde_json::to_string(&msg).unwrap_or_default()).await;
+                let msg =
+                    serde_json::json!({"type": "error", "content": format!("LLM调用失败: {}", e)});
+                let _ = sender
+                    .send_data(&serde_json::to_string(&msg).unwrap_or_default())
+                    .await;
             }
         }
 
@@ -217,7 +274,12 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
     receiver.respond_to(&req)
 }
 
-fn save_report_to_db(code: &str, name: &str, report: &AnalysisReport, report_json: &serde_json::Value) {
+fn save_report_to_db(
+    code: &str,
+    name: &str,
+    report: &AnalysisReport,
+    report_json: &serde_json::Value,
+) {
     let sentiment_score = report.sentiment_score.unwrap_or(0);
     let decision_type = report.decision_type.as_deref().unwrap_or("");
     let operation_advice = report.operation_advice.as_deref().unwrap_or("");
@@ -238,7 +300,11 @@ fn save_report_to_db(code: &str, name: &str, report: &AnalysisReport, report_jso
     };
 
     let is_sqlite = conf.database.is_sqlite();
-    let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+    let now_expr = if is_sqlite {
+        "datetime('now')"
+    } else {
+        "NOW()"
+    };
     let sql = format!(
         "INSERT INTO analysis_history (stock_code, stock_name, sentiment_score, decision_type, \
          operation_advice, analysis_summary, risk_warning, report_json, report_type, status, \
@@ -252,14 +318,35 @@ fn save_report_to_db(code: &str, name: &str, report: &AnalysisReport, report_jso
     let params = vec![
         ("stock_code".to_string(), tube::Value::from(code)),
         ("stock_name".to_string(), tube::Value::from(name)),
-        ("sentiment_score".to_string(), tube::Value::from(sentiment_score)),
-        ("decision_type".to_string(), tube::Value::from(decision_type)),
-        ("operation_advice".to_string(), tube::Value::from(operation_advice)),
-        ("analysis_summary".to_string(), tube::Value::from(analysis_summary)),
+        (
+            "sentiment_score".to_string(),
+            tube::Value::from(sentiment_score),
+        ),
+        (
+            "decision_type".to_string(),
+            tube::Value::from(decision_type),
+        ),
+        (
+            "operation_advice".to_string(),
+            tube::Value::from(operation_advice),
+        ),
+        (
+            "analysis_summary".to_string(),
+            tube::Value::from(analysis_summary),
+        ),
         ("risk_warning".to_string(), tube::Value::from(risk_warning)),
-        ("report_json".to_string(), tube::Value::from(report_json_str.as_str())),
-        ("llm_provider".to_string(), tube::Value::from(conf.llm.provider.as_str())),
-        ("llm_model".to_string(), tube::Value::from(conf.llm.model.as_str())),
+        (
+            "report_json".to_string(),
+            tube::Value::from(report_json_str.as_str()),
+        ),
+        (
+            "llm_provider".to_string(),
+            tube::Value::from(conf.llm.provider.as_str()),
+        ),
+        (
+            "llm_model".to_string(),
+            tube::Value::from(conf.llm.model.as_str()),
+        ),
     ];
 
     if let Err(e) = dsa_core::db::execute(&sql, params, &connector) {

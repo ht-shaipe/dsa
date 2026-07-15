@@ -37,7 +37,10 @@ pub trait BotPlatform: Send + Sync {
     fn format_response(&self, text: &str, context: &BotContext) -> Value;
 
     /// 发送响应到平台(异步)
-    fn send_response<'a>(&'a self, response: &'a Value) -> Pin<Box<dyn Future<Output = DsaResult<()>> + Send + 'a>>;
+    fn send_response<'a>(
+        &'a self,
+        response: &'a Value,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<()>> + Send + 'a>>;
 }
 
 // ============================================================
@@ -82,7 +85,9 @@ impl DingTalkAdapter {
 }
 
 impl BotPlatform for DingTalkAdapter {
-    fn name(&self) -> &str { "dingtalk" }
+    fn name(&self) -> &str {
+        "dingtalk"
+    }
 
     fn verify_request(&self, headers: &Value, _body: &Value) -> DsaResult<bool> {
         // 钉钉回调验证: 检查 timestamp + sign 头
@@ -149,12 +154,16 @@ impl BotPlatform for DingTalkAdapter {
         })
     }
 
-    fn send_response<'a>(&'a self, response: &'a Value) -> Pin<Box<dyn Future<Output = DsaResult<()>> + Send + 'a>> {
+    fn send_response<'a>(
+        &'a self,
+        response: &'a Value,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<()>> + Send + 'a>> {
         Box::pin(async move {
             let body = serde_json::to_string(response)
                 .map_err(|e| DsaError::Internal(format!("序列化钉钉响应失败: {}", e)))?;
 
-            let resp = self.client
+            let resp = self
+                .client
                 .post(&self.webhook_url)
                 .header("Content-Type", "application/json")
                 .body(body)
@@ -167,7 +176,8 @@ impl BotPlatform for DingTalkAdapter {
                 let text = resp.text().await.unwrap_or_default();
                 tracing::warn!("[DingTalk] 发送失败 status={}, body={}", status, text);
                 return Err(DsaError::Internal(format!(
-                    "钉钉消息发送失败: HTTP {}", status
+                    "钉钉消息发送失败: HTTP {}",
+                    status
                 )));
             }
 
@@ -193,7 +203,12 @@ pub struct FeishuAdapter {
 }
 
 impl FeishuAdapter {
-    pub fn new(webhook_url: &str, app_id: &str, app_secret: &str, verification_token: &str) -> Self {
+    pub fn new(
+        webhook_url: &str,
+        app_id: &str,
+        app_secret: &str,
+        verification_token: &str,
+    ) -> Self {
         Self {
             webhook_url: webhook_url.to_string(),
             app_id: app_id.to_string(),
@@ -208,7 +223,9 @@ impl FeishuAdapter {
 }
 
 impl BotPlatform for FeishuAdapter {
-    fn name(&self) -> &str { "feishu" }
+    fn name(&self) -> &str {
+        "feishu"
+    }
 
     fn verify_request(&self, headers: &Value, _body: &Value) -> DsaResult<bool> {
         // 飞书验证: 检查 verification_token
@@ -289,12 +306,16 @@ impl BotPlatform for FeishuAdapter {
         })
     }
 
-    fn send_response<'a>(&'a self, response: &'a Value) -> Pin<Box<dyn Future<Output = DsaResult<()>> + Send + 'a>> {
+    fn send_response<'a>(
+        &'a self,
+        response: &'a Value,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<()>> + Send + 'a>> {
         Box::pin(async move {
             let body = serde_json::to_string(response)
                 .map_err(|e| DsaError::Internal(format!("序列化飞书响应失败: {}", e)))?;
 
-            let resp = self.client
+            let resp = self
+                .client
                 .post(&self.webhook_url)
                 .header("Content-Type", "application/json")
                 .body(body)
@@ -307,7 +328,8 @@ impl BotPlatform for FeishuAdapter {
                 let text = resp.text().await.unwrap_or_default();
                 tracing::warn!("[Feishu] 发送失败 status={}, body={}", status, text);
                 return Err(DsaError::Internal(format!(
-                    "飞书消息发送失败: HTTP {}", status
+                    "飞书消息发送失败: HTTP {}",
+                    status
                 )));
             }
 
@@ -346,7 +368,9 @@ impl DiscordAdapter {
 }
 
 impl BotPlatform for DiscordAdapter {
-    fn name(&self) -> &str { "discord" }
+    fn name(&self) -> &str {
+        "discord"
+    }
 
     fn verify_request(&self, headers: &Value, _body: &Value) -> DsaResult<bool> {
         // Discord 使用 Ed25519 签名验证
@@ -397,7 +421,9 @@ impl BotPlatform for DiscordAdapter {
             .and_then(|v| v.as_str())
             .map(|p| {
                 // 管理员权限位 0x8 (ADMINISTRATOR)
-                u64::from_str_radix(&p, 16).map(|bits| bits & 0x8 != 0).unwrap_or(false)
+                u64::from_str_radix(&p, 16)
+                    .map(|bits| bits & 0x8 != 0)
+                    .unwrap_or(false)
             })
             .unwrap_or(false);
 
@@ -420,12 +446,16 @@ impl BotPlatform for DiscordAdapter {
         })
     }
 
-    fn send_response<'a>(&'a self, response: &'a Value) -> Pin<Box<dyn Future<Output = DsaResult<()>> + Send + 'a>> {
+    fn send_response<'a>(
+        &'a self,
+        response: &'a Value,
+    ) -> Pin<Box<dyn Future<Output = DsaResult<()>> + Send + 'a>> {
         Box::pin(async move {
             let body = serde_json::to_string(response)
                 .map_err(|e| DsaError::Internal(format!("序列化Discord响应失败: {}", e)))?;
 
-            let resp = self.client
+            let resp = self
+                .client
                 .post(&self.webhook_url)
                 .header("Content-Type", "application/json")
                 .header("Authorization", format!("Bot {}", self.bot_token))
@@ -439,7 +469,8 @@ impl BotPlatform for DiscordAdapter {
                 let text = resp.text().await.unwrap_or_default();
                 tracing::warn!("[Discord] 发送失败 status={}, body={}", status, text);
                 return Err(DsaError::Internal(format!(
-                    "Discord消息发送失败: HTTP {}", status
+                    "Discord消息发送失败: HTTP {}",
+                    status
                 )));
             }
 
@@ -481,7 +512,10 @@ mod tests {
             is_admin: false,
         };
         let resp = adapter.format_response("Hello", &ctx);
-        assert_eq!(resp.get("msgtype").and_then(|v| v.as_str()), Some("markdown".to_string()));
+        assert_eq!(
+            resp.get("msgtype").and_then(|v| v.as_str()),
+            Some("markdown".to_string())
+        );
     }
 
     #[test]
@@ -494,7 +528,12 @@ mod tests {
 
     #[test]
     fn test_feishu_parse_message() {
-        let adapter = FeishuAdapter::new("https://example.com/webhook", "app_id", "app_secret", "token123");
+        let adapter = FeishuAdapter::new(
+            "https://example.com/webhook",
+            "app_id",
+            "app_secret",
+            "token123",
+        );
         let body = value!({
             "event": {
                 "message": {
@@ -516,14 +555,24 @@ mod tests {
 
     #[test]
     fn test_feishu_verify_request_with_token() {
-        let adapter = FeishuAdapter::new("https://example.com/webhook", "app_id", "app_secret", "token123");
+        let adapter = FeishuAdapter::new(
+            "https://example.com/webhook",
+            "app_id",
+            "app_secret",
+            "token123",
+        );
         let headers = value!({ "verification_token": "token123" });
         assert!(adapter.verify_request(&headers, &Value::Null).unwrap());
     }
 
     #[test]
     fn test_feishu_verify_request_wrong_token() {
-        let adapter = FeishuAdapter::new("https://example.com/webhook", "app_id", "app_secret", "token123");
+        let adapter = FeishuAdapter::new(
+            "https://example.com/webhook",
+            "app_id",
+            "app_secret",
+            "token123",
+        );
         let headers = value!({ "verification_token": "wrong_token" });
         assert!(!adapter.verify_request(&headers, &Value::Null).unwrap());
     }
@@ -602,7 +651,10 @@ mod tests {
         let resp = adapter.format_response("Hello Discord", &ctx);
         // type 4 = CHANNEL_MESSAGE_WITH_SOURCE
         assert_eq!(resp.get("type").and_then(|v| v.as_f64()), Some(4.0));
-        let content = resp.get("data").and_then(|d| d.get("content")).and_then(|v| v.as_str());
+        let content = resp
+            .get("data")
+            .and_then(|d| d.get("content"))
+            .and_then(|v| v.as_str());
         assert_eq!(content, Some("Hello Discord".to_string()));
     }
 }

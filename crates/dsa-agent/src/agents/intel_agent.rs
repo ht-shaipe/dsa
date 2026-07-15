@@ -16,17 +16,25 @@ pub struct IntelAgent {
 
 impl IntelAgent {
     pub fn new(llm: Box<dyn LlmService>, model: &str) -> Self {
-        Self { llm, model: model.to_string() }
+        Self {
+            llm,
+            model: model.to_string(),
+        }
     }
 }
 
 #[async_trait(?Send)]
 impl BaseAgent for IntelAgent {
-    fn name(&self) -> &str { "intel" }
-    fn role(&self) -> &str { "情报分析专家" }
+    fn name(&self) -> &str {
+        "intel"
+    }
+    fn role(&self) -> &str {
+        "情报分析专家"
+    }
 
     async fn process(&self, input: &Value) -> DsaResult<Value> {
-        let code = input.get("code")
+        let code = input
+            .get("code")
             .and_then(|c| c.as_str())
             .unwrap_or_default();
 
@@ -35,19 +43,22 @@ impl BaseAgent for IntelAgent {
         }
 
         // 获取新闻数据（如有）
-        let news = input.get("news")
+        let news = input
+            .get("news")
             .and_then(|n| Value::as_array(n))
             .unwrap_or_default();
 
         // 获取行业信息（如有）
-        let industry = input.get("industry")
+        let industry = input
+            .get("industry")
             .and_then(|i| i.as_str())
             .unwrap_or_default();
 
         let news_summary = if news.is_empty() {
             "暂无近期新闻数据".to_string()
         } else {
-            let headlines: Vec<String> = news.iter()
+            let headlines: Vec<String> = news
+                .iter()
                 .take(5)
                 .filter_map(|n| n.get("title").and_then(|t| t.as_str()))
                 .collect();
@@ -88,16 +99,25 @@ impl BaseAgent for IntelAgent {
         });
 
         let start = std::time::Instant::now();
-        let response = self.llm.chat(&body).await
+        let response = self
+            .llm
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("情报Agent调用LLM失败: {}", e)))?;
         let elapsed = start.elapsed().as_millis() as i64;
 
         let conf = dsa_core::get_global_config();
         dsa_core::utils::record_llm_usage_from_response(
-            &response, &conf.llm.provider, &self.model, "agent_intel", elapsed, &code,
+            &response,
+            &conf.llm.provider,
+            &self.model,
+            "agent_intel",
+            elapsed,
+            &code,
         );
 
-        let content = response.get("choices")
+        let content = response
+            .get("choices")
             .and_then(|c| Value::as_array(c))
             .and_then(|a| a.first().cloned())
             .and_then(|f| f.get("message").cloned())

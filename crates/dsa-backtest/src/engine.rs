@@ -1,8 +1,8 @@
 //! 回测引擎 - 对齐原项目 backtest
 
-use dsa_core::db::{query_rows, execute, row_get_string, row_get_f64, first_row_i64};
-use dsa_core::{DsaError, DsaResult};
 use deck_connector::Connector;
+use dsa_core::db::{execute, first_row_i64, query_rows, row_get_f64, row_get_string};
+use dsa_core::{DsaError, DsaResult};
 use tube::Value;
 
 pub struct BacktestEngine {}
@@ -76,8 +76,12 @@ impl BacktestEngine {
              decision_type, ideal_buy, secondary_buy, stop_loss, take_profit, report_json, \
              analysis_summary, risk_warning, market_context, create_time \
              FROM analysis_history WHERE id = :id AND status = 1";
-        let rows = query_rows(sql, vec![("id".to_string(), Value::from(analysis_id))], &connector)
-            .map_err(|e| DsaError::Database(format!("查询分析历史失败: {}", e)))?;
+        let rows = query_rows(
+            sql,
+            vec![("id".to_string(), Value::from(analysis_id))],
+            &connector,
+        )
+        .map_err(|e| DsaError::Database(format!("查询分析历史失败: {}", e)))?;
 
         if rows.is_empty() {
             return Err(DsaError::Validation(format!(
@@ -95,7 +99,10 @@ impl BacktestEngine {
 
         // createTime 作为信号日期
         let signal_date_str = row_get_string(row, "createTime");
-        let signal_date_only = signal_date_str.split(' ').next().unwrap_or(&signal_date_str);
+        let signal_date_only = signal_date_str
+            .split(' ')
+            .next()
+            .unwrap_or(&signal_date_str);
 
         // 获取信号日期之后的实际K线数据 (从信号日期开始往后)
         let hist_sql = "SELECT open, high, low, close, volume FROM stock_daily \
@@ -134,40 +141,41 @@ impl BacktestEngine {
             .map(|r| row_get_f64(r, "close"))
             .collect();
 
-        let (actual_return, max_drawdown, simulated_exit, direction_correct, hit_stop_loss, hit_take_profit) =
-            if entry_price > 0.0 && !eval_closes.is_empty() {
-                let exit_price = eval_closes.last().copied().unwrap_or(entry_price);
-                let return_pct = (exit_price - entry_price) / entry_price * 100.0;
+        let (
+            actual_return,
+            max_drawdown,
+            simulated_exit,
+            direction_correct,
+            hit_stop_loss,
+            hit_take_profit,
+        ) = if entry_price > 0.0 && !eval_closes.is_empty() {
+            let exit_price = eval_closes.last().copied().unwrap_or(entry_price);
+            let return_pct = (exit_price - entry_price) / entry_price * 100.0;
 
-                let mut max_dd = 0.0_f64;
-                let mut peak = entry_price;
-                for &c in &eval_closes {
-                    if c > peak {
-                        peak = c;
-                    }
-                    let dd = (peak - c) / peak * 100.0;
-                    if dd > max_dd {
-                        max_dd = dd;
-                    }
+            let mut max_dd = 0.0_f64;
+            let mut peak = entry_price;
+            for &c in &eval_closes {
+                if c > peak {
+                    peak = c;
                 }
+                let dd = (peak - c) / peak * 100.0;
+                if dd > max_dd {
+                    max_dd = dd;
+                }
+            }
 
-                let predicted_up = matches!(
-                    decision_type.as_str(),
-                    "buy" | "add" | "hold" | "watch"
-                );
-                let dir_correct = (predicted_up && return_pct > 0.0)
-                    || (!predicted_up && return_pct < 0.0)
-                    || decision_type == "hold";
+            let predicted_up = matches!(decision_type.as_str(), "buy" | "add" | "hold" | "watch");
+            let dir_correct = (predicted_up && return_pct > 0.0)
+                || (!predicted_up && return_pct < 0.0)
+                || decision_type == "hold";
 
-                let hit_sl = stop_loss > 0.0
-                    && eval_closes.iter().any(|&c| c <= stop_loss);
-                let hit_tp = take_profit > 0.0
-                    && eval_closes.iter().any(|&c| c >= take_profit);
+            let hit_sl = stop_loss > 0.0 && eval_closes.iter().any(|&c| c <= stop_loss);
+            let hit_tp = take_profit > 0.0 && eval_closes.iter().any(|&c| c >= take_profit);
 
-                (return_pct, max_dd, exit_price, dir_correct, hit_sl, hit_tp)
-            } else {
-                (0.0, 0.0, 0.0, false, false, false)
-            };
+            (return_pct, max_dd, exit_price, dir_correct, hit_sl, hit_tp)
+        } else {
+            (0.0, 0.0, 0.0, false, false, false)
+        };
 
         // 存储回测结果
         let insert_sql = "INSERT INTO backtest_results \
@@ -180,10 +188,7 @@ impl BacktestEngine {
                 ("aid".to_string(), Value::from(analysis_id)),
                 ("code".to_string(), Value::from(stock_code.as_str())),
                 ("sdate".to_string(), Value::from(signal_date_only)),
-                (
-                    "action".to_string(),
-                    Value::from(decision_type.as_str()),
-                ),
+                ("action".to_string(), Value::from(decision_type.as_str())),
                 ("entry".to_string(), Value::from(entry_price)),
                 ("exit".to_string(), Value::from(simulated_exit)),
                 ("ret".to_string(), Value::from(actual_return)),
@@ -220,10 +225,7 @@ impl BacktestEngine {
             .get("code")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let (sql, p) = if code.is_empty() {
             (
@@ -256,10 +258,7 @@ impl BacktestEngine {
 
     /// 查询回测结果详情
     async fn detail(&self, params: &Value) -> DsaResult<Value> {
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = params.get("id").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if id == 0 {
             return Err(DsaError::Validation("请提供回测ID".to_string()));
         }
@@ -273,10 +272,7 @@ impl BacktestEngine {
             .map_err(|e| DsaError::Database(format!("查询回测详情失败: {}", e)))?;
 
         if rows.is_empty() {
-            return Err(DsaError::Validation(format!(
-                "回测记录不存在: {}",
-                id
-            )));
+            return Err(DsaError::Validation(format!("回测记录不存在: {}", id)));
         }
 
         Ok(rows[0].clone())
@@ -289,10 +285,7 @@ impl BacktestEngine {
             .get("signalId")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0) as i64;
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let (sql, p) = if signal_id > 0 {
             (

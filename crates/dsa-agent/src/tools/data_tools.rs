@@ -1,11 +1,13 @@
-use dsa_core::{DsaError, DsaResult, utils};
-use qta_crawler::{QQ, Stock};
+use dsa_core::{utils, DsaError, DsaResult};
+use qta_crawler::{Stock, QQ};
 use tube::Value;
 
 pub struct DataTools;
 
 impl DataTools {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     pub async fn get_realtime_quote(symbol: &str) -> DsaResult<Value> {
         QQ::new()

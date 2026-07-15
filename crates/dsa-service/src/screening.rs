@@ -1,4 +1,6 @@
-use dsa_core::db::{query_rows, execute, get_db_connector, row_get_string, row_get_f64, row_get_value};
+use dsa_core::db::{
+    execute, get_db_connector, query_rows, row_get_f64, row_get_string, row_get_value,
+};
 use dsa_core::utils;
 use dsa_pipeline::technical::TechnicalAnalyzer;
 use qta_crawler::EastMoney;
@@ -74,7 +76,9 @@ impl Screening {
         {
             let st = SYNC_STATUS.lock().unwrap();
             if st.running {
-                return Ok(value!({"message": "同步已在进行中", "progress": st.done, "total": st.total}));
+                return Ok(
+                    value!({"message": "同步已在进行中", "progress": st.done, "total": st.total}),
+                );
             }
         }
 
@@ -266,10 +270,14 @@ impl Screening {
 
     async fn hotspots(&self) -> Result<Value> {
         let em = EastMoney::new();
-        let industry = em.sector_rank("industry").await
-            .unwrap_or_else(|e| { tube::err_log!("获取行业热点失败: {}", e); vec![] });
-        let concept = em.sector_rank("concept").await
-            .unwrap_or_else(|e| { tube::err_log!("获取概念热点失败: {}", e); vec![] });
+        let industry = em.sector_rank("industry").await.unwrap_or_else(|e| {
+            tube::err_log!("获取行业热点失败: {}", e);
+            vec![]
+        });
+        let concept = em.sector_rank("concept").await.unwrap_or_else(|e| {
+            tube::err_log!("获取概念热点失败: {}", e);
+            vec![]
+        });
 
         if industry.is_empty() && concept.is_empty() {
             return Err(error!("获取热点数据失败，请检查网络连接"));
@@ -281,8 +289,14 @@ impl Screening {
 
         let mut ranked: Vec<Value> = all;
         ranked.sort_by(|a, b| {
-            let ca = a.get("changePercent").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let cb = b.get("changePercent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let ca = a
+                .get("changePercent")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let cb = b
+                .get("changePercent")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
             cb.partial_cmp(&ca).unwrap_or(std::cmp::Ordering::Equal)
         });
         ranked.truncate(12);
@@ -303,7 +317,10 @@ impl Screening {
         for sector_type in &["industry", "concept"] {
             if let Ok(sectors) = em.sector_rank(sector_type).await {
                 for item in &sectors {
-                    let name = item.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+                    let name = item
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
                     if name.contains(topic_val.as_str()) || topic_val.contains(name.as_str()) {
                         matched.push(item.clone());
                     }
@@ -324,10 +341,7 @@ impl Screening {
             .get("strategy")
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| "dual_low".to_string());
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(20.0) as usize;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(20.0) as usize;
 
         if strategy == "macd_golden_cross" {
             if !self.check_daily_data().await {
@@ -354,8 +368,8 @@ impl Screening {
     }
 
     async fn filter_macd_golden_cross(&self, limit: usize) -> Result<Value> {
-        let connector = get_db_connector()
-            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+        let connector =
+            get_db_connector().map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
 
         let sql = "SELECT sd.stock_code, sd.stock_name, sd.close, sd.ma60, sd.dif, sd.dea, sd.macd_hist, \
              sd.trade_date, sd.pct_chg, sd.volume, sd.amount, sd.turnover_rate, sd.volume_ratio \
@@ -397,7 +411,8 @@ impl Screening {
                 continue;
             }
 
-            let hist_series: Vec<f64> = hist_rows.iter()
+            let hist_series: Vec<f64> = hist_rows
+                .iter()
                 .map(|r| row_get_f64(r, "macdHist"))
                 .collect();
             let mut hist_asc = hist_series;
@@ -418,7 +433,11 @@ impl Screening {
             let turnover_rate = row_get_f64(row, "turnoverRate");
             let volume_ratio = row_get_f64(row, "volumeRatio");
 
-            let above_ma60_pct = if ma60 > 0.0 { (close - ma60) / ma60 * 100.0 } else { 0.0 };
+            let above_ma60_pct = if ma60 > 0.0 {
+                (close - ma60) / ma60 * 100.0
+            } else {
+                0.0
+            };
 
             results.push(value!({
                 "code": code_val,
@@ -450,14 +469,15 @@ impl Screening {
         stocks
             .iter()
             .filter(|s| {
-                let price = s.get("最新价")
-                    .and_then(|v| v.as_f64()).unwrap_or(999.0);
-                let pe = s.get("市盈率动")
-                    .and_then(|v| v.as_f64()).unwrap_or(999.0);
-                let code: String = s.get("代码")
-                    .and_then(|v| v.as_str()).unwrap_or_default();
-                price > 0.0 && price < 20.0 && pe > 0.0 && pe < 30.0
-                    && !code.starts_with('8') && !code.starts_with('4')
+                let price = s.get("最新价").and_then(|v| v.as_f64()).unwrap_or(999.0);
+                let pe = s.get("市盈率动").and_then(|v| v.as_f64()).unwrap_or(999.0);
+                let code: String = s.get("代码").and_then(|v| v.as_str()).unwrap_or_default();
+                price > 0.0
+                    && price < 20.0
+                    && pe > 0.0
+                    && pe < 30.0
+                    && !code.starts_with('8')
+                    && !code.starts_with('4')
             })
             .take(limit)
             .cloned()
@@ -468,12 +488,9 @@ impl Screening {
         stocks
             .iter()
             .filter(|s| {
-                let change_pct = s.get("涨跌幅")
-                    .and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let turnover = s.get("换手率")
-                    .and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let volume_ratio = s.get("量比")
-                    .and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let change_pct = s.get("涨跌幅").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let turnover = s.get("换手率").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let volume_ratio = s.get("量比").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 change_pct > 3.0 && change_pct < 9.8 && turnover > 3.0 && volume_ratio > 2.0
             })
             .take(limit)
@@ -485,12 +502,12 @@ impl Screening {
         stocks
             .iter()
             .filter(|s| {
-                let pb = s.get("市净率")
-                    .and_then(|v| v.as_f64()).unwrap_or(999.0);
-                let roe = s.get("加权净资产收益率")
-                    .and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let pe = s.get("市盈率动")
-                    .and_then(|v| v.as_f64()).unwrap_or(999.0);
+                let pb = s.get("市净率").and_then(|v| v.as_f64()).unwrap_or(999.0);
+                let roe = s
+                    .get("加权净资产收益率")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let pe = s.get("市盈率动").and_then(|v| v.as_f64()).unwrap_or(999.0);
                 pb > 0.0 && pb < 2.0 && roe > 10.0 && pe > 0.0 && pe < 20.0
             })
             .take(limit)
@@ -502,18 +519,14 @@ impl Screening {
         let mut ranked: Vec<&Value> = stocks
             .iter()
             .filter(|s| {
-                let change_pct = s.get("涨跌幅")
-                    .and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let code: String = s.get("代码")
-                    .and_then(|v| v.as_str()).unwrap_or_default();
+                let change_pct = s.get("涨跌幅").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let code: String = s.get("代码").and_then(|v| v.as_str()).unwrap_or_default();
                 change_pct > 0.0 && !code.starts_with('8') && !code.starts_with('4')
             })
             .collect();
         ranked.sort_by(|a, b| {
-            let ca = a.get("涨跌幅")
-                .and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let cb = b.get("涨跌幅")
-                .and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let ca = a.get("涨跌幅").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let cb = b.get("涨跌幅").and_then(|v| v.as_f64()).unwrap_or(0.0);
             cb.partial_cmp(&ca).unwrap_or(std::cmp::Ordering::Equal)
         });
         ranked.into_iter().take(limit).cloned().collect()

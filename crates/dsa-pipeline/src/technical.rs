@@ -30,14 +30,20 @@ impl TechnicalAnalyzer {
         let rsi_14 = self.rsi(&closes, 14);
 
         let current = closes.last().copied().unwrap_or(0.0);
-        let bias_ma5 = if ma5 != 0.0 { (current - ma5) / ma5 * 100.0 } else { 0.0 };
-        let bias_ma10 = if ma10 != 0.0 { (current - ma10) / ma10 * 100.0 } else { 0.0 };
+        let bias_ma5 = if ma5 != 0.0 {
+            (current - ma5) / ma5 * 100.0
+        } else {
+            0.0
+        };
+        let bias_ma10 = if ma10 != 0.0 {
+            (current - ma10) / ma10 * 100.0
+        } else {
+            0.0
+        };
 
         let is_bullish = ma5 > ma10 && ma10 > ma20 && ma5 > 0.0;
 
-        let trend_score = self.calculate_trend_score(
-            is_bullish, bias_ma5, rsi_14, macd_hist,
-        );
+        let trend_score = self.calculate_trend_score(is_bullish, bias_ma5, rsi_14, macd_hist);
 
         TechnicalIndicators {
             ma5,
@@ -55,7 +61,13 @@ impl TechnicalAnalyzer {
         }
     }
 
-    pub fn macd_series(&self, closes: &[f64], fast: usize, slow: usize, signal: usize) -> Vec<MacdPoint> {
+    pub fn macd_series(
+        &self,
+        closes: &[f64],
+        fast: usize,
+        slow: usize,
+        signal: usize,
+    ) -> Vec<MacdPoint> {
         let dif_series = self.ema_series(closes, fast, slow);
         if dif_series.len() < signal {
             return vec![];
@@ -207,21 +219,44 @@ impl TechnicalAnalyzer {
         100.0 - (100.0 / (1.0 + rs))
     }
 
-    fn calculate_trend_score(&self, is_bullish: bool, bias_ma5: f64, rsi: f64, macd_hist: f64) -> i32 {
+    fn calculate_trend_score(
+        &self,
+        is_bullish: bool,
+        bias_ma5: f64,
+        rsi: f64,
+        macd_hist: f64,
+    ) -> i32 {
         let mut score = 50;
 
-        if is_bullish { score += 15; } else { score -= 10; }
+        if is_bullish {
+            score += 15;
+        } else {
+            score -= 10;
+        }
 
-        if bias_ma5.abs() < 3.0 { score += 5; }
-        else if bias_ma5 > 5.0 { score -= 10; }
-        else if bias_ma5 < -5.0 { score -= 5; }
+        if bias_ma5.abs() < 3.0 {
+            score += 5;
+        } else if bias_ma5 > 5.0 {
+            score -= 10;
+        } else if bias_ma5 < -5.0 {
+            score -= 5;
+        }
 
-        if rsi > 70.0 { score -= 10; }
-        else if rsi > 50.0 { score += 5; }
-        else if rsi < 30.0 { score += 5; }
-        else { score -= 5; }
+        if rsi > 70.0 {
+            score -= 10;
+        } else if rsi > 50.0 {
+            score += 5;
+        } else if rsi < 30.0 {
+            score += 5;
+        } else {
+            score -= 5;
+        }
 
-        if macd_hist > 0.0 { score += 5; } else { score -= 5; }
+        if macd_hist > 0.0 {
+            score += 5;
+        } else {
+            score -= 5;
+        }
 
         score.clamp(0, 100)
     }
@@ -289,7 +324,11 @@ mod tests {
         let analyzer = TechnicalAnalyzer::new();
         let closes: Vec<f64> = (0..20).map(|i| 100.0 + i as f64).collect();
         let rsi = analyzer.rsi(&closes, 14);
-        assert!(rsi > 70.0, "monotonically rising prices should have RSI > 70, got {}", rsi);
+        assert!(
+            rsi > 70.0,
+            "monotonically rising prices should have RSI > 70, got {}",
+            rsi
+        );
     }
 
     #[test]
@@ -297,7 +336,11 @@ mod tests {
         let analyzer = TechnicalAnalyzer::new();
         let closes: Vec<f64> = (0..20).map(|i| 120.0 - i as f64).collect();
         let rsi = analyzer.rsi(&closes, 14);
-        assert!(rsi < 30.0, "monotonically falling prices should have RSI < 30, got {}", rsi);
+        assert!(
+            rsi < 30.0,
+            "monotonically falling prices should have RSI < 30, got {}",
+            rsi
+        );
     }
 
     #[test]
@@ -311,25 +354,35 @@ mod tests {
     #[test]
     fn test_macd_returns_tuple() {
         let analyzer = TechnicalAnalyzer::new();
-        let closes: Vec<f64> = (0..60).map(|i| 50.0 + (i as f64 * 0.5).sin() * 10.0).collect();
+        let closes: Vec<f64> = (0..60)
+            .map(|i| 50.0 + (i as f64 * 0.5).sin() * 10.0)
+            .collect();
         let (dif, dea, hist) = analyzer.macd(&closes, 12, 26, 9);
         assert!(dif.is_finite());
         assert!(dea.is_finite());
         assert!(hist.is_finite());
-        assert!((hist - 2.0 * (dif - dea)).abs() < 0.001, "MACD histogram = 2*(DIF-DEA)");
+        assert!(
+            (hist - 2.0 * (dif - dea)).abs() < 0.001,
+            "MACD histogram = 2*(DIF-DEA)"
+        );
     }
 
     #[test]
     fn test_calculate_full_indicators() {
         let analyzer = TechnicalAnalyzer::new();
-        let closes: Vec<f64> = (0..80).map(|i| 50.0 + (i as f64 * 0.3).sin() * 10.0).collect();
+        let closes: Vec<f64> = (0..80)
+            .map(|i| 50.0 + (i as f64 * 0.3).sin() * 10.0)
+            .collect();
         let kline = make_kline(&closes);
         let ti = analyzer.calculate(&kline, None);
 
         assert!(ti.ma5 > 0.0, "MA5 should be positive");
         assert!(ti.ma20 > 0.0, "MA20 should be positive");
         assert!(ti.rsi_14 > 0.0 && ti.rsi_14 < 100.0, "RSI should be 0-100");
-        assert!(ti.trend_score >= 0 && ti.trend_score <= 100, "trend_score should be 0-100");
+        assert!(
+            ti.trend_score >= 0 && ti.trend_score <= 100,
+            "trend_score should be 0-100"
+        );
     }
 
     #[test]
@@ -348,17 +401,28 @@ mod tests {
         let closes: Vec<f64> = (0..80).map(|i| 10.0 + i as f64).collect();
         let kline = make_kline(&closes);
         let ti = analyzer.calculate(&kline, None);
-        assert!(ti.is_bullish_alignment, "steadily rising prices should show bullish MA alignment");
+        assert!(
+            ti.is_bullish_alignment,
+            "steadily rising prices should show bullish MA alignment"
+        );
     }
 
     #[test]
     fn test_macd_series_length() {
         let analyzer = TechnicalAnalyzer::new();
-        let closes: Vec<f64> = (0..80).map(|i| 50.0 + (i as f64 * 0.3).sin() * 10.0).collect();
+        let closes: Vec<f64> = (0..80)
+            .map(|i| 50.0 + (i as f64 * 0.3).sin() * 10.0)
+            .collect();
         let series = analyzer.macd_series(&closes, 12, 26, 9);
-        assert!(!series.is_empty(), "macd_series should return non-empty for 80 data points");
+        assert!(
+            !series.is_empty(),
+            "macd_series should return non-empty for 80 data points"
+        );
         for pt in &series {
-            assert!((pt.hist - 2.0 * (pt.dif - pt.dea)).abs() < 0.001, "hist = 2*(dif-dea)");
+            assert!(
+                (pt.hist - 2.0 * (pt.dif - pt.dea)).abs() < 0.001,
+                "hist = 2*(dif-dea)"
+            );
         }
     }
 
@@ -368,7 +432,10 @@ mod tests {
         // Directly construct a hist series that represents green bars shrinking then crossing
         let hists: Vec<f64> = vec![-2.0, -1.5, -1.0, -0.5, -0.2, 0.1, 0.3];
         let result = analyzer.is_macd_golden_cross(&hists, 7);
-        assert!(result, "hist going from negative to positive should be golden cross");
+        assert!(
+            result,
+            "hist going from negative to positive should be golden cross"
+        );
     }
 
     #[test]
@@ -377,7 +444,10 @@ mod tests {
         // Green bars shrinking but not yet crossed
         let hists: Vec<f64> = vec![-2.0, -1.5, -1.0, -0.5, -0.2, -0.1];
         let result = analyzer.is_macd_golden_cross(&hists, 6);
-        assert!(result, "shrinking green bars should be detected as approaching golden cross");
+        assert!(
+            result,
+            "shrinking green bars should be detected as approaching golden cross"
+        );
     }
 
     #[test]
@@ -386,7 +456,10 @@ mod tests {
         // Negative bars getting more negative (expanding, not shrinking)
         let hists: Vec<f64> = vec![-0.5, -1.0, -1.5, -2.0, -2.5];
         let result = analyzer.is_macd_golden_cross(&hists, 5);
-        assert!(!result, "expanding negative bars should not be golden cross");
+        assert!(
+            !result,
+            "expanding negative bars should not be golden cross"
+        );
     }
 
     #[test]
@@ -400,7 +473,10 @@ mod tests {
         if all_negative {
             // If all negative, bars should be getting MORE negative (not shrinking)
             let result = analyzer.is_macd_golden_cross(&hists, 5);
-            assert!(!result, "steadily falling with expanding negative bars should not trigger golden cross");
+            assert!(
+                !result,
+                "steadily falling with expanding negative bars should not trigger golden cross"
+            );
         }
         // If some values happen to be positive, just check the function returns false
         // since there shouldn't be a fresh cross in this scenario

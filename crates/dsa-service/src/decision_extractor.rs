@@ -9,7 +9,9 @@ pub struct DecisionExtractor {
 
 impl DecisionExtractor {
     pub fn new(param: &RequestParameter) -> Self {
-        DecisionExtractor { request: param.clone() }
+        DecisionExtractor {
+            request: param.clone(),
+        }
     }
 
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
@@ -17,11 +19,16 @@ impl DecisionExtractor {
             "extract" => self.extract().await,
             "extract_batch" => self.extract_batch().await,
             "data_quality" => self.data_quality().await,
-            _ => Err(tube::Error::from(format!("decision_extractor不支持方法: {}", method))),
+            _ => Err(tube::Error::from(format!(
+                "decision_extractor不支持方法: {}",
+                method
+            ))),
         }
     }
 
-    fn params(&self) -> &Value { &self.request.value }
+    fn params(&self) -> &Value {
+        &self.request.value
+    }
 
     async fn extract(&self) -> Result<Value> {
         let params = self.params();
@@ -41,7 +48,10 @@ impl DecisionExtractor {
         .map_err(|e| tube::Error::from(format!("查询分析历史失败: {}", e)))?;
 
         if rows.is_empty() {
-            return Err(tube::Error::from(format!("分析记录不存在: {}", analysis_id)));
+            return Err(tube::Error::from(format!(
+                "分析记录不存在: {}",
+                analysis_id
+            )));
         }
 
         let row = &rows[0];
@@ -70,7 +80,8 @@ impl DecisionExtractor {
             _ => "hold",
         };
 
-        let market_phase = if market_context.contains("上涨") || market_context.contains("牛市") {
+        let market_phase = if market_context.contains("上涨") || market_context.contains("牛市")
+        {
             "bull"
         } else if market_context.contains("下跌") || market_context.contains("熊市") {
             "bear"
@@ -107,16 +118,25 @@ impl DecisionExtractor {
                 ("entry".to_string(), Value::from(ideal_buy)),
                 ("sl".to_string(), Value::from(stop_loss)),
                 ("tp".to_string(), Value::from(take_profit)),
-                ("reasoning".to_string(), Value::from(operation_advice.as_str())),
-                ("evidence".to_string(), Value::from(analysis_summary.as_str())),
+                (
+                    "reasoning".to_string(),
+                    Value::from(operation_advice.as_str()),
+                ),
+                (
+                    "evidence".to_string(),
+                    Value::from(analysis_summary.as_str()),
+                ),
                 ("aid".to_string(), Value::from(analysis_id)),
                 ("phase".to_string(), Value::from(market_phase)),
-                ("confidence".to_string(), Value::from(match confidence_level.as_str() {
-                    "high" | "极高" | "高" => 0.9,
-                    "medium" | "中" => 0.6,
-                    "low" | "低" => 0.3,
-                    _ => 0.5,
-                })),
+                (
+                    "confidence".to_string(),
+                    Value::from(match confidence_level.as_str() {
+                        "high" | "极高" | "高" => 0.9,
+                        "medium" | "中" => 0.6,
+                        "low" | "低" => 0.3,
+                        _ => 0.5,
+                    }),
+                ),
                 ("risk".to_string(), Value::from(risk_warning.as_str())),
             ],
             &connector,
@@ -198,7 +218,13 @@ impl DecisionExtractor {
         } else {
             0
         };
-        let kline_score = if daily_count >= 20 { 2 } else if daily_count >= 10 { 1 } else { 0 };
+        let kline_score = if daily_count >= 20 {
+            2
+        } else if daily_count >= 10 {
+            1
+        } else {
+            0
+        };
         score += kline_score;
 
         let news_sql = "SELECT COUNT(*) as cnt FROM news_intel WHERE stock_code = :code AND create_time >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND status >= 1";
@@ -233,7 +259,8 @@ impl DecisionExtractor {
         let analysis_score = if analysis_count > 0 { 1 } else { 0 };
         score += analysis_score;
 
-        let signal_sql = "SELECT COUNT(*) as cnt FROM decision_signals WHERE stock_code = :code AND status = 1";
+        let signal_sql =
+            "SELECT COUNT(*) as cnt FROM decision_signals WHERE stock_code = :code AND status = 1";
         let signal_rows = query_rows(
             signal_sql,
             vec![("code".to_string(), Value::from(code.as_str()))],

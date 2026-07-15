@@ -10,7 +10,10 @@ static SERVER_SHUTDOWN: Mutex<Option<Arc<tokio::sync::Notify>>> = Mutex::new(Non
 
 fn main() {
     std::panic::set_hook(Box::new(|panic_info| {
-        let location = panic_info.location().map(|l| format!("{}:{}", l.file(), l.line())).unwrap_or_else(|| "unknown".to_string());
+        let location = panic_info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown".to_string());
         let message = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
             s.to_string()
         } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
@@ -78,8 +81,16 @@ fn load_config() -> (String, AppConfig) {
         let cwd = std::env::current_dir().unwrap_or_default();
         vec![
             tube_web::utils::get_abs_path("conf/config.toml"),
-            cwd.join("../../conf/config.toml").canonicalize().unwrap_or_else(|_| cwd.join("../../conf/config.toml")).to_string_lossy().to_string(),
-            cwd.join("../../../conf/config.toml").canonicalize().unwrap_or_else(|_| cwd.join("../../../conf/config.toml")).to_string_lossy().to_string(),
+            cwd.join("../../conf/config.toml")
+                .canonicalize()
+                .unwrap_or_else(|_| cwd.join("../../conf/config.toml"))
+                .to_string_lossy()
+                .to_string(),
+            cwd.join("../../../conf/config.toml")
+                .canonicalize()
+                .unwrap_or_else(|_| cwd.join("../../../conf/config.toml"))
+                .to_string_lossy()
+                .to_string(),
         ]
     };
 
@@ -106,7 +117,10 @@ fn find_static_dir() -> String {
             return dev_path;
         }
         let cwd = std::env::current_dir().unwrap_or_default();
-        let alt_path = cwd.join("../../web/dist").canonicalize().unwrap_or_else(|_| cwd.join("../../web/dist"));
+        let alt_path = cwd
+            .join("../../web/dist")
+            .canonicalize()
+            .unwrap_or_else(|_| cwd.join("../../web/dist"));
         if alt_path.exists() {
             return alt_path.to_string_lossy().to_string();
         }
@@ -123,14 +137,13 @@ fn find_static_dir() -> String {
                 dir.join("../../web/dist"),
             ]
         } else {
-            vec![
-                dir.join("web/dist"),
-                dir.join("../../web/dist"),
-            ]
+            vec![dir.join("web/dist"), dir.join("../../web/dist")]
         };
 
         for candidate in candidates {
-            let canonical = candidate.canonicalize().unwrap_or_else(|_| candidate.clone());
+            let canonical = candidate
+                .canonicalize()
+                .unwrap_or_else(|_| candidate.clone());
             if canonical.exists() {
                 tube::log!("Found static files at: {:?}", canonical);
                 return canonical.to_string_lossy().to_string();

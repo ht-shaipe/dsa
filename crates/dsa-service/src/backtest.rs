@@ -9,7 +9,9 @@ pub struct Backtest {
 
 impl Backtest {
     pub fn new(param: &RequestParameter) -> Self {
-        Backtest { request: param.clone() }
+        Backtest {
+            request: param.clone(),
+        }
     }
 
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
@@ -19,10 +21,7 @@ impl Backtest {
             "summary" => self.summary().await,
             "detail" => self.detail().await,
             "list" => self.list().await,
-            _ => Err(tube::Error::msg(format!(
-                "backtest不支持方法: {}",
-                method
-            ))),
+            _ => Err(tube::Error::msg(format!("backtest不支持方法: {}", method))),
         }
     }
 
@@ -39,7 +38,11 @@ impl Backtest {
     }
 
     fn now_expr(&self) -> &'static str {
-        if self.is_sqlite() { "datetime('now')" } else { "NOW()" }
+        if self.is_sqlite() {
+            "datetime('now')"
+        } else {
+            "NOW()"
+        }
     }
 
     fn date_sub_days_expr(&self, days: i64) -> String {
@@ -102,10 +105,7 @@ impl Backtest {
         .map_err(|e| tube::Error::msg(format!("查询决策信号失败: {}", e)))?;
 
         if rows.is_empty() {
-            return Err(tube::Error::msg(format!(
-                "决策信号不存在: {}",
-                signal_id
-            )));
+            return Err(tube::Error::msg(format!("决策信号不存在: {}", signal_id)));
         }
 
         let row = &rows[0];
@@ -119,7 +119,10 @@ impl Backtest {
         let analysis_id: i64 = row_get_f64(row, "analysisId") as i64;
 
         // signal_date 是 datetime 格式, 只取日期部分用于K线查询
-        let signal_date_only = signal_date_str.split(' ').next().unwrap_or(&signal_date_str);
+        let signal_date_only = signal_date_str
+            .split(' ')
+            .next()
+            .unwrap_or(&signal_date_str);
 
         let hist_sql = "SELECT trade_date, open, high, low, close, volume \
              FROM stock_daily \
@@ -156,7 +159,10 @@ impl Backtest {
             if fallback_rows.len() < eval_window as usize {
                 return Err(tube::Error::msg(format!(
                     "无足够K线数据: code={}, date={}, 需{}天, 仅有{}天",
-                    stock_code, signal_date_only, eval_window, hist_rows.len() + fallback_rows.len()
+                    stock_code,
+                    signal_date_only,
+                    eval_window,
+                    hist_rows.len() + fallback_rows.len()
                 )));
             }
             let mut reversed = fallback_rows;
@@ -257,7 +263,11 @@ impl Backtest {
                 ("action".to_string(), Value::from(action.as_str())),
                 (
                     "entry".to_string(),
-                    Value::from(if entry_price > 0.0 { entry_price } else { start_price }),
+                    Value::from(if entry_price > 0.0 {
+                        entry_price
+                    } else {
+                        start_price
+                    }),
                 ),
                 ("exit".to_string(), Value::from(end_close)),
                 ("ret".to_string(), Value::from(stock_return_pct)),
@@ -283,7 +293,10 @@ impl Backtest {
 
         let now = self.now_expr();
         let _ = execute(
-            &format!("UPDATE decision_signals SET status = 4, modify_time = {} WHERE id = :id", now),
+            &format!(
+                "UPDATE decision_signals SET status = 4, modify_time = {} WHERE id = :id",
+                now
+            ),
             vec![("id".to_string(), Value::from(signal_id))],
             &connector,
         );
@@ -316,14 +329,15 @@ impl Backtest {
         let eval_window = conf.backtest.eval_window_days;
 
         let date_sub = self.date_sub_days_expr(eval_window as i64);
-        let sql = format!("SELECT id FROM decision_signals \
+        let sql = format!(
+            "SELECT id FROM decision_signals \
              WHERE status = 1 AND signal_date < {} \
-             ORDER BY signal_date ASC LIMIT :limit", date_sub);
+             ORDER BY signal_date ASC LIMIT :limit",
+            date_sub
+        );
         let rows = query_rows(
             &sql,
-            vec![
-                ("limit".to_string(), Value::from(limit)),
-            ],
+            vec![("limit".to_string(), Value::from(limit))],
             &connector,
         )
         .map_err(|e| tube::Error::msg(format!("查询待评估信号失败: {}", e)))?;
@@ -432,7 +446,11 @@ impl Backtest {
         };
         let std_return: f64 = if variance > 0.0 { variance.sqrt() } else { 0.0 };
 
-        let win_rate = if total > 0.0 { wins / total * 100.0 } else { 0.0 };
+        let win_rate = if total > 0.0 {
+            wins / total * 100.0
+        } else {
+            0.0
+        };
         let sharpe_ratio = if std_return > 0.0 {
             avg_return / std_return
         } else {
@@ -466,12 +484,8 @@ impl Backtest {
              max_high, min_low, stock_return_pct, direction_expected, outcome, \
              stop_loss_price, take_profit_price, hit_stop_loss, hit_take_profit \
              FROM backtest_results WHERE id = :id AND status >= 1";
-        let rows = query_rows(
-            sql,
-            vec![("id".to_string(), Value::from(id))],
-            &connector,
-        )
-        .map_err(|e| tube::Error::msg(format!("查询回测详情失败: {}", e)))?;
+        let rows = query_rows(sql, vec![("id".to_string(), Value::from(id))], &connector)
+            .map_err(|e| tube::Error::msg(format!("查询回测详情失败: {}", e)))?;
 
         if rows.is_empty() {
             return Ok(Value::Null);

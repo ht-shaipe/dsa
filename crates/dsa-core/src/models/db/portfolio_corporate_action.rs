@@ -3,7 +3,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "portfolio_corporate_actions", comment = "组合公司行动(分红/拆股)", primary = "identity")]
+#[table(
+    name = "portfolio_corporate_actions",
+    comment = "组合公司行动(分红/拆股)",
+    primary = "identity"
+)]
 pub struct PortfolioCorporateAction {
     #[field(primary = true, increment = 1)]
     pub id: i64,
@@ -23,7 +27,11 @@ pub struct PortfolioCorporateAction {
     #[field(rename = "effective_date", required = true, comment = "生效日期")]
     pub effective_date: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "action_type", required = true, comment = "类型: cash_dividend/split_adjustment")]
+    #[field(
+        rename = "action_type",
+        required = true,
+        comment = "类型: cash_dividend/split_adjustment"
+    )]
     pub action_type: String,
 
     #[field(rename = "cash_dividend_per_share", comment = "每股现金分红")]

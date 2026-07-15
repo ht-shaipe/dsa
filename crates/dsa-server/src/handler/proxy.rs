@@ -23,10 +23,7 @@ pub struct ProxyResponse {
     pub message: String,
 }
 
-const ALLOWED_DOMAINS: &[&str] = &[
-    "auth.htui.cc",
-    "eastmoney.com",
-];
+const ALLOWED_DOMAINS: &[&str] = &["auth.htui.cc", "eastmoney.com"];
 
 const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -51,7 +48,9 @@ pub fn is_url_allowed(url: &str) -> bool {
         None
     };
     if let Some(h) = host {
-        return ALLOWED_DOMAINS.iter().any(|d| h == *d || h.ends_with(&format!(".{}", d)));
+        return ALLOWED_DOMAINS
+            .iter()
+            .any(|d| h == *d || h.ends_with(&format!(".{}", d)));
     }
     false
 }
@@ -67,8 +66,12 @@ pub async fn send_proxy_request(
         return Err(format!("Domain not allowed: {}", url));
     }
 
-    tube::log!("[PROXY] {} {} body={:?}", method, url,
-        body.map(|b| if b.len() > 200 { &b[..200] } else { b }));
+    tube::log!(
+        "[PROXY] {} {} body={:?}",
+        method,
+        url,
+        body.map(|b| if b.len() > 200 { &b[..200] } else { b })
+    );
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
@@ -98,8 +101,13 @@ pub async fn send_proxy_request(
     }
 
     if let Some(body_str) = body {
-        let content_type = headers.get("Content-Type").map(|s| s.as_str()).unwrap_or("application/json");
-        request_builder = request_builder.header("Content-Type", content_type).body(body_str.to_owned());
+        let content_type = headers
+            .get("Content-Type")
+            .map(|s| s.as_str())
+            .unwrap_or("application/json");
+        request_builder = request_builder
+            .header("Content-Type", content_type)
+            .body(body_str.to_owned());
     }
 
     match request_builder.send().await {
@@ -107,19 +115,27 @@ pub async fn send_proxy_request(
             let status = response.status();
             let response_text = response.text().await.unwrap_or_default();
 
-            tube::log!("[PROXY] Response status={}, body={:?}", status,
-                if response_text.len() > 200 { &response_text[..200] } else { &response_text });
+            tube::log!(
+                "[PROXY] Response status={}, body={:?}",
+                status,
+                if response_text.len() > 200 {
+                    &response_text[..200]
+                } else {
+                    &response_text
+                }
+            );
 
             if status.as_u16() >= 400 {
-                return Err(format!("Remote returned error: {} - {}", status, response_text));
+                return Err(format!(
+                    "Remote returned error: {} - {}",
+                    status, response_text
+                ));
             }
 
             serde_json::from_str(&response_text)
                 .map_err(|e| format!("Failed to parse remote response: {}", e))
         }
-        Err(e) => {
-            Err(format!("Proxy request failed: {}", e))
-        }
+        Err(e) => Err(format!("Proxy request failed: {}", e)),
     }
 }
 
@@ -132,16 +148,20 @@ pub async fn proxy_post(_req: HttpRequest, payload: web::Json<ProxyRequest>) -> 
         &proxy_req.headers,
         proxy_req.body.as_deref(),
         30,
-    ).await {
-        Ok(response_json) => {
-            HttpResponse::Ok().json(serde_json::json!({
-                "code": 200,
-                "result": response_json,
-                "message": ""
-            }))
-        }
+    )
+    .await
+    {
+        Ok(response_json) => HttpResponse::Ok().json(serde_json::json!({
+            "code": 200,
+            "result": response_json,
+            "message": ""
+        })),
         Err(err_msg) => {
-            let code = if err_msg.starts_with("Domain not allowed") { 403 } else { 500 };
+            let code = if err_msg.starts_with("Domain not allowed") {
+                403
+            } else {
+                500
+            };
             tube::log!("[PROXY] Request failed: {}", err_msg);
             HttpResponse::Ok().json(serde_json::json!({
                 "code": code,

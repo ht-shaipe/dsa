@@ -1,9 +1,9 @@
 //! 对话上下文管理 - 支持持久化和序列化
 
-use tube::Value;
-use dsa_core::{DsaError, DsaResult, utils};
 use ai_llm_kit::{LlmFactory, LlmProvider, LlmService};
 use deck_mysql::{DataRow, Helper};
+use dsa_core::{utils, DsaError, DsaResult};
+use tube::Value;
 
 /// 单条消息
 pub struct Message {
@@ -30,25 +30,38 @@ impl Conversation {
     }
 
     pub fn add_user(&mut self, content: &str) {
-        self.messages.push(Message { role: "user".to_string(), content: content.to_string() });
+        self.messages.push(Message {
+            role: "user".to_string(),
+            content: content.to_string(),
+        });
     }
 
     pub fn add_assistant(&mut self, content: &str) {
-        self.messages.push(Message { role: "assistant".to_string(), content: content.to_string() });
+        self.messages.push(Message {
+            role: "assistant".to_string(),
+            content: content.to_string(),
+        });
     }
 
     pub fn add_system(&mut self, content: &str) {
-        self.messages.push(Message { role: "system".to_string(), content: content.to_string() });
+        self.messages.push(Message {
+            role: "system".to_string(),
+            content: content.to_string(),
+        });
     }
 
     /// 序列化为 Value
     pub fn to_value(&self) -> Value {
-        let msgs: Vec<Value> = self.messages.iter().map(|m| {
-            value!({
-                "role": m.role.clone(),
-                "content": m.content.clone(),
+        let msgs: Vec<Value> = self
+            .messages
+            .iter()
+            .map(|m| {
+                value!({
+                    "role": m.role.clone(),
+                    "content": m.content.clone(),
+                })
             })
-        }).collect();
+            .collect();
 
         value!({
             "session_id": self.session_id.clone(),
@@ -58,19 +71,25 @@ impl Conversation {
 
     /// 从 Value 反序列化
     pub fn from_value(session_id: &str, v: &Value) -> Self {
-        let msgs = v.get("messages")
+        let msgs = v
+            .get("messages")
             .and_then(|m| Value::as_array(m))
             .unwrap_or_default();
 
-        let messages: Vec<Message> = msgs.iter().map(|item| {
-            let role = item.get("role")
-                .and_then(|r| r.as_str())
-                .unwrap_or_default();
-            let content = item.get("content")
-                .and_then(|c| c.as_str())
-                .unwrap_or_default();
-            Message { role, content }
-        }).collect();
+        let messages: Vec<Message> = msgs
+            .iter()
+            .map(|item| {
+                let role = item
+                    .get("role")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or_default();
+                let content = item
+                    .get("content")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or_default();
+                Message { role, content }
+            })
+            .collect();
 
         Self {
             session_id: session_id.to_string(),
@@ -89,7 +108,8 @@ impl Conversation {
             sql,
             vec![("sid".to_string(), Value::from(session_id.to_string()))],
             &connector,
-        ).map_err(|e| DsaError::Database(format!("查询对话消息失败: {}", e)))?;
+        )
+        .map_err(|e| DsaError::Database(format!("查询对话消息失败: {}", e)))?;
 
         if rows.len() <= 20 {
             return Ok(value!({
@@ -103,18 +123,27 @@ impl Conversation {
         }
 
         // 构建对话文本
-        let conversation_text: String = rows.iter().map(|r| {
-            let v = r.to_value2();
-            let role = v.get("role").and_then(|v| v.as_str()).unwrap_or_default();
-            let content = v.get("content").and_then(|v| v.as_str()).unwrap_or_default();
-            format!("[{}]: {}", role, content)
-        }).collect::<Vec<String>>().join("\n");
+        let conversation_text: String = rows
+            .iter()
+            .map(|r| {
+                let v = r.to_value2();
+                let role = v.get("role").and_then(|v| v.as_str()).unwrap_or_default();
+                let content = v
+                    .get("content")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                format!("[{}]: {}", role, content)
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
 
         // 调用LLM生成摘要
         let conf = dsa_core::get_global_config();
         let api_key = conf.resolve_api_key();
         if api_key.is_empty() {
-            return Err(DsaError::LlmAnalysis("API Key 未配置, 无法压缩摘要".to_string()));
+            return Err(DsaError::LlmAnalysis(
+                "API Key 未配置, 无法压缩摘要".to_string(),
+            ));
         }
 
         let llm_provider = LlmProvider::instance(&conf.llm.provider)
@@ -135,7 +164,9 @@ impl Conversation {
             "max_tokens": 500,
         });
 
-        let response = llm.chat(&body).await
+        let response = llm
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("LLM摘要生成失败: {}", e)))?;
 
         let choices = response

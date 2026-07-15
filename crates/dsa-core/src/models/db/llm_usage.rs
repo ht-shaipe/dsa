@@ -40,7 +40,12 @@ pub struct LlmUsage {
     #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "call_type", length = 32, default_value = "'analysis'", comment = "调用类型")]
+    #[field(
+        rename = "call_type",
+        length = 32,
+        default_value = "'analysis'",
+        comment = "调用类型"
+    )]
     pub call_type: String,
 
     #[field(length = 64, default_value = "''", comment = "提供商")]
@@ -49,7 +54,12 @@ pub struct LlmUsage {
     #[field(rename = "cost_estimate", default_value = "0", comment = "费用估算")]
     pub cost_estimate: f64,
 
-    #[field(rename = "request_id", length = 64, default_value = "''", comment = "请求ID")]
+    #[field(
+        rename = "request_id",
+        length = 64,
+        default_value = "''",
+        comment = "请求ID"
+    )]
     pub request_id: String,
 
     #[field(rename = "error_message", default_value = "''", comment = "错误信息")]

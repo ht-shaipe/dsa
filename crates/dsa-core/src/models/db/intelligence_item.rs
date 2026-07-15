@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "intelligence_items", comment = "情报条目(去重)", primary = "identity")]
+#[table(
+    name = "intelligence_items",
+    comment = "情报条目(去重)",
+    primary = "identity"
+)]
 pub struct IntelligenceItem {
     #[field(primary = true, increment = 1)]
     pub id: i64,
@@ -40,10 +44,20 @@ pub struct IntelligenceItem {
     #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "source_name", length = 100, default_value = "''", comment = "来源名称")]
+    #[field(
+        rename = "source_name",
+        length = 100,
+        default_value = "''",
+        comment = "来源名称"
+    )]
     pub source_name: String,
 
-    #[field(rename = "source_type", length = 32, default_value = "''", comment = "来源类型")]
+    #[field(
+        rename = "source_type",
+        length = 32,
+        default_value = "''",
+        comment = "来源类型"
+    )]
     pub source_type: String,
 
     #[field(length = 100, default_value = "''", comment = "来源")]

@@ -1,27 +1,39 @@
+use deck::sqlite::DataTable;
+use deck::TableService;
 use dsa_core::db::{execute, query_rows, row_get_f64, row_get_string};
 use dsa_core::models::db::AlertCooldown as AlertCooldownModel;
 use dsa_core::models::db::AlertNotification as AlertNotificationModel;
 use dsa_core::models::db::AlertRule as AlertRuleModel;
 use dsa_core::models::db::AlertTrigger as AlertTriggerModel;
 use dsa_core::utils;
-use deck::sqlite::DataTable;
-use deck::TableService;
 
 use qta_crawler::Real;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
-struct TriggerTable { request: RequestParameter }
+struct TriggerTable {
+    request: RequestParameter,
+}
 
 impl DataTable<AlertTriggerModel> for TriggerTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<AlertTriggerModel> for TriggerTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl TriggerTable {
-    fn new(param: &RequestParameter) -> Self { TriggerTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        TriggerTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_triggers(&self, limit: i64) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
@@ -29,8 +41,12 @@ impl TriggerTable {
              condition_snapshot, notified, create_time \
              FROM alert_triggers WHERE status >= 1 \
              ORDER BY create_time DESC LIMIT :limit";
-        query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
-            .map_err(|e| tube::Error::msg(format!("查询触发历史失败: {}", e)))
+        query_rows(
+            sql,
+            vec![("limit".to_string(), Value::from(limit))],
+            &connector,
+        )
+        .map_err(|e| tube::Error::msg(format!("查询触发历史失败: {}", e)))
     }
 
     fn query_notifications(&self, limit: i64) -> Result<Vec<Value>> {
@@ -39,11 +55,21 @@ impl TriggerTable {
              condition_snapshot, create_time \
              FROM alert_triggers WHERE status >= 1 AND notified = 1 \
              ORDER BY create_time DESC LIMIT :limit";
-        query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
-            .map_err(|e| tube::Error::msg(format!("查询通知列表失败: {}", e)))
+        query_rows(
+            sql,
+            vec![("limit".to_string(), Value::from(limit))],
+            &connector,
+        )
+        .map_err(|e| tube::Error::msg(format!("查询通知列表失败: {}", e)))
     }
 
-    fn insert_trigger(&self, rule_id: i64, stock_code: &str, current_price: f64, condition_json: &str) -> Result<i64> {
+    fn insert_trigger(
+        &self,
+        rule_id: i64,
+        stock_code: &str,
+        current_price: f64,
+        condition_json: &str,
+    ) -> Result<i64> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "INSERT INTO alert_triggers \
              (rule_id, stock_code, trigger_type, trigger_value, condition_snapshot, notified, status, create_time) \
@@ -57,22 +83,35 @@ impl TriggerTable {
                 ("cond".to_string(), Value::from(condition_json)),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("插入触发记录失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("插入触发记录失败: {}", e)))?;
         Ok(result as i64)
     }
 }
 
-struct NotificationTable { request: RequestParameter }
+struct NotificationTable {
+    request: RequestParameter,
+}
 
 impl DataTable<AlertNotificationModel> for NotificationTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<AlertNotificationModel> for NotificationTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl NotificationTable {
-    fn new(param: &RequestParameter) -> Self { NotificationTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        NotificationTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_notification_log(&self, limit: i64) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
@@ -80,13 +119,25 @@ impl NotificationTable {
              retryable, latency_ms, diagnostics, create_time \
              FROM alert_notifications \
              ORDER BY create_time DESC LIMIT :limit";
-        let rows = query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
-            .map_err(|e| tube::Error::msg(format!("查询通知投递日志失败: {}", e)))?;
+        let rows = query_rows(
+            sql,
+            vec![("limit".to_string(), Value::from(limit))],
+            &connector,
+        )
+        .map_err(|e| tube::Error::msg(format!("查询通知投递日志失败: {}", e)))?;
         Ok(rows)
     }
 
-    fn insert_notification_log(&self, trigger_id: i64, channel: &str, success: i64,
-                               error_code: &str, retryable: i64, latency_ms: i64, diagnostics: &str) -> Result<Value> {
+    fn insert_notification_log(
+        &self,
+        trigger_id: i64,
+        channel: &str,
+        success: i64,
+        error_code: &str,
+        retryable: i64,
+        latency_ms: i64,
+        diagnostics: &str,
+    ) -> Result<Value> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "INSERT INTO alert_notifications \
              (trigger_id, channel, attempt, success, error_code, retryable, latency_ms, diagnostics, create_time) \
@@ -103,7 +154,8 @@ impl NotificationTable {
                 ("diag".to_string(), Value::from(diagnostics)),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("创建通知投递记录失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("创建通知投递记录失败: {}", e)))?;
         Ok(value!({"id": result as i64, "triggerId": trigger_id, "channel": channel}))
     }
 
@@ -123,17 +175,29 @@ impl NotificationTable {
     }
 }
 
-struct CooldownTable { request: RequestParameter }
+struct CooldownTable {
+    request: RequestParameter,
+}
 
 impl DataTable<AlertCooldownModel> for CooldownTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<AlertCooldownModel> for CooldownTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl CooldownTable {
-    fn new(param: &RequestParameter) -> Self { CooldownTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        CooldownTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_cooldowns(&self, limit: i64) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
@@ -141,11 +205,22 @@ impl CooldownTable {
              cooldown_until, reason, state, updated_time \
              FROM alert_cooldowns WHERE state = 'active' \
              ORDER BY cooldown_until ASC LIMIT :limit";
-        query_rows(sql, vec![("limit".to_string(), Value::from(limit))], &connector)
-            .map_err(|e| tube::Error::msg(format!("查询冷却记录失败: {}", e)))
+        query_rows(
+            sql,
+            vec![("limit".to_string(), Value::from(limit))],
+            &connector,
+        )
+        .map_err(|e| tube::Error::msg(format!("查询冷却记录失败: {}", e)))
     }
 
-    fn insert_cooldown(&self, rule_id: i64, target: &str, severity: &str, cooldown_minutes: i64, reason: &str) -> Result<Value> {
+    fn insert_cooldown(
+        &self,
+        rule_id: i64,
+        target: &str,
+        severity: &str,
+        cooldown_minutes: i64,
+        reason: &str,
+    ) -> Result<Value> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "INSERT INTO alert_cooldowns \
              (rule_id, rule_key, target, severity, last_triggered_at, cooldown_until, reason, state, updated_time) \
@@ -160,7 +235,8 @@ impl CooldownTable {
                 ("reason".to_string(), Value::from(reason)),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("创建冷却记录失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("创建冷却记录失败: {}", e)))?;
         Ok(value!({"id": result as i64, "ruleId": rule_id, "cooldownMinutes": cooldown_minutes}))
     }
 
@@ -175,7 +251,8 @@ impl CooldownTable {
                 ("target".to_string(), Value::from(target)),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("清除冷却记录失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("清除冷却记录失败: {}", e)))?;
         Ok(value!({"ruleId": rule_id, "target": target, "state": "expired"}))
     }
 
@@ -196,20 +273,30 @@ impl CooldownTable {
     }
 }
 
-pub struct Alert { request: RequestParameter }
+pub struct Alert {
+    request: RequestParameter,
+}
 
 impl DataTable<AlertRuleModel> for Alert {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 
 impl TableService<AlertRuleModel> for Alert {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 
 impl Alert {
     pub fn new(param: &RequestParameter) -> Self {
-        Alert { request: param.clone() }
+        Alert {
+            request: param.clone(),
+        }
     }
 
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
@@ -245,15 +332,21 @@ impl Alert {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let (sql, p) = if code.is_empty() {
-            ("SELECT id, stock_code, stock_name, rule_type, condition_json, \
+            (
+                "SELECT id, stock_code, stock_name, rule_type, condition_json, \
               enabled, last_triggered_at, trigger_count, create_time, modify_time \
-              FROM alert_rules WHERE status >= 1 ORDER BY create_time DESC".to_string(),
-             vec![])
+              FROM alert_rules WHERE status >= 1 ORDER BY create_time DESC"
+                    .to_string(),
+                vec![],
+            )
         } else {
-            ("SELECT id, stock_code, stock_name, rule_type, condition_json, \
+            (
+                "SELECT id, stock_code, stock_name, rule_type, condition_json, \
               enabled, last_triggered_at, trigger_count, create_time, modify_time \
-              FROM alert_rules WHERE status >= 1 AND stock_code = :code ORDER BY create_time DESC".to_string(),
-             vec![("code".to_string(), Value::from(code.as_str()))])
+              FROM alert_rules WHERE status >= 1 AND stock_code = :code ORDER BY create_time DESC"
+                    .to_string(),
+                vec![("code".to_string(), Value::from(code.as_str()))],
+            )
         };
 
         let rows = query_rows(&sql, p, &connector)
@@ -291,17 +384,15 @@ impl Alert {
                 ("cond".to_string(), Value::from(condition_json.as_str())),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("创建告警规则失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("创建告警规则失败: {}", e)))?;
 
         Ok(value!({"id": result as i64, "code": code, "ruleType": rule_type}))
     }
 
     async fn rule_update(&self) -> Result<Value> {
         let params = self.params();
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = params.get("id").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if id == 0 {
             return Err(tube::Error::msg("请提供规则ID".to_string()));
         }
@@ -309,7 +400,8 @@ impl Alert {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let condition_json = utils::param_string(params, "condition");
 
-        let sql = "UPDATE alert_rules SET condition_json = :cond, modify_time = NOW() WHERE id = :id";
+        let sql =
+            "UPDATE alert_rules SET condition_json = :cond, modify_time = NOW() WHERE id = :id";
         execute(
             sql,
             vec![
@@ -317,17 +409,15 @@ impl Alert {
                 ("id".to_string(), Value::from(id)),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("更新告警规则失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("更新告警规则失败: {}", e)))?;
 
         Ok(value!({"id": id}))
     }
 
     async fn rule_delete(&self) -> Result<Value> {
         let params = self.params();
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = params.get("id").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if id == 0 {
             return Err(tube::Error::msg("请提供规则ID".to_string()));
         }
@@ -342,10 +432,7 @@ impl Alert {
 
     async fn rule_enable(&self) -> Result<Value> {
         let params = self.params();
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = params.get("id").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if id == 0 {
             return Err(tube::Error::msg("请提供规则ID".to_string()));
         }
@@ -360,10 +447,7 @@ impl Alert {
 
     async fn rule_disable(&self) -> Result<Value> {
         let params = self.params();
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = params.get("id").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if id == 0 {
             return Err(tube::Error::msg("请提供规则ID".to_string()));
         }
@@ -448,10 +532,7 @@ impl Alert {
 
     async fn triggers(&self) -> Result<Value> {
         let params = self.params();
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let table = TriggerTable::new(&self.request);
         let results = table.query_triggers(limit)?;
@@ -460,10 +541,7 @@ impl Alert {
 
     async fn notifications(&self) -> Result<Value> {
         let params = self.params();
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let table = TriggerTable::new(&self.request);
         let results = table.query_notifications(limit)?;
@@ -472,10 +550,7 @@ impl Alert {
 
     async fn cooldowns(&self) -> Result<Value> {
         let params = self.params();
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let table = CooldownTable::new(&self.request);
         let results = table.query_cooldowns(limit)?;
@@ -484,10 +559,7 @@ impl Alert {
 
     async fn cooldown_create(&self) -> Result<Value> {
         let params = self.params();
-        let rule_id = params
-            .get("ruleId")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let rule_id = params.get("ruleId").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if rule_id == 0 {
             return Err(tube::Error::msg("请提供规则ID".to_string()));
         }
@@ -506,10 +578,7 @@ impl Alert {
 
     async fn cooldown_clear(&self) -> Result<Value> {
         let params = self.params();
-        let rule_id = params
-            .get("ruleId")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let rule_id = params.get("ruleId").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if rule_id == 0 {
             return Err(tube::Error::msg("请提供规则ID".to_string()));
         }
@@ -525,10 +594,7 @@ impl Alert {
 
     async fn notification_log(&self) -> Result<Value> {
         let params = self.params();
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let table = NotificationTable::new(&self.request);
         let results = table.query_notification_log(limit)?;
@@ -566,7 +632,15 @@ impl Alert {
         let diagnostics = utils::param_string(params, "diagnostics");
 
         let table = NotificationTable::new(&self.request);
-        table.insert_notification_log(trigger_id, &channel, success, &error_code, retryable, latency_ms, &diagnostics)
+        table.insert_notification_log(
+            trigger_id,
+            &channel,
+            success,
+            &error_code,
+            retryable,
+            latency_ms,
+            &diagnostics,
+        )
     }
 
     async fn check_all(&self) -> Result<Value> {
@@ -594,10 +668,7 @@ impl Alert {
             }
 
             let prefix = utils::market_prefix(&stock_code);
-            let quote = match real
-                .get_price(&format!("{}{}", prefix, stock_code))
-                .await
-            {
+            let quote = match real.get_price(&format!("{}{}", prefix, stock_code)).await {
                 Ok(q) => q,
                 Err(_) => continue,
             };
@@ -653,7 +724,9 @@ impl Alert {
 
             let reason_str = reasons.join("; ");
 
-            if let Ok(trigger_id) = trigger_table.insert_trigger(rule_id, &stock_code, current_price, &condition_json) {
+            if let Ok(trigger_id) =
+                trigger_table.insert_trigger(rule_id, &stock_code, current_price, &condition_json)
+            {
                 let _ = notification_table.insert_delivery_record(trigger_id, &reason_str);
                 let _ = cooldown_table.insert_auto_cooldown(rule_id, &stock_code, &reason_str);
             }

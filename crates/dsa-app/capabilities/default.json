@@ -19,6 +19,12 @@
     "core:tray:allow-set-icon",
     "core:tray:allow-set-tooltip",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "dialog:default",
+    "dialog:allow-save",
+    "dialog:allow-open",
+    "fs:default",
+    "fs:allow-write-file",
+    "fs:allow-read-file"
   ]
 }

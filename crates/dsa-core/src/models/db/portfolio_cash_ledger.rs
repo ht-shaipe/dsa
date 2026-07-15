@@ -3,7 +3,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "portfolio_cash_ledger", comment = "组合现金流水", primary = "identity")]
+#[table(
+    name = "portfolio_cash_ledger",
+    comment = "组合现金流水",
+    primary = "identity"
+)]
 pub struct PortfolioCashLedger {
     #[field(primary = true, increment = 1)]
     pub id: i64,

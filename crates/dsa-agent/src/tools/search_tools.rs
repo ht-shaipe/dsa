@@ -92,7 +92,10 @@ impl SearchTools {
         articles
             .iter()
             .filter_map(|item| {
-                let title = item.get("title").and_then(|v| v.as_str()).unwrap_or_default();
+                let title = item
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 let url = item
                     .get("url")
                     .or_else(|| item.get("articleUrl"))
@@ -148,9 +151,15 @@ impl SearchTools {
                 let results: Vec<Value> = data
                     .iter()
                     .filter_map(|item| {
-                        let title = item.get("title").and_then(|v| v.as_str()).unwrap_or_default();
+                        let title = item
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
                         let url = item.get("url").and_then(|v| v.as_str()).unwrap_or_default();
-                        let intro = item.get("intro").and_then(|v| v.as_str()).unwrap_or_default();
+                        let intro = item
+                            .get("intro")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
                         if title.is_empty() {
                             return None;
                         }

@@ -23,10 +23,7 @@ impl Search {
             "search" => self.search().await,
             "stock_news" => self.stock_news().await,
             "providers" => self.providers().await,
-            _ => Err(tube::Error::from(format!(
-                "search不支持方法: {}",
-                method
-            ))),
+            _ => Err(tube::Error::from(format!("search不支持方法: {}", method))),
         }
     }
 
@@ -87,10 +84,7 @@ impl Search {
             .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(10.0) as usize;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(10.0) as usize;
 
         if code.is_empty() {
             return Err(tube::Error::from("请提供股票代码".to_string()));
@@ -137,10 +131,19 @@ impl Search {
             Err(_) => return,
         };
         for item in results.iter().take(5) {
-            let title = item.get("title").and_then(|v| v.as_str()).unwrap_or_default();
+            let title = item
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             let url = item.get("url").and_then(|v| v.as_str()).unwrap_or_default();
-            let snippet = item.get("snippet").and_then(|v| v.as_str()).unwrap_or_default();
-            let source = item.get("source").and_then(|v| v.as_str()).unwrap_or_default();
+            let snippet = item
+                .get("snippet")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let source = item
+                .get("source")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             if title.is_empty() {
                 continue;
             }
@@ -173,8 +176,10 @@ impl Search {
 
     async fn providers(&self) -> Result<Value> {
         let conf = dsa_core::get_global_config();
-        let serper_key = Self::resolve_key(&conf.search.serper_api_key, &conf.search.serper_api_key_env);
-        let google_key = Self::resolve_key(&conf.search.google_api_key, &conf.search.google_api_key_env);
+        let serper_key =
+            Self::resolve_key(&conf.search.serper_api_key, &conf.search.serper_api_key_env);
+        let google_key =
+            Self::resolve_key(&conf.search.google_api_key, &conf.search.google_api_key_env);
         let bing_key = Self::resolve_key(&conf.search.bing_api_key, &conf.search.bing_api_key_env);
 
         Ok(value!([
@@ -189,7 +194,8 @@ impl Search {
         query: &str,
         conf: &dsa_core::config::AppConfig,
     ) -> Result<Vec<Value>> {
-        let api_key = Self::resolve_key(&conf.search.serper_api_key, &conf.search.serper_api_key_env);
+        let api_key =
+            Self::resolve_key(&conf.search.serper_api_key, &conf.search.serper_api_key_env);
         if api_key.is_empty() {
             tracing::warn!("[搜索] Serper API Key 未配置, 跳过");
             return Ok(vec![]);
@@ -248,7 +254,8 @@ impl Search {
         query: &str,
         conf: &dsa_core::config::AppConfig,
     ) -> Result<Vec<Value>> {
-        let api_key = Self::resolve_key(&conf.search.google_api_key, &conf.search.google_api_key_env);
+        let api_key =
+            Self::resolve_key(&conf.search.google_api_key, &conf.search.google_api_key_env);
         let cx = &conf.search.google_cx;
         if api_key.is_empty() || cx.is_empty() {
             tracing::warn!("[搜索] Google Custom Search API Key 或 CX 未配置, 跳过");
@@ -257,7 +264,8 @@ impl Search {
 
         let url = format!(
             "https://www.googleapis.com/customsearch/v1?key={}&cx={}&q={}&lr=lang_zh-CN",
-            api_key, cx,
+            api_key,
+            cx,
             urlencoding::encode(query)
         );
 
@@ -289,9 +297,18 @@ impl Search {
         let results: Vec<Value> = items
             .iter()
             .filter_map(|item| {
-                let title = item.get("title").and_then(|v| v.as_str()).unwrap_or_default();
-                let link = item.get("link").and_then(|v| v.as_str()).unwrap_or_default();
-                let snippet = item.get("snippet").and_then(|v| v.as_str()).unwrap_or_default();
+                let title = item
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let link = item
+                    .get("link")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let snippet = item
+                    .get("snippet")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 if title.is_empty() {
                     return None;
                 }
@@ -353,9 +370,15 @@ impl Search {
         let results: Vec<Value> = web_pages
             .iter()
             .filter_map(|item| {
-                let title = item.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+                let title = item
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 let link = item.get("url").and_then(|v| v.as_str()).unwrap_or_default();
-                let snippet = item.get("snippet").and_then(|v| v.as_str()).unwrap_or_default();
+                let snippet = item
+                    .get("snippet")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 if title.is_empty() {
                     return None;
                 }
@@ -422,7 +445,10 @@ impl Search {
         articles
             .iter()
             .filter_map(|item| {
-                let title = item.get("title").and_then(|v| v.as_str()).unwrap_or_default();
+                let title = item
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 let url = item
                     .get("url")
                     .or_else(|| item.get("articleUrl"))
@@ -478,9 +504,15 @@ impl Search {
                 let results: Vec<Value> = data
                     .iter()
                     .filter_map(|item| {
-                        let title = item.get("title").and_then(|v| v.as_str()).unwrap_or_default();
+                        let title = item
+                            .get("title")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
                         let url = item.get("url").and_then(|v| v.as_str()).unwrap_or_default();
-                        let intro = item.get("intro").and_then(|v| v.as_str()).unwrap_or_default();
+                        let intro = item
+                            .get("intro")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default();
                         if title.is_empty() {
                             return None;
                         }

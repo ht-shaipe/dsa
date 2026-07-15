@@ -3,7 +3,7 @@
 use crate::models::KlineBar;
 use crate::DsaError;
 use deck_connector::Connector;
-use qta_crawler::{EastMoney, History, QQ, Real};
+use qta_crawler::{EastMoney, History, Real, QQ};
 use tube::Value;
 
 /// 从参数中提取字符串值，不存在则返回空字符串
@@ -59,12 +59,18 @@ pub async fn fetch_kline(code: &str, period: &str) -> Result<Vec<KlineBar>, DsaE
 
     let em = EastMoney::new();
     for i in 0..2 {
-        match em.stock_zh_a_hist(code, Some(period), None, None, Some("qfq")).await {
+        match em
+            .stock_zh_a_hist(code, Some(period), None, None, Some("qfq"))
+            .await
+        {
             Ok(raw) => {
                 let mut bars = Vec::with_capacity(raw.len());
                 for item in &raw {
                     bars.push(KlineBar {
-                        date: item.get("日期").and_then(|v| v.as_str()).unwrap_or_default(),
+                        date: item
+                            .get("日期")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default(),
                         open: item.get("开盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
                         high: item.get("最高").and_then(|v| v.as_f64()).unwrap_or(0.0),
                         low: item.get("最低").and_then(|v| v.as_f64()).unwrap_or(0.0),
@@ -96,7 +102,9 @@ async fn fetch_kline_sina(code: &str, period: &str) -> Result<Vec<KlineBar>, Dsa
 
     match History::get_price(code, scale, ma, length).await {
         Ok(raw) => {
-            let arr = raw.as_array().ok_or_else(|| DsaError::StockData("新浪K线数据格式异常".to_string()))?;
+            let arr = raw
+                .as_array()
+                .ok_or_else(|| DsaError::StockData("新浪K线数据格式异常".to_string()))?;
             let mut bars = Vec::with_capacity(arr.len());
             for item in arr {
                 bars.push(KlineBar {
@@ -114,7 +122,10 @@ async fn fetch_kline_sina(code: &str, period: &str) -> Result<Vec<KlineBar>, Dsa
             }
             Ok(bars)
         }
-        Err(e) => Err(DsaError::StockData(format!("获取K线数据失败(东方财富和新浪均不可用): {}", e))),
+        Err(e) => Err(DsaError::StockData(format!(
+            "获取K线数据失败(东方财富和新浪均不可用): {}",
+            e
+        ))),
     }
 }
 
@@ -132,7 +143,11 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
         Err(_) => return,
     };
     let is_sqlite = crate::get_global_config().database.is_sqlite();
-    let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+    let now_expr = if is_sqlite {
+        "datetime('now')"
+    } else {
+        "NOW()"
+    };
 
     let stock_name = match crate::db::query_rows(
         "SELECT stock_name FROM stock_daily WHERE stock_code = :code AND stock_name != '' AND status >= 1 LIMIT 1",
@@ -202,14 +217,18 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
 
 /// 获取实时行情数据，按配置的数据源优先级依次尝试
 pub async fn fetch_realtime_quote(code: &str) -> Result<Value, DsaError> {
-    let pure_code = code.trim_start_matches("sh").trim_start_matches("sz").trim_start_matches("bj");
+    let pure_code = code
+        .trim_start_matches("sh")
+        .trim_start_matches("sz")
+        .trim_start_matches("bj");
     let prefix = market_prefix(pure_code);
     let symbol = format!("{}{}", prefix, pure_code);
 
     let conf = crate::get_global_config();
     if conf.stock.realtime_source_priority.is_empty() {
         let qq = QQ::new();
-        return qq.get_realtime_quote(&symbol)
+        return qq
+            .get_realtime_quote(&symbol)
             .await
             .map_err(|e| DsaError::StockData(format!("获取实时行情失败: {}", e)));
     }
@@ -218,22 +237,28 @@ pub async fn fetch_realtime_quote(code: &str) -> Result<Value, DsaError> {
         let result: Result<Value, DsaError> = match source.as_str() {
             "tencent" | "qq" => {
                 let qq = QQ::new();
-                qq.get_realtime_quote(&symbol).await
+                qq.get_realtime_quote(&symbol)
+                    .await
                     .map_err(|e| DsaError::StockData(format!("{}", e)))
             }
             "sina" | "real" => {
                 let real = Real::new();
-                real.get_price(&symbol).await
+                real.get_price(&symbol)
+                    .await
                     .map_err(|e| DsaError::StockData(format!("{}", e)))
             }
             "eastmoney" => {
                 let em = EastMoney::new();
-                em.stock_zh_a_spot().await
+                em.stock_zh_a_spot()
+                    .await
                     .map(|spot: Vec<Value>| {
                         spot.iter()
                             .find(|item| {
-                                let item_code: String = item.get("代码").or_else(|| item.get("code"))
-                                    .and_then(|v| v.as_str()).unwrap_or_default();
+                                let item_code: String = item
+                                    .get("代码")
+                                    .or_else(|| item.get("code"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or_default();
                                 item_code == code
                             })
                             .cloned()
@@ -271,8 +296,14 @@ pub async fn fetch_realtime_price(symbol: &str) -> Result<Value, DsaError> {
 pub async fn fetch_market_context() -> Option<String> {
     match Real::new().get_price("sh000001").await {
         Ok(v) => {
-            let name = v.get("name").and_then(|v| v.as_str()).unwrap_or_else(|| "上证指数".to_string());
-            let chg = v.get("changePercent").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            let name = v
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| "上证指数".to_string());
+            let chg = v
+                .get("changePercent")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
             Some(format!("大盘: {} 涨跌{:.2}%", name, chg))
         }
         Err(_) => None,
@@ -289,7 +320,16 @@ pub fn record_llm_usage(
     latency_ms: i64,
     stock_code: &str,
 ) {
-    record_llm_usage_with_cache(provider, model, operation_type, prompt_tokens, completion_tokens, latency_ms, stock_code, 0)
+    record_llm_usage_with_cache(
+        provider,
+        model,
+        operation_type,
+        prompt_tokens,
+        completion_tokens,
+        latency_ms,
+        stock_code,
+        0,
+    )
 }
 
 pub fn record_llm_usage_with_cache(
@@ -307,11 +347,18 @@ pub fn record_llm_usage_with_cache(
         Err(_) => return,
     };
     let is_sqlite = crate::get_global_config().database.is_sqlite();
-    let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
-    let sql = &format!("INSERT INTO llm_usage \
+    let now_expr = if is_sqlite {
+        "datetime('now')"
+    } else {
+        "NOW()"
+    };
+    let sql = &format!(
+        "INSERT INTO llm_usage \
          (llm_provider, llm_model, operation_type, prompt_tokens, completion_tokens, total_tokens, \
           cache_hit, latency_ms, stock_code, create_time) \
-         VALUES (:provider, :model, :op, :pt, :ct, :tt, :cache, :latency, :code, {})", now_expr);
+         VALUES (:provider, :model, :op, :pt, :ct, :tt, :cache, :latency, :code, {})",
+        now_expr
+    );
     let total = prompt_tokens + completion_tokens;
     if let Err(e) = crate::db::execute(
         sql,
@@ -343,9 +390,23 @@ pub fn record_llm_usage_from_response(
 ) {
     let usage_default = tube::Value::Object(tube::Map::new());
     let usage = response.get("usage").unwrap_or(&usage_default);
-    let pt = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-    let ct = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-    record_llm_usage(provider, model, operation_type, pt, ct, elapsed_ms, stock_code);
+    let pt = usage
+        .get("prompt_tokens")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as i32;
+    let ct = usage
+        .get("completion_tokens")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as i32;
+    record_llm_usage(
+        provider,
+        model,
+        operation_type,
+        pt,
+        ct,
+        elapsed_ms,
+        stock_code,
+    );
 }
 
 /// 记录对话消息到数据库
@@ -363,7 +424,11 @@ pub fn record_conversation_message(
         Err(_) => return,
     };
     let is_sqlite = crate::get_global_config().database.is_sqlite();
-    let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+    let now_expr = if is_sqlite {
+        "datetime('now')"
+    } else {
+        "NOW()"
+    };
     let sql = &format!("INSERT INTO conversation_messages \
          (session_id, role, content, llm_provider, llm_model, prompt_tokens, completion_tokens, create_time) \
          VALUES (:sid, :role, :content, :provider, :model, :pt, :ct, {})", now_expr);

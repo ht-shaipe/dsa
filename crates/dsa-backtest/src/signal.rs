@@ -1,8 +1,8 @@
 //! 信号追踪 - 决策信号的追踪与评估
 
-use dsa_core::db::{query_rows, execute, row_get_string, row_get_f64, row_get_i64};
-use dsa_core::{DsaError, DsaResult};
 use deck_connector::Connector;
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_i64, row_get_string};
+use dsa_core::{DsaError, DsaResult};
 use tube::Value;
 
 pub struct SignalTracker {
@@ -11,7 +11,9 @@ pub struct SignalTracker {
 
 impl SignalTracker {
     pub fn new() -> Self {
-        Self { signals: Vec::new() }
+        Self {
+            signals: Vec::new(),
+        }
     }
 
     pub fn add_signal(&mut self, signal: Value) {
@@ -46,7 +48,10 @@ impl SignalTracker {
             let stop_loss: f64 = row_get_f64(row, "stopLoss");
             let target_price: f64 = row_get_f64(row, "targetPrice");
             let signal_date_raw = row_get_string(row, "signalDate");
-            let signal_date_only = signal_date_raw.split(' ').next().unwrap_or(&signal_date_raw);
+            let signal_date_only = signal_date_raw
+                .split(' ')
+                .next()
+                .unwrap_or(&signal_date_raw);
 
             // 检查是否已有评估结果
             let check_sql = "SELECT id FROM decision_signal_outcomes WHERE signal_id = :sid AND eval_horizon = :horizon LIMIT 1";
@@ -115,8 +120,8 @@ impl SignalTracker {
             }
 
             let predicted_up = matches!(action.as_str(), "buy" | "add" | "hold" | "watch");
-            let direction_correct = (predicted_up && actual_return > 0.0)
-                || (!predicted_up && actual_return < 0.0);
+            let direction_correct =
+                (predicted_up && actual_return > 0.0) || (!predicted_up && actual_return < 0.0);
 
             let hit_target = target_price > 0.0 && eval_highs.iter().any(|&h| h >= target_price);
             let hit_sl = stop_loss > 0.0 && eval_lows.iter().any(|&l| l <= stop_loss);

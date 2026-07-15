@@ -1,7 +1,7 @@
-use dsa_core::db::{query_rows, execute, row_get_string, row_get_f64};
+use deck_connector::Connector;
+use dsa_core::db::{execute, query_rows, row_get_f64, row_get_string};
 use dsa_core::utils;
 use dsa_pipeline::technical::TechnicalAnalyzer;
-use deck_connector::Connector;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
@@ -11,7 +11,9 @@ pub struct Indicator {
 
 impl Indicator {
     pub fn new(param: &RequestParameter) -> Self {
-        Indicator { request: param.clone() }
+        Indicator {
+            request: param.clone(),
+        }
     }
 
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
@@ -75,7 +77,8 @@ impl Indicator {
     }
 
     async fn calc_for_stock(connector: &Connector, code: &str) -> Result<Value> {
-        let sql = "SELECT close, volume, amount, trade_date, stock_name, open, high, low, pct_chg, \
+        let sql =
+            "SELECT close, volume, amount, trade_date, stock_name, open, high, low, pct_chg, \
              volume_ratio, turnover_rate, status \
              FROM stock_daily WHERE stock_code = :code AND status >= 1 \
              ORDER BY trade_date ASC LIMIT 120";
@@ -135,7 +138,8 @@ impl Indicator {
                 continue;
             }
 
-            let update_sql = "UPDATE stock_daily SET ma5 = :ma5, ma10 = :ma10, ma20 = :ma20, ma60 = :ma60, \
+            let update_sql =
+                "UPDATE stock_daily SET ma5 = :ma5, ma10 = :ma10, ma20 = :ma20, ma60 = :ma60, \
                  dif = :dif, dea = :dea, macd_hist = :macd_hist \
                  WHERE stock_code = :code AND trade_date = :date AND status >= 1";
             let res = execute(

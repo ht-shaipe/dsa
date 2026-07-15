@@ -74,13 +74,22 @@ impl DecisionAction {
     pub fn from_advice(advice: &str) -> Option<Self> {
         let normalized = advice.to_lowercase().replace('_', " ").trim().to_string();
         let mapping = [
-            (&["买入", "强烈买入", "布局", "建仓", "strong buy", "buy"][..], DecisionAction::Buy),
+            (
+                &["买入", "强烈买入", "布局", "建仓", "strong buy", "buy"][..],
+                DecisionAction::Buy,
+            ),
             (&["加仓", "增持", "accumulate", "add"], DecisionAction::Add),
             (&["持有", "持有观察", "hold"], DecisionAction::Hold),
             (&["减仓", "trim", "reduce"], DecisionAction::Reduce),
-            (&["卖出", "强烈卖出", "清仓", "strong sell", "sell"], DecisionAction::Sell),
+            (
+                &["卖出", "强烈卖出", "清仓", "strong sell", "sell"],
+                DecisionAction::Sell,
+            ),
             (&["观望", "等待", "wait", "watch"], DecisionAction::Watch),
-            (&["回避", "规避", "avoid", "不建议买入"], DecisionAction::Avoid),
+            (
+                &["回避", "规避", "avoid", "不建议买入"],
+                DecisionAction::Avoid,
+            ),
             (&["预警", "风险预警", "alert"], DecisionAction::Alert),
         ];
 

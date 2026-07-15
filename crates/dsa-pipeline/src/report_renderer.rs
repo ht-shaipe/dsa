@@ -26,11 +26,7 @@ impl ReportRenderer {
             ));
         }
         if let Some(score) = report.sentiment_score {
-            md.push_str(&format!(
-                "**评分**: {} {}分  ",
-                report.score_emoji(),
-                score
-            ));
+            md.push_str(&format!("**评分**: {} {}分  ", report.score_emoji(), score));
         }
         if let Some(ref confidence) = report.confidence_level {
             md.push_str(&format!("**信心**: {}", confidence));
@@ -233,10 +229,7 @@ impl ReportRenderer {
                     md.push_str(&format!("- 观察条件: {}\n", pd.watch_conditions.join("; ")));
                 }
                 if !pd.data_limitations.is_empty() {
-                    md.push_str(&format!(
-                        "- 数据限制: {}\n",
-                        pd.data_limitations.join("; ")
-                    ));
+                    md.push_str(&format!("- 数据限制: {}\n", pd.data_limitations.join("; ")));
                 }
                 md.push('\n');
             }
@@ -427,7 +420,10 @@ mod tests {
         let renderer = ReportRenderer::new();
         let md = renderer.render_markdown(&report);
         assert!(md.contains("贵州茅台"));
-        assert!(md.contains("买入"), "should contain action label '买入' from decision_type");
+        assert!(
+            md.contains("买入"),
+            "should contain action label '买入' from decision_type"
+        );
         assert!(md.contains("注意回调风险"));
     }
 
@@ -475,7 +471,10 @@ mod tests {
         let md = renderer.render_markdown(&report);
         let _text = renderer.render_text(&report);
         // Empty report with all None fields produces minimal output
-        assert!(!md.is_empty(), "markdown should produce at least some structure");
+        assert!(
+            !md.is_empty(),
+            "markdown should produce at least some structure"
+        );
         // text may be empty when all fields are None, that's fine
     }
 }

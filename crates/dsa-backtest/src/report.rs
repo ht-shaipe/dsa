@@ -40,8 +40,7 @@ impl BacktestReport {
             }
             total_return += ret;
 
-            if r
-                .get("directionCorrect")
+            if r.get("directionCorrect")
                 .and_then(|v| v.as_f64())
                 .map(|v| v > 0.0)
                 .unwrap_or(false)
@@ -49,10 +48,7 @@ impl BacktestReport {
                 dir_correct += 1;
             }
 
-            let dd = r
-                .get("maxDrawdown")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
+            let dd = r.get("maxDrawdown").and_then(|v| v.as_f64()).unwrap_or(0.0);
             if dd > max_dd {
                 max_dd = dd;
             }

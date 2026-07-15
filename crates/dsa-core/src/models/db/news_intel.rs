@@ -58,6 +58,11 @@ pub struct NewsIntel {
     #[field(default_value = "''", comment = "摘要片段")]
     pub snippet: String,
 
-    #[field(rename = "query_source", length = 32, default_value = "'system'", comment = "查询来源")]
+    #[field(
+        rename = "query_source",
+        length = 32,
+        default_value = "'system'",
+        comment = "查询来源"
+    )]
     pub query_source: String,
 }

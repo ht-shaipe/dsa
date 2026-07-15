@@ -10,7 +10,9 @@ pub struct MarketContext {
 
 impl MarketContext {
     pub fn new(param: &RequestParameter) -> Self {
-        MarketContext { request: param.clone() }
+        MarketContext {
+            request: param.clone(),
+        }
     }
 
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
@@ -18,11 +20,16 @@ impl MarketContext {
             "build" => self.build().await,
             "phase" => self.phase().await,
             "guardrail" => self.guardrail().await,
-            _ => Err(tube::Error::from(format!("market_context不支持方法: {}", method))),
+            _ => Err(tube::Error::from(format!(
+                "market_context不支持方法: {}",
+                method
+            ))),
         }
     }
 
-    fn params(&self) -> &Value { &self.request.value }
+    fn params(&self) -> &Value {
+        &self.request.value
+    }
 
     async fn build(&self) -> Result<Value> {
         let params = self.params();
@@ -37,13 +44,16 @@ impl MarketContext {
         let sz = real.get_price("sz399001").await.ok();
         let cy = real.get_price("sz399006").await.ok();
 
-        let sh_change = sh.as_ref()
+        let sh_change = sh
+            .as_ref()
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
-        let sz_change = sz.as_ref()
+        let sz_change = sz
+            .as_ref()
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
-        let cy_change = cy.as_ref()
+        let cy_change = cy
+            .as_ref()
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
 
@@ -64,7 +74,13 @@ impl MarketContext {
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sector_sql = "SELECT stock_code, stock_name, close, pct_chg             FROM stock_daily             WHERE trade_date = (SELECT MAX(trade_date) FROM stock_daily WHERE status = 1)             AND stock_code LIKE :sector_prefix AND status = 1             ORDER BY pct_chg DESC LIMIT 10";
-        let sector_prefix = if code.starts_with('6') { "6%" } else if code.starts_with('0') || code.starts_with('3') { "0%" } else { "%" };
+        let sector_prefix = if code.starts_with('6') {
+            "6%"
+        } else if code.starts_with('0') || code.starts_with('3') {
+            "0%"
+        } else {
+            "%"
+        };
         let sector_rows = query_rows(
             sector_sql,
             vec![("sector_prefix".to_string(), Value::from(sector_prefix))],
@@ -91,7 +107,11 @@ impl MarketContext {
     async fn phase(&self) -> Result<Value> {
         let params = self.params();
         let index_code_raw = utils::param_string(params, "indexCode");
-        let index_code = if index_code_raw.is_empty() { "000001".to_string() } else { index_code_raw };
+        let index_code = if index_code_raw.is_empty() {
+            "000001".to_string()
+        } else {
+            index_code_raw
+        };
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let sql = "SELECT close FROM stock_daily             WHERE stock_code = :code AND status = 1             ORDER BY trade_date DESC LIMIT 60";
@@ -111,10 +131,26 @@ impl MarketContext {
 
         let closes: Vec<f64> = rows.iter().map(|r| row_get_f64(r, "close")).collect();
 
-        let ma5 = if closes.len() >= 5 { closes[..5].iter().sum::<f64>() / 5.0 } else { 0.0 };
-        let ma10 = if closes.len() >= 10 { closes[..10].iter().sum::<f64>() / 10.0 } else { 0.0 };
-        let ma20 = if closes.len() >= 20 { closes[..20].iter().sum::<f64>() / 20.0 } else { 0.0 };
-        let ma60 = if closes.len() >= 60 { closes[..60].iter().sum::<f64>() / 60.0 } else { 0.0 };
+        let ma5 = if closes.len() >= 5 {
+            closes[..5].iter().sum::<f64>() / 5.0
+        } else {
+            0.0
+        };
+        let ma10 = if closes.len() >= 10 {
+            closes[..10].iter().sum::<f64>() / 10.0
+        } else {
+            0.0
+        };
+        let ma20 = if closes.len() >= 20 {
+            closes[..20].iter().sum::<f64>() / 20.0
+        } else {
+            0.0
+        };
+        let ma60 = if closes.len() >= 60 {
+            closes[..60].iter().sum::<f64>() / 60.0
+        } else {
+            0.0
+        };
 
         let current = closes.first().copied().unwrap_or(0.0);
 
@@ -157,13 +193,16 @@ impl MarketContext {
         let sz = real.get_price("sz399001").await.ok();
         let cy = real.get_price("sz399006").await.ok();
 
-        let sh_change = sh.as_ref()
+        let sh_change = sh
+            .as_ref()
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
-        let sz_change = sz.as_ref()
+        let sz_change = sz
+            .as_ref()
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
-        let cy_change = cy.as_ref()
+        let cy_change = cy
+            .as_ref()
             .and_then(|v| v.get("changePercent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
 
@@ -183,7 +222,11 @@ impl MarketContext {
                 if market_phase == "extreme_bull" {
                     (false, "极端牛市，不建议卖出".to_string(), "critical")
                 } else if market_phase == "bull" {
-                    (true, "牛市中卖出需谨慎，可能错过后续涨幅".to_string(), "warning")
+                    (
+                        true,
+                        "牛市中卖出需谨慎，可能错过后续涨幅".to_string(),
+                        "warning",
+                    )
                 } else {
                     (true, "市场条件允许卖出".to_string(), "info")
                 }
@@ -212,10 +255,16 @@ impl MarketContext {
         let all_extreme_up = sh > 2.0 && sz > 2.0 && cy > 2.0;
         let all_extreme_down = sh < -2.0 && sz < -2.0 && cy < -2.0;
 
-        if all_extreme_down { "extreme_bear" }
-        else if all_extreme_up { "extreme_bull" }
-        else if all_down { "bear" }
-        else if all_up { "bull" }
-        else { "sideways" }
+        if all_extreme_down {
+            "extreme_bear"
+        } else if all_extreme_up {
+            "extreme_bull"
+        } else if all_down {
+            "bear"
+        } else if all_up {
+            "bull"
+        } else {
+            "sideways"
+        }
     }
 }

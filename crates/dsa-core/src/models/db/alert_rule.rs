@@ -14,7 +14,11 @@ pub struct AlertRule {
     #[field(rename = "stock_name", comment = "股票名称")]
     pub stock_name: String,
 
-    #[field(required = true, rename = "rule_type", comment = "规则类型: price/change/volume")]
+    #[field(
+        required = true,
+        rename = "rule_type",
+        comment = "规则类型: price/change/volume"
+    )]
     pub rule_type: String,
 
     #[field(rename = "condition_json", comment = "条件JSON")]
@@ -41,13 +45,23 @@ pub struct AlertRule {
     #[field(length = 64, default_value = "''", comment = "规则名称")]
     pub name: String,
 
-    #[field(rename = "target_scope", length = 32, default_value = "'stock'", comment = "目标范围")]
+    #[field(
+        rename = "target_scope",
+        length = 32,
+        default_value = "'stock'",
+        comment = "目标范围"
+    )]
     pub target_scope: String,
 
     #[field(length = 64, default_value = "''", comment = "目标")]
     pub target: String,
 
-    #[field(rename = "alert_type", length = 32, default_value = "''", comment = "告警类型")]
+    #[field(
+        rename = "alert_type",
+        length = 32,
+        default_value = "''",
+        comment = "告警类型"
+    )]
     pub alert_type: String,
 
     #[field(default_value = "''", comment = "参数JSON")]
@@ -62,6 +76,10 @@ pub struct AlertRule {
     #[field(rename = "cooldown_policy", default_value = "''", comment = "冷却策略")]
     pub cooldown_policy: String,
 
-    #[field(rename = "notification_policy", default_value = "''", comment = "通知策略")]
+    #[field(
+        rename = "notification_policy",
+        default_value = "''",
+        comment = "通知策略"
+    )]
     pub notification_policy: String,
 }

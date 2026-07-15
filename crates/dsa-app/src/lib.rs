@@ -1,10 +1,10 @@
+use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{
     menu::{MenuBuilder, MenuItem},
     tray::TrayIconBuilder,
     Manager,
 };
-use serde::Serialize;
 
 #[cfg(desktop)]
 mod app_updates {
@@ -16,9 +16,13 @@ mod app_updates {
     #[serde(tag = "event", content = "data")]
     pub enum DownloadEvent {
         #[serde(rename_all = "camelCase")]
-        Started { content_length: Option<u64> },
+        Started {
+            content_length: Option<u64>,
+        },
         #[serde(rename_all = "camelCase")]
-        Progress { chunk_length: usize },
+        Progress {
+            chunk_length: usize,
+        },
         Finished,
     }
 
@@ -82,10 +86,13 @@ pub fn run(server_port: u16) {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(move |app| {
             #[cfg(desktop)]
             {
-                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
                 app.handle().plugin(tauri_plugin_process::init())?;
                 app.manage(app_updates::PendingUpdate(Mutex::new(None)));
             }
@@ -104,19 +111,17 @@ pub fn run(server_port: u16) {
                 .tooltip("DSA - Daily Stock Analysis")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(move |app, event| {
-                    match event.id().as_ref() {
-                        "show" => {
-                            if let Some(window) = app.get_webview_window("main") {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
+                .on_menu_event(move |app, event| match event.id().as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
                         }
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        _ => {}
                     }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
@@ -137,10 +142,7 @@ pub fn run(server_port: u16) {
             if !is_dev {
                 let window = app.get_webview_window("main").unwrap();
                 let url = format!("http://127.0.0.1:{}", server_port);
-                let _ = window.eval(&format!(
-                    "window.location.replace('{}')",
-                    url
-                ));
+                let _ = window.eval(&format!("window.location.replace('{}')", url));
             }
 
             Ok(())

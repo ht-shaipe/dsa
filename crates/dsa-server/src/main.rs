@@ -16,7 +16,8 @@ struct Args {
 async fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
-    let conf_path = tube_web::utils::get_abs_path(&args.config.unwrap_or(DEF_CONFIG_PATH.to_owned()));
+    let conf_path =
+        tube_web::utils::get_abs_path(&args.config.unwrap_or(DEF_CONFIG_PATH.to_owned()));
     let conf_path_str = conf_path.clone();
     let conf_path = Path::new(&conf_path);
 

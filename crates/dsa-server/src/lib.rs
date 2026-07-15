@@ -5,9 +5,9 @@ extern crate tube;
 
 pub use tube::Error;
 
+pub mod handler;
 pub mod router;
 pub mod state;
-pub mod handler;
 
 use actix_cors::Cors;
 use actix_files as fs;
@@ -21,7 +21,8 @@ pub struct ServerConfig {
 }
 
 async fn spa_fallback(req: actix_web::HttpRequest) -> actix_web::HttpResponse {
-    let static_dir = req.app_data::<web::Data<String>>()
+    let static_dir = req
+        .app_data::<web::Data<String>>()
         .map(|d| d.as_str())
         .unwrap_or("./web/dist");
     let index_path = std::path::Path::new(static_dir).join("index.html");
@@ -41,9 +42,16 @@ pub async fn start_server(
 
     let ip = format!("{}:{}", server_config.host, server_config.port);
     tube::log!("DSA server starting at {}", ip);
-    tube::log!("LLM provider: {}, model: {}", conf.llm.provider, conf.llm.model);
+    tube::log!(
+        "LLM provider: {}, model: {}",
+        conf.llm.provider,
+        conf.llm.model
+    );
 
-    let static_dir = server_config.static_dir.clone().unwrap_or_else(|| "./web/dist".to_string());
+    let static_dir = server_config
+        .static_dir
+        .clone()
+        .unwrap_or_else(|| "./web/dist".to_string());
     tube::log!("Static files directory: {}", static_dir);
 
     let static_dir_data = web::Data::new(static_dir.clone());
@@ -69,15 +77,11 @@ pub async fn start_server(
             .app_data(static_dir_data.clone())
             .wrap(middleware::Logger::default())
             .wrap(cors)
-            .service(
-                web::resource("/health")
-                    .route(web::get().to(router::health_check)),
-            )
+            .service(web::resource("/health").route(web::get().to(router::health_check)))
             .service(
                 web::scope("/api/v1")
                     .service(
-                        web::resource("/auth/login")
-                            .route(web::post().to(handler::auth::login)),
+                        web::resource("/auth/login").route(web::post().to(handler::auth::login)),
                     )
                     .service(
                         web::resource("/auth/register")
@@ -96,8 +100,7 @@ pub async fn start_server(
                             .route(web::post().to(handler::auth::change_password)),
                     )
                     .service(
-                        web::resource("/proxy")
-                            .route(web::post().to(handler::proxy::proxy_post)),
+                        web::resource("/proxy").route(web::post().to(handler::proxy::proxy_post)),
                     )
                     .service(
                         web::resource("/agent/chat/stream")
@@ -107,16 +110,14 @@ pub async fn start_server(
                         web::resource("/analysis/stream")
                             .route(web::post().to(handler::analysis_stream::analysis_stream)),
                     )
-                    .service(
-                        web::resource("/{cls}")
-                            .route(web::to(router::api_handler)),
-                    )
-                    .service(
-                        web::resource("/{cls}/{tail:.*}")
-                            .route(web::to(router::api_handler)),
-                    ),
+                    .service(web::resource("/{cls}").route(web::to(router::api_handler)))
+                    .service(web::resource("/{cls}/{tail:.*}").route(web::to(router::api_handler))),
             )
-            .service(fs::Files::new("/", &static_dir).index_file("index.html").default_handler(web::to(spa_fallback)))
+            .service(
+                fs::Files::new("/", &static_dir)
+                    .index_file("index.html")
+                    .default_handler(web::to(spa_fallback)),
+            )
     })
     .bind(ip)?
     .workers(4)
@@ -131,14 +132,16 @@ pub fn setup_database(conf: &dsa_core::config::AppConfig) {
     let connector = conf.build_connector();
     let db_type = &conf.database.db_type;
     let cache_key = format!("{}_{}_connector", db_type.to_lowercase(), "default");
-    tube::log!("Registering connector: db_type={}, database={}, cache_key={}", db_type, connector.database, cache_key);
+    tube::log!(
+        "Registering connector: db_type={}, database={}, cache_key={}",
+        db_type,
+        connector.database,
+        cache_key
+    );
     connector.set_cache("default");
 
     if conf.database.is_sqlite() {
-        tube::log!(
-            "SQLite连接已注册: {}",
-            conf.database.name
-        );
+        tube::log!("SQLite连接已注册: {}", conf.database.name);
     } else {
         tube::log!(
             "MySQL连接池已注册: mysql://{}@{}:{}/{}",
@@ -150,7 +153,11 @@ pub fn setup_database(conf: &dsa_core::config::AppConfig) {
     }
 
     if let Some(conn) = deck_connector::get_connector("default", db_type) {
-        tube::log!("数据库连接获取成功，执行迁移, db_type={}, conn_str={}", db_type, conn.get_conn_str());
+        tube::log!(
+            "数据库连接获取成功，执行迁移, db_type={}, conn_str={}",
+            db_type,
+            conn.get_conn_str()
+        );
         dsa_core::db::run_migrations(&conn);
         tube::log!("迁移执行完毕");
     } else {

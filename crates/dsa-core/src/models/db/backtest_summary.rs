@@ -3,7 +3,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "backtest_summaries", comment = "回测汇总", primary = "identity")]
+#[table(
+    name = "backtest_summaries",
+    comment = "回测汇总",
+    primary = "identity"
+)]
 pub struct BacktestSummary {
     #[field(primary = true, increment = 1)]
     pub id: i64,
@@ -14,10 +18,18 @@ pub struct BacktestSummary {
     #[field(comment = "股票代码(stock scope时)")]
     pub code: String,
 
-    #[field(rename = "eval_window_days", default_value = "10", comment = "评估窗口天数")]
+    #[field(
+        rename = "eval_window_days",
+        default_value = "10",
+        comment = "评估窗口天数"
+    )]
     pub eval_window_days: i32,
 
-    #[field(rename = "engine_version", default_value = "'v1'", comment = "引擎版本")]
+    #[field(
+        rename = "engine_version",
+        default_value = "'v1'",
+        comment = "引擎版本"
+    )]
     pub engine_version: String,
 
     #[field(rename = "computed_at", default_value = "current_timestamp()")]

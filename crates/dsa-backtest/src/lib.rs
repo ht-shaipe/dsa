@@ -4,8 +4,8 @@
 extern crate tube;
 
 pub mod engine;
-pub mod signal;
 pub mod report;
+pub mod signal;
 
 pub use engine::BacktestEngine;
 pub use report::BacktestReport;

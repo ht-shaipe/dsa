@@ -1,8 +1,8 @@
+use deck::sqlite::{DataTable, SelectExecutor};
+use deck::TableService;
 use dsa_core::db;
 use dsa_core::models::db::LlmUsage as LlmUsageModel;
 use dsa_core::utils;
-use deck::sqlite::{DataTable, SelectExecutor};
-use deck::TableService;
 
 use tube::{Result, Value};
 use tube_web::RequestParameter;
@@ -109,13 +109,25 @@ impl Usage {
         let connector = self.connector()?;
         let results = db::query_rows(&sql, vec![], &connector)?;
 
-        let total_calls: i64 = results.iter().map(|r| r.get("callCount").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64).sum();
-        let total_tokens: i64 = results.iter().map(|r| r.get("totalTokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64).sum();
-        let total_cost_estimate: f64 = results.iter().map(|r| {
-            let tokens = r.get("totalTokens").and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let model = r.get("llmModel").and_then(|v| v.as_str()).unwrap_or_default();
-            tokens * Self::price_per_token(&model)
-        }).sum();
+        let total_calls: i64 = results
+            .iter()
+            .map(|r| r.get("callCount").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64)
+            .sum();
+        let total_tokens: i64 = results
+            .iter()
+            .map(|r| r.get("totalTokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64)
+            .sum();
+        let total_cost_estimate: f64 = results
+            .iter()
+            .map(|r| {
+                let tokens = r.get("totalTokens").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let model = r
+                    .get("llmModel")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                tokens * Self::price_per_token(&model)
+            })
+            .sum();
 
         Ok(value!({
             "period": period,
@@ -140,20 +152,26 @@ impl Usage {
 
         let total_cost_estimate: f64 = {
             let provider_sql = "SELECT llm_model, SUM(total_tokens) as total_tokens FROM llm_usage GROUP BY llm_model";
-            let provider_rows = db::query_rows(provider_sql, vec![], &connector).unwrap_or_default();
-            provider_rows.iter().map(|r| {
-                let tokens = db::row_get_f64(&r, "totalTokens");
-                let model = db::row_get_string(&r, "llmModel");
-                tokens * Self::price_per_token(&model)
-            }).sum()
+            let provider_rows =
+                db::query_rows(provider_sql, vec![], &connector).unwrap_or_default();
+            provider_rows
+                .iter()
+                .map(|r| {
+                    let tokens = db::row_get_f64(&r, "totalTokens");
+                    let model = db::row_get_string(&r, "llmModel");
+                    tokens * Self::price_per_token(&model)
+                })
+                .sum()
         };
 
-        let provider_sql = "SELECT llm_provider, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
+        let provider_sql =
+            "SELECT llm_provider, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
              FROM llm_usage GROUP BY llm_provider";
         let provider_rows = db::query_rows(provider_sql, vec![], &connector)?;
         let calls_by_provider: Vec<Value> = provider_rows;
 
-        let type_sql = "SELECT operation_type, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
+        let type_sql =
+            "SELECT operation_type, COUNT(*) as call_count, SUM(total_tokens) as total_tokens \
              FROM llm_usage GROUP BY operation_type";
         let type_rows = db::query_rows(type_sql, vec![], &connector)?;
         let calls_by_type: Vec<Value> = type_rows;
@@ -211,10 +229,7 @@ impl Usage {
 
     async fn records(&self) -> Result<Value> {
         let params = self.value();
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
         let provider = utils::param_string(&params, "provider");
 
         let mut conds = vec![];
@@ -222,11 +237,20 @@ impl Usage {
             conds.push(cond!("llm_provider" = provider));
         }
 
-        let results = self.select()
+        let results = self
+            .select()
             .columns(cols![
-                "id", "llm_provider", "llm_model", "operation_type",
-                "prompt_tokens", "completion_tokens", "total_tokens", "cache_hit",
-                "latency_ms", "stock_code", "create_time"
+                "id",
+                "llm_provider",
+                "llm_model",
+                "operation_type",
+                "prompt_tokens",
+                "completion_tokens",
+                "total_tokens",
+                "cache_hit",
+                "latency_ms",
+                "stock_code",
+                "create_time"
             ])
             .r#where(conds)
             .order(ord!("create_time DESC"))
@@ -254,31 +278,42 @@ impl Usage {
                  ("end_date".to_string(), Value::from(end_date.as_str())),
              ])
         } else if !start_date.is_empty() {
-            ("SELECT id, llm_provider, llm_model, operation_type, \
+            (
+                "SELECT id, llm_provider, llm_model, operation_type, \
               prompt_tokens, completion_tokens, total_tokens, cache_hit, latency_ms, \
               stock_code, create_time \
               FROM llm_usage WHERE DATE(create_time) >= :start_date \
-              ORDER BY create_time DESC".to_string(),
-             vec![("start_date".to_string(), Value::from(start_date.as_str()))])
+              ORDER BY create_time DESC"
+                    .to_string(),
+                vec![("start_date".to_string(), Value::from(start_date.as_str()))],
+            )
         } else {
-            ("SELECT id, llm_provider, llm_model, operation_type, \
+            (
+                "SELECT id, llm_provider, llm_model, operation_type, \
               prompt_tokens, completion_tokens, total_tokens, cache_hit, latency_ms, \
               stock_code, create_time \
-              FROM llm_usage ORDER BY create_time DESC".to_string(),
-             vec![])
+              FROM llm_usage ORDER BY create_time DESC"
+                    .to_string(),
+                vec![],
+            )
         };
 
         let rows = db::query_rows(&sql, p, &connector)?;
         let records: Vec<Value> = rows;
 
         let total_calls = records.len() as i64;
-        let total_tokens: i64 = records.iter()
+        let total_tokens: i64 = records
+            .iter()
             .filter_map(|r| r.get("totalTokens").and_then(|v| v.as_f64()))
             .sum::<f64>() as i64;
-        let total_cost_estimate: f64 = records.iter()
+        let total_cost_estimate: f64 = records
+            .iter()
             .filter_map(|r| {
                 let tokens = r.get("totalTokens").and_then(|v| v.as_f64())?;
-                let model = r.get("llmModel").and_then(|v| v.as_str()).unwrap_or_default();
+                let model = r
+                    .get("llmModel")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 Some(tokens * Self::price_per_token(&model))
             })
             .sum();

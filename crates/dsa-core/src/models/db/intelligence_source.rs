@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "intelligence_sources", comment = "情报数据源配置", primary = "identity")]
+#[table(
+    name = "intelligence_sources",
+    comment = "情报数据源配置",
+    primary = "identity"
+)]
 pub struct IntelligenceSource {
     #[field(primary = true, increment = 1)]
     pub id: i64,
@@ -49,7 +53,12 @@ pub struct IntelligenceSource {
     #[field(default_value = "''", comment = "描述")]
     pub description: String,
 
-    #[field(rename = "last_status", length = 32, default_value = "''", comment = "最后状态")]
+    #[field(
+        rename = "last_status",
+        length = 32,
+        default_value = "''",
+        comment = "最后状态"
+    )]
     pub last_status: String,
 
     #[field(rename = "last_error", default_value = "''", comment = "最后错误")]

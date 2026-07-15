@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "analysis_history", comment = "分析历史记录", primary = "identity")]
+#[table(
+    name = "analysis_history",
+    comment = "分析历史记录",
+    primary = "identity"
+)]
 pub struct AnalysisHistory {
     #[field(primary = true, increment = 1)]
     pub id: i64,
@@ -64,7 +68,11 @@ pub struct AnalysisHistory {
     #[field(rename = "llm_model", comment = "LLM模型")]
     pub llm_model: String,
 
-    #[field(rename = "scope_type", default_value = "'watchlist'", comment = "范围类型")]
+    #[field(
+        rename = "scope_type",
+        default_value = "'watchlist'",
+        comment = "范围类型"
+    )]
     pub scope_type: String,
 
     #[field(rename = "scope_value", default_value = "''", comment = "范围值")]
@@ -82,12 +90,21 @@ pub struct AnalysisHistory {
     #[field(rename = "modify_time", default_value = "current_timestamp()")]
     pub modify_time: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "report_type", length = 16, default_value = "'full'", comment = "报告类型")]
+    #[field(
+        rename = "report_type",
+        length = 16,
+        default_value = "'full'",
+        comment = "报告类型"
+    )]
     pub report_type: String,
 
     #[field(rename = "news_content", default_value = "''", comment = "新闻内容")]
     pub news_content: String,
 
-    #[field(rename = "context_snapshot", default_value = "''", comment = "上下文快照")]
+    #[field(
+        rename = "context_snapshot",
+        default_value = "''",
+        comment = "上下文快照"
+    )]
     pub context_snapshot: String,
 }

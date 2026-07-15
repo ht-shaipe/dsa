@@ -122,27 +122,34 @@
     </template>
 
     <el-dialog v-model="hotspotDialogVisible" :title="'热点详情 - ' + (currentHotspot.name || '')" width="600px">
-      <el-descriptions :column="2" border v-if="hotspotDetail">
-        <el-descriptions-item label="板块名称">{{ hotspotDetail.name || '-' }}</el-descriptions-item>
-        <el-descriptions-item v-if="hotspotDetail.code" label="板块代码">{{ hotspotDetail.code }}</el-descriptions-item>
-        <el-descriptions-item label="涨跌幅">
-          <span :class="Number(hotspotDetail.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
-            {{ Number(hotspotDetail.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(hotspotDetail.changePercent || 0).toFixed(2) }}%
-          </span>
-        </el-descriptions-item>
-        <el-descriptions-item label="换手率">{{ hotspotDetail.turnoverRate != null ? Number(hotspotDetail.turnoverRate).toFixed(2) + '%' : '-' }}</el-descriptions-item>
-        <el-descriptions-item label="上涨家数">{{ hotspotDetail.upCount ?? '-' }}</el-descriptions-item>
-        <el-descriptions-item label="下跌家数">{{ hotspotDetail.downCount ?? '-' }}</el-descriptions-item>
-        <el-descriptions-item label="板块类型">
-          <el-tag :type="hotspotDetail.sectorType === 'concept' ? 'warning' : 'primary'" size="small">
-            {{ hotspotDetail.sectorType === 'concept' ? '概念板块' : '行业板块' }}
-          </el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="描述">{{ hotspotDetail.description || '-' }}</el-descriptions-item>
-      </el-descriptions>
-      <div v-if="hotspotDetail?.sectors?.length" style="margin-top:12px">
-        <el-divider content-position="left">相关板块</el-divider>
-        <el-table :data="hotspotDetail.sectors" size="small" stripe>
+      <template v-if="hotspotDetailLoading">
+        <el-skeleton :rows="5" animated />
+        <div style="margin-top:12px">
+          <el-skeleton :rows="3" animated />
+        </div>
+      </template>
+      <template v-else-if="hotspotDetail">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="板块名称">{{ hotspotDetail.name || '-' }}</el-descriptions-item>
+          <el-descriptions-item v-if="hotspotDetail.code" label="板块代码">{{ hotspotDetail.code }}</el-descriptions-item>
+          <el-descriptions-item label="涨跌幅">
+            <span :class="Number(hotspotDetail.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
+              {{ Number(hotspotDetail.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(hotspotDetail.changePercent || 0).toFixed(2) }}%
+            </span>
+          </el-descriptions-item>
+          <el-descriptions-item label="换手率">{{ hotspotDetail.turnoverRate != null ? Number(hotspotDetail.turnoverRate).toFixed(2) + '%' : '-' }}</el-descriptions-item>
+          <el-descriptions-item label="上涨家数">{{ hotspotDetail.upCount ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="下跌家数">{{ hotspotDetail.downCount ?? '-' }}</el-descriptions-item>
+          <el-descriptions-item label="板块类型">
+            <el-tag :type="hotspotDetail.sectorType === 'concept' ? 'warning' : 'primary'" size="small">
+              {{ hotspotDetail.sectorType === '概念板块' ? '概念板块' : '行业板块' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="描述">{{ hotspotDetail.description || '-' }}</el-descriptions-item>
+        </el-descriptions>
+        <div v-if="hotspotDetail?.sectors?.length" style="margin-top:12px">
+          <el-divider content-position="left">相关板块</el-divider>
+          <el-table :data="hotspotDetail.sectors" size="small" stripe>
           <el-table-column prop="name" label="板块名称" min-width="120" />
           <el-table-column label="涨跌幅" width="100">
             <template #default="{ row }">
@@ -155,7 +162,8 @@
             <template #default="{ row }">{{ row.upCount ?? '-' }} / {{ row.downCount ?? '-' }}</template>
           </el-table-column>
         </el-table>
-      </div>
+        </div>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -214,6 +222,7 @@ const syncProgress = ref<Record<string, any>>({ running: false, total: 0, done: 
 const hotspotDialogVisible = ref(false)
 const currentHotspot = ref<Record<string, any>>({})
 const hotspotDetail = ref<Record<string, any> | null>(null)
+const hotspotDetailLoading = ref(false)
 let progressTimer: ReturnType<typeof setInterval> | null = null
 
 async function loadStatus() {
@@ -297,12 +306,16 @@ function onStrategyChange() {
 async function showHotspotDetail(h: Record<string, any>) {
   currentHotspot.value = h
   hotspotDialogVisible.value = true
+  hotspotDetailLoading.value = true
+  hotspotDetail.value = null
   try {
     const topic = h.topic || h.name || ''
     const res: any = await screeningApi.hotspotDetail(topic)
     hotspotDetail.value = res || h
   } catch {
     hotspotDetail.value = h
+  } finally {
+    hotspotDetailLoading.value = false
   }
 }
 

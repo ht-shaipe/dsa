@@ -7,7 +7,9 @@ use super::registry::{ToolParameter, ToolRegistry};
 pub struct PatternTools;
 
 impl PatternTools {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// 分析K线形态
     pub fn analyze_patterns(kline_data: &[Value]) -> Value {
@@ -43,15 +45,27 @@ impl PatternTools {
             patterns.push(value!({"name": "射击之星", "signal": "bearish", "confidence": 0.65}));
         }
         // Engulfing bullish
-        if last_close > last_open && prev_close < prev_open && last_close > prev_open && last_open < prev_close {
+        if last_close > last_open
+            && prev_close < prev_open
+            && last_close > prev_open
+            && last_open < prev_close
+        {
             patterns.push(value!({"name": "看涨吞没", "signal": "bullish", "confidence": 0.7}));
         }
         // Engulfing bearish
-        if last_close < last_open && prev_close > prev_open && last_open > prev_close && last_close < prev_open {
+        if last_close < last_open
+            && prev_close > prev_open
+            && last_open > prev_close
+            && last_close < prev_open
+        {
             patterns.push(value!({"name": "看跌吞没", "signal": "bearish", "confidence": 0.7}));
         }
 
-        let summary = if patterns.is_empty() { "无显著形态" } else { "检测到K线形态" };
+        let summary = if patterns.is_empty() {
+            "无显著形态"
+        } else {
+            "检测到K线形态"
+        };
         value!({"patterns": patterns, "summary": summary})
     }
 }

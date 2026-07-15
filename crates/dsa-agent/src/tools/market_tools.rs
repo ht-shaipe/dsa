@@ -7,7 +7,9 @@ use tube::Value;
 pub struct MarketTools;
 
 impl MarketTools {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// 获取市场概览 - 主要指数实时数据
     pub async fn get_market_overview() -> DsaResult<Value> {
@@ -18,9 +20,12 @@ impl MarketTools {
         let sz_result = real.get_price("sz399001").await;
         let cy_result = real.get_price("sz399006").await;
 
-        let sh_val = sh_result.unwrap_or_else(|_| value!({"name": "上证指数", "error": "获取失败"}));
-        let sz_val = sz_result.unwrap_or_else(|_| value!({"name": "深证成指", "error": "获取失败"}));
-        let cy_val = cy_result.unwrap_or_else(|_| value!({"name": "创业板指", "error": "获取失败"}));
+        let sh_val =
+            sh_result.unwrap_or_else(|_| value!({"name": "上证指数", "error": "获取失败"}));
+        let sz_val =
+            sz_result.unwrap_or_else(|_| value!({"name": "深证成指", "error": "获取失败"}));
+        let cy_val =
+            cy_result.unwrap_or_else(|_| value!({"name": "创业板指", "error": "获取失败"}));
 
         Ok(value!({
             "shanghai": sh_val,

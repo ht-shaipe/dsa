@@ -200,10 +200,18 @@ mod tests {
     #[test]
     fn test_technical_indicators_default_fields() {
         let ti = TechnicalIndicators {
-            ma5: 10.0, ma10: 9.5, ma20: 9.0, ma60: 8.5,
-            macd: 0.1, macd_signal: 0.05, macd_hist: 0.1,
-            rsi_14: 55.0, bias_ma5: 2.0, bias_ma10: 3.0,
-            is_bullish_alignment: true, trend_score: 75,
+            ma5: 10.0,
+            ma10: 9.5,
+            ma20: 9.0,
+            ma60: 8.5,
+            macd: 0.1,
+            macd_signal: 0.05,
+            macd_hist: 0.1,
+            rsi_14: 55.0,
+            bias_ma5: 2.0,
+            bias_ma10: 3.0,
+            is_bullish_alignment: true,
+            trend_score: 75,
         };
         assert!(ti.is_bullish_alignment);
         assert_eq!(ti.trend_score, 75);

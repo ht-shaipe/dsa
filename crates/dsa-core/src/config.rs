@@ -480,12 +480,20 @@ pub struct DataSyncConfig {
 }
 
 fn default_sync_boards() -> Vec<String> {
-    vec!["sh_main".to_string(), "sz_main".to_string(), "sz_gem".to_string()]
+    vec![
+        "sh_main".to_string(),
+        "sz_main".to_string(),
+        "sz_gem".to_string(),
+    ]
 }
 
-fn default_exclude_new_days() -> u32 { 60 }
+fn default_exclude_new_days() -> u32 {
+    60
+}
 
-fn default_sync_retention_days() -> u32 { 120 }
+fn default_sync_retention_days() -> u32 {
+    120
+}
 
 impl Default for DataSyncConfig {
     fn default() -> Self {
@@ -519,7 +527,8 @@ impl DataSyncConfig {
 
         if self.exclude_st {
             let name_upper = name.to_uppercase();
-            if name_upper.contains("ST") || name_upper.contains("*ST") || name_upper.contains("退") {
+            if name_upper.contains("ST") || name_upper.contains("*ST") || name_upper.contains("退")
+            {
                 return false;
             }
         }
@@ -542,7 +551,6 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_cors_origins")]
     pub cors_origins: Vec<String>,
-
 }
 
 /// 股票监控配置
@@ -648,7 +656,9 @@ pub struct DatabaseConfig {
     pub password: String,
 }
 
-fn default_db_type() -> String { "mysql".to_string() }
+fn default_db_type() -> String {
+    "mysql".to_string()
+}
 
 impl DatabaseConfig {
     pub fn is_sqlite(&self) -> bool {
@@ -727,10 +737,13 @@ impl Default for AppConfig {
                 host: "0.0.0.0".to_string(),
                 port: 8000,
                 cors_origins: default_cors_origins(),
-
             },
             stock: StockConfig {
-                watchlist: vec!["600519".to_string(), "300750".to_string(), "002594".to_string()],
+                watchlist: vec![
+                    "600519".to_string(),
+                    "300750".to_string(),
+                    "002594".to_string(),
+                ],
                 trading_day_check: true,
                 enable_realtime: true,
                 enable_chip_distribution: true,
@@ -900,39 +913,111 @@ fn default_cors_origins() -> Vec<String> {
     ]
 }
 
-fn default_true() -> bool { true }
-fn default_model() -> String { "deepseek-chat".to_string() }
-fn default_temperature() -> f64 { 0.7 }
-fn default_timeout() -> u64 { 60 }
-fn default_schedule_times() -> Vec<String> { vec!["18:00".to_string()] }
-fn default_region() -> String { "cn".to_string() }
-fn default_eval_window() -> u32 { 10 }
-fn default_min_age() -> u32 { 14 }
-fn default_neutral_band() -> f64 { 2.0 }
-fn default_agent_max_steps() -> u32 { 10 }
-fn default_agent_arch() -> String { "single".to_string() }
-fn default_agent_orchestrator_mode() -> String { "standard".to_string() }
-fn default_quiet_hours_start() -> i32 { 23 }
-fn default_quiet_hours_end() -> i32 { 7 }
-fn default_dedup_window() -> i32 { 30 }
-fn default_dedup_ttl() -> u64 { 600 }
-fn default_cooldown_seconds() -> u64 { 300 }
-fn default_timezone() -> String { "Asia/Shanghai".to_string() }
-fn default_min_severity() -> String { "info".to_string() }
-fn default_news_max_age() -> u32 { 3 }
-fn default_news_strategy_profile() -> String { "default".to_string() }
-fn default_news_retention() -> u32 { 90 }
-fn default_news_max_items() -> u32 { 20 }
-fn default_report_language() -> String { "zh".to_string() }
-fn default_report_type() -> String { "full".to_string() }
-fn default_integrity_retry() -> u32 { 2 }
-fn default_history_compare_n() -> u32 { 5 }
-fn default_command_prefix() -> String { "/".to_string() }
-fn default_rate_limit() -> u32 { 10 }
-fn default_concentration_pct() -> f64 { 30.0 }
-fn default_drawdown_pct() -> f64 { 15.0 }
-fn default_stop_loss_pct() -> f64 { 8.0 }
-fn default_sector_concentration_pct() -> f64 { 40.0 }
-fn default_compression_trigger() -> u32 { 8000 }
-fn default_protected_turns() -> u32 { 4 }
-fn default_deep_research_budget() -> u32 { 5 }
+fn default_true() -> bool {
+    true
+}
+fn default_model() -> String {
+    "deepseek-chat".to_string()
+}
+fn default_temperature() -> f64 {
+    0.7
+}
+fn default_timeout() -> u64 {
+    60
+}
+fn default_schedule_times() -> Vec<String> {
+    vec!["18:00".to_string()]
+}
+fn default_region() -> String {
+    "cn".to_string()
+}
+fn default_eval_window() -> u32 {
+    10
+}
+fn default_min_age() -> u32 {
+    14
+}
+fn default_neutral_band() -> f64 {
+    2.0
+}
+fn default_agent_max_steps() -> u32 {
+    10
+}
+fn default_agent_arch() -> String {
+    "single".to_string()
+}
+fn default_agent_orchestrator_mode() -> String {
+    "standard".to_string()
+}
+fn default_quiet_hours_start() -> i32 {
+    23
+}
+fn default_quiet_hours_end() -> i32 {
+    7
+}
+fn default_dedup_window() -> i32 {
+    30
+}
+fn default_dedup_ttl() -> u64 {
+    600
+}
+fn default_cooldown_seconds() -> u64 {
+    300
+}
+fn default_timezone() -> String {
+    "Asia/Shanghai".to_string()
+}
+fn default_min_severity() -> String {
+    "info".to_string()
+}
+fn default_news_max_age() -> u32 {
+    3
+}
+fn default_news_strategy_profile() -> String {
+    "default".to_string()
+}
+fn default_news_retention() -> u32 {
+    90
+}
+fn default_news_max_items() -> u32 {
+    20
+}
+fn default_report_language() -> String {
+    "zh".to_string()
+}
+fn default_report_type() -> String {
+    "full".to_string()
+}
+fn default_integrity_retry() -> u32 {
+    2
+}
+fn default_history_compare_n() -> u32 {
+    5
+}
+fn default_command_prefix() -> String {
+    "/".to_string()
+}
+fn default_rate_limit() -> u32 {
+    10
+}
+fn default_concentration_pct() -> f64 {
+    30.0
+}
+fn default_drawdown_pct() -> f64 {
+    15.0
+}
+fn default_stop_loss_pct() -> f64 {
+    8.0
+}
+fn default_sector_concentration_pct() -> f64 {
+    40.0
+}
+fn default_compression_trigger() -> u32 {
+    8000
+}
+fn default_protected_turns() -> u32 {
+    4
+}
+fn default_deep_research_budget() -> u32 {
+    5
+}

@@ -31,7 +31,9 @@ impl Notification {
         }
     }
 
-    fn params(&self) -> &Value { &self.request.value }
+    fn params(&self) -> &Value {
+        &self.request.value
+    }
 
     async fn send(&self) -> Result<Value> {
         let params = self.params();
@@ -53,8 +55,14 @@ impl Notification {
             .unwrap_or_else(|| "info".to_string());
 
         if self.should_suppress(&severity) {
-            tracing::info!("[通知][静默] 抑制发送 severity={} channel={}", severity, channel);
-            return Ok(value!({"status": "suppressed", "reason": "quiet_hours", "channel": channel, "severity": severity}));
+            tracing::info!(
+                "[通知][静默] 抑制发送 severity={} channel={}",
+                severity,
+                channel
+            );
+            return Ok(
+                value!({"status": "suppressed", "reason": "quiet_hours", "channel": channel, "severity": severity}),
+            );
         }
 
         tracing::info!("[通知][{}] {} - {}", channel, title, content);
@@ -221,10 +229,7 @@ impl Notification {
         }
 
         let text = format!("*{}*\n\n{}", title, content);
-        let url = format!(
-            "https://api.telegram.org/bot{}/sendMessage",
-            bot_token
-        );
+        let url = format!("https://api.telegram.org/bot{}/sendMessage", bot_token);
 
         let body = serde_json::json!({
             "chat_id": chat_id,
@@ -264,7 +269,9 @@ impl Notification {
                 let status = resp.status().as_u16();
                 let body = resp.text().await.unwrap_or_default();
                 tracing::info!("[Bark] 发送完成 status={}", status);
-                Ok(value!({"status": "ok", "channel": "bark", "httpStatus": status as i64, "response": body}))
+                Ok(
+                    value!({"status": "ok", "channel": "bark", "httpStatus": status as i64, "response": body}),
+                )
             }
             Err(e) => {
                 tracing::warn!("[Bark] 发送失败: {}", e);
@@ -323,7 +330,9 @@ impl Notification {
         let (from_addr, to_addr) = match (from_addr, to_addr) {
             (Ok(f), Ok(t)) => (f, t),
             _ => {
-                return Ok(value!({"status": "error", "channel": "email", "error": "邮件地址格式错误"}));
+                return Ok(
+                    value!({"status": "error", "channel": "email", "error": "邮件地址格式错误"}),
+                );
             }
         };
 
@@ -336,35 +345,37 @@ impl Notification {
         {
             Ok(m) => m,
             Err(e) => {
-                return Ok(value!({"status": "error", "channel": "email", "error": format!("构建邮件失败: {}", e)}));
+                return Ok(
+                    value!({"status": "error", "channel": "email", "error": format!("构建邮件失败: {}", e)}),
+                );
             }
         };
 
         let mailer_result = if smtp_port == 465 {
-            AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
-                .map(|builder| {
-                    let mut b = builder.port(smtp_port);
-                    if !email_user.is_empty() && !email_pass.is_empty() {
-                        b = b.credentials(Credentials::new(email_user.clone(), email_pass));
-                    }
-                    b.build()
-                })
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host).map(|builder| {
+                let mut b = builder.port(smtp_port);
+                if !email_user.is_empty() && !email_pass.is_empty() {
+                    b = b.credentials(Credentials::new(email_user.clone(), email_pass));
+                }
+                b.build()
+            })
         } else {
-            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_host)
-                .map(|builder| {
-                    let mut b = builder.port(smtp_port);
-                    if !email_user.is_empty() && !email_pass.is_empty() {
-                        b = b.credentials(Credentials::new(email_user.clone(), email_pass));
-                    }
-                    b.build()
-                })
+            AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_host).map(|builder| {
+                let mut b = builder.port(smtp_port);
+                if !email_user.is_empty() && !email_pass.is_empty() {
+                    b = b.credentials(Credentials::new(email_user.clone(), email_pass));
+                }
+                b.build()
+            })
         };
 
         let mailer = match mailer_result {
             Ok(m) => m,
             Err(e) => {
                 tracing::warn!("[SMTP] 构建传输失败: {}", e);
-                return Ok(value!({"status": "error", "channel": "email", "error": format!("SMTP配置失败: {}", e)}));
+                return Ok(
+                    value!({"status": "error", "channel": "email", "error": format!("SMTP配置失败: {}", e)}),
+                );
             }
         };
 
@@ -388,7 +399,9 @@ impl Notification {
     ) -> Result<Value> {
         let domain = conf.notification.email_smtp_host.replace("mailgun:", "");
         if domain.is_empty() {
-            return Ok(value!({"status": "error", "reason": "Mailgun域名未配置, 格式: mailgun:your-domain.com"}));
+            return Ok(
+                value!({"status": "error", "reason": "Mailgun域名未配置, 格式: mailgun:your-domain.com"}),
+            );
         }
 
         let api_key = Self::resolve_key(
@@ -549,12 +562,7 @@ impl Notification {
             ("title", title),
         ];
 
-        let resp = self
-            .client
-            .post(url)
-            .form(&params)
-            .send()
-            .await;
+        let resp = self.client.post(url).form(&params).send().await;
 
         match resp {
             Ok(response) => {
@@ -565,7 +573,9 @@ impl Notification {
                     Ok(value!({"status": "ok", "channel": "pushover", "response": body}))
                 } else {
                     tracing::warn!("[Pushover] 发送失败 status={} body={}", status, body);
-                    Ok(value!({"status": "error", "channel": "pushover", "httpStatus": status as i64}))
+                    Ok(
+                        value!({"status": "error", "channel": "pushover", "httpStatus": status as i64}),
+                    )
                 }
             }
             Err(e) => {
@@ -744,28 +754,64 @@ impl Notification {
         let recommended = match severity.as_str() {
             "critical" => {
                 let mut channels = Vec::new();
-                if !conf.notification.dingtalk_webhook.is_empty() { channels.push("dingtalk"); }
-                if !conf.notification.feishu_webhook.is_empty() { channels.push("feishu"); }
-                if !conf.notification.wecom_webhook.is_empty() { channels.push("wecom"); }
-                if !conf.notification.telegram_bot_token.is_empty() { channels.push("telegram"); }
-                if !conf.notification.bark_url.is_empty() { channels.push("bark"); }
-                if !conf.notification.email_smtp_host.is_empty() { channels.push("email"); }
-                if !conf.notification.discord_webhook.is_empty() { channels.push("discord"); }
-                if !conf.notification.slack_webhook.is_empty() { channels.push("slack"); }
-                if !conf.notification.pushover_user_key.is_empty() { channels.push("pushover"); }
-                if !conf.notification.pushplus_token.is_empty() { channels.push("pushplus"); }
-                if !conf.notification.serverchan_token.is_empty() { channels.push("serverchan"); }
-                if !conf.notification.ntfy_topic.is_empty() { channels.push("ntfy"); }
-                if !conf.notification.gotify_app_token.is_empty() { channels.push("gotify"); }
-                if !conf.notification.custom_webhook_url.is_empty() { channels.push("custom_webhook"); }
+                if !conf.notification.dingtalk_webhook.is_empty() {
+                    channels.push("dingtalk");
+                }
+                if !conf.notification.feishu_webhook.is_empty() {
+                    channels.push("feishu");
+                }
+                if !conf.notification.wecom_webhook.is_empty() {
+                    channels.push("wecom");
+                }
+                if !conf.notification.telegram_bot_token.is_empty() {
+                    channels.push("telegram");
+                }
+                if !conf.notification.bark_url.is_empty() {
+                    channels.push("bark");
+                }
+                if !conf.notification.email_smtp_host.is_empty() {
+                    channels.push("email");
+                }
+                if !conf.notification.discord_webhook.is_empty() {
+                    channels.push("discord");
+                }
+                if !conf.notification.slack_webhook.is_empty() {
+                    channels.push("slack");
+                }
+                if !conf.notification.pushover_user_key.is_empty() {
+                    channels.push("pushover");
+                }
+                if !conf.notification.pushplus_token.is_empty() {
+                    channels.push("pushplus");
+                }
+                if !conf.notification.serverchan_token.is_empty() {
+                    channels.push("serverchan");
+                }
+                if !conf.notification.ntfy_topic.is_empty() {
+                    channels.push("ntfy");
+                }
+                if !conf.notification.gotify_app_token.is_empty() {
+                    channels.push("gotify");
+                }
+                if !conf.notification.custom_webhook_url.is_empty() {
+                    channels.push("custom_webhook");
+                }
                 channels
             }
             "warning" => {
                 let mut channels = Vec::new();
-                if !conf.notification.dingtalk_webhook.is_empty() { channels.push("dingtalk"); }
-                if !conf.notification.feishu_webhook.is_empty() { channels.push("feishu"); }
-                if !conf.notification.wecom_webhook.is_empty() { channels.push("wecom"); }
-                if !conf.notification.email_smtp_host.is_empty() { channels.push("email"); }
+                if !conf.notification.dingtalk_webhook.is_empty() {
+                    channels.push("dingtalk");
+                }
+                if !conf.notification.feishu_webhook.is_empty() {
+                    channels.push("feishu");
+                }
+                if !conf.notification.wecom_webhook.is_empty() {
+                    channels.push("wecom");
+                }
+                if !conf.notification.email_smtp_host.is_empty() {
+                    channels.push("email");
+                }
                 channels
             }
             _ => {
@@ -805,7 +851,10 @@ impl Notification {
         if in_quiet {
             tracing::debug!(
                 "[通知][静默] 当前处于静默时段 {}-{} 当前小时={}, 抑制 severity={}",
-                start, end, hour, severity
+                start,
+                end,
+                hour,
+                severity
             );
             return true;
         }
@@ -813,7 +862,11 @@ impl Notification {
         false
     }
 
-    async fn post_json(&self, url: &str, body: &serde_json::Value) -> std::result::Result<String, reqwest::Error> {
+    async fn post_json(
+        &self,
+        url: &str,
+        body: &serde_json::Value,
+    ) -> std::result::Result<String, reqwest::Error> {
         let resp = self
             .client
             .post(url)
@@ -863,8 +916,14 @@ impl Notification {
             .unwrap_or_else(|| "info".to_string());
 
         if self.should_suppress(&severity) {
-            tracing::info!("[通知][静默] 抑制发送 severity={} channel={}", severity, channel);
-            return Ok(value!({"status": "suppressed", "reason": "quiet_hours", "channel": channel, "severity": severity}));
+            tracing::info!(
+                "[通知][静默] 抑制发送 severity={} channel={}",
+                severity,
+                channel
+            );
+            return Ok(
+                value!({"status": "suppressed", "reason": "quiet_hours", "channel": channel, "severity": severity}),
+            );
         }
 
         tracing::info!("[通知][{}] {} - {}", channel, title, content);

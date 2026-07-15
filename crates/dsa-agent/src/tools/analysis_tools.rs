@@ -5,7 +5,9 @@ use tube::Value;
 pub struct AnalysisTools;
 
 impl AnalysisTools {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// 简单移动平均线
     /// closes: 收盘价序列
@@ -26,7 +28,8 @@ impl AnalysisTools {
         }
 
         // 提取收盘价
-        let closes: Vec<f64> = kline.iter()
+        let closes: Vec<f64> = kline
+            .iter()
             .filter_map(|v| v.get("收盘").and_then(|c| c.as_f64()))
             .collect();
 
@@ -93,7 +96,8 @@ impl AnalysisTools {
         }
 
         // 提取成交量
-        let volumes: Vec<f64> = kline.iter()
+        let volumes: Vec<f64> = kline
+            .iter()
             .filter_map(|v| v.get("成交量").and_then(|c| c.as_f64()))
             .collect();
 

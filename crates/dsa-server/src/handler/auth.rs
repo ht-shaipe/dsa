@@ -60,27 +60,47 @@ async fn proxy_get_with_token(url: &str, token: &str) -> Result<serde_json::Valu
     send_proxy_request(url, "GET", &headers, None, 15).await
 }
 
-async fn proxy_put_with_token(url: &str, token: &str, body: &str) -> Result<serde_json::Value, String> {
+async fn proxy_put_with_token(
+    url: &str,
+    token: &str,
+    body: &str,
+) -> Result<serde_json::Value, String> {
     let mut headers = HashMap::new();
     headers.insert("Content-Type".to_string(), "application/json".to_string());
     headers.insert("Authorization".to_string(), token.to_string());
     send_proxy_request(url, "PUT", &headers, Some(body), 15).await
 }
 
-async fn proxy_post_with_token(url: &str, token: &str, body: &str) -> Result<serde_json::Value, String> {
+async fn proxy_post_with_token(
+    url: &str,
+    token: &str,
+    body: &str,
+) -> Result<serde_json::Value, String> {
     let mut headers = HashMap::new();
     headers.insert("Content-Type".to_string(), "application/json".to_string());
     headers.insert("Authorization".to_string(), token.to_string());
     send_proxy_request(url, "POST", &headers, Some(body), 15).await
 }
 
-fn generate_local_token(_remote_token: &str, user_data: &serde_json::Value) -> Result<String, String> {
+fn generate_local_token(
+    _remote_token: &str,
+    user_data: &serde_json::Value,
+) -> Result<String, String> {
     let user_id = user_data.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-    let mobile = user_data.get("mobile").and_then(|v| v.as_str()).unwrap_or("");
-    let name = user_data.get("name").or_else(|| user_data.get("nickname"))
-        .and_then(|v| v.as_str()).unwrap_or("");
-    let avatar = user_data.get("avatar").or_else(|| user_data.get("avatar_url"))
-        .and_then(|v| v.as_str()).unwrap_or("");
+    let mobile = user_data
+        .get("mobile")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let name = user_data
+        .get("name")
+        .or_else(|| user_data.get("nickname"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let avatar = user_data
+        .get("avatar")
+        .or_else(|| user_data.get("avatar_url"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     let visitor = Visitor {
         id: user_id,
@@ -109,7 +129,8 @@ fn generate_local_token(_remote_token: &str, user_data: &serde_json::Value) -> R
         permissions: vec![],
     };
 
-    auth.get_token().map_err(|e| format!("生成本地Token失败: {}", e.get_message()))
+    auth.get_token()
+        .map_err(|e| format!("生成本地Token失败: {}", e.get_message()))
 }
 
 pub async fn login(req: web::Json<LoginRequest>) -> HttpResponse {
@@ -122,11 +143,17 @@ pub async fn login(req: web::Json<LoginRequest>) -> HttpResponse {
 
     match proxy_post(&url, &body.to_string()).await {
         Ok(data) => {
-            let result = data.get("result").or_else(|| data.get("data")).unwrap_or(&data);
+            let result = data
+                .get("result")
+                .or_else(|| data.get("data"))
+                .unwrap_or(&data);
             let remote_token = result.get("token").and_then(|v| v.as_str()).unwrap_or("");
 
             if remote_token.is_empty() {
-                let msg = data.get("message").and_then(|v| v.as_str()).unwrap_or("登录失败");
+                let msg = data
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("登录失败");
                 return HttpResponse::Ok().json(serde_json::json!({
                     "code": 4001,
                     "result": null,
@@ -177,7 +204,10 @@ pub async fn register(req: web::Json<RegisterRequest>) -> HttpResponse {
 
     match proxy_post(&url, &body.to_string()).await {
         Ok(data) => {
-            let result = data.get("result").or_else(|| data.get("data")).unwrap_or(&data);
+            let result = data
+                .get("result")
+                .or_else(|| data.get("data"))
+                .unwrap_or(&data);
             HttpResponse::Ok().json(serde_json::json!({
                 "code": 200,
                 "result": result,
@@ -197,7 +227,10 @@ pub async fn get_profile(req: web::Json<TokenOnlyRequest>) -> HttpResponse {
 
     match proxy_get_with_token(&url, &req.token).await {
         Ok(data) => {
-            let result = data.get("result").or_else(|| data.get("data")).unwrap_or(&data);
+            let result = data
+                .get("result")
+                .or_else(|| data.get("data"))
+                .unwrap_or(&data);
             HttpResponse::Ok().json(serde_json::json!({
                 "code": 200,
                 "result": result,
@@ -224,7 +257,10 @@ pub async fn update_profile(req: web::Json<ProfileUpdateRequest>) -> HttpRespons
 
     match proxy_put_with_token(&url, &req.token, &body.to_string()).await {
         Ok(data) => {
-            let result = data.get("result").or_else(|| data.get("data")).unwrap_or(&data);
+            let result = data
+                .get("result")
+                .or_else(|| data.get("data"))
+                .unwrap_or(&data);
             HttpResponse::Ok().json(serde_json::json!({
                 "code": 200,
                 "result": result,
@@ -249,7 +285,10 @@ pub async fn change_password(req: web::Json<ChangePasswordRequest>) -> HttpRespo
 
     match proxy_post_with_token(&url, &req.token, &body.to_string()).await {
         Ok(data) => {
-            let result = data.get("result").or_else(|| data.get("data")).unwrap_or(&data);
+            let result = data
+                .get("result")
+                .or_else(|| data.get("data"))
+                .unwrap_or(&data);
             HttpResponse::Ok().json(serde_json::json!({
                 "code": 200,
                 "result": result,

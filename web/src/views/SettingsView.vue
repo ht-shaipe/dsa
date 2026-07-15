@@ -722,28 +722,93 @@ function startSyncPolling() {
   }, 3000)
 }
 
+function isTauri(): boolean {
+  return typeof window !== 'undefined' && !!((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)
+}
+
 async function exportDailyData() {
   dailyExporting.value = true
   try {
     const res: any = await systemApi.exportDailyData()
     const jsonStr = JSON.stringify(res)
-    const blob = new Blob([jsonStr], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `dsa-daily-${new Date().toISOString().slice(0, 10)}.dsa-daily.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    ElMessage.success(`导出成功: ${res?.stockCount ?? 0} 只股票, ${res?.recordCount ?? 0} 条记录`)
-  } catch {
-    ElMessage.error('导出失败')
+    const defaultName = `dsa-daily-${new Date().toISOString().slice(0, 10)}.dsa-daily.json`
+
+    if (isTauri()) {
+      const { save } = await import('@tauri-apps/plugin-dialog')
+      const { writeFile } = await import('@tauri-apps/plugin-fs')
+      const filePath = await save({
+        defaultPath: defaultName,
+        filters: [{ name: 'DSA日线数据', extensions: ['dsa-daily.json'] }],
+      })
+      if (!filePath) {
+        dailyExporting.value = false
+        return
+      }
+      const encoder = new TextEncoder()
+      await writeFile(filePath, encoder.encode(jsonStr))
+      ElMessage.success(`导出成功: ${res?.stockCount ?? 0} 只股票, ${res?.recordCount ?? 0} 条记录`)
+    } else {
+      const blob = new Blob([jsonStr], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = defaultName
+      a.click()
+      URL.revokeObjectURL(url)
+      ElMessage.success(`导出成功: ${res?.stockCount ?? 0} 只股票, ${res?.recordCount ?? 0} 条记录`)
+    }
+  } catch (e: any) {
+    if (e?.message !== 'User cancelled') {
+      ElMessage.error('导出失败')
+    }
   } finally {
     dailyExporting.value = false
   }
 }
 
-function triggerImportDailyData() {
-  importFileInput.value?.click()
+async function triggerImportDailyData() {
+  if (isTauri()) {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog')
+      const { readFile } = await import('@tauri-apps/api/fs')
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: 'DSA日线数据', extensions: ['dsa-daily.json'] }],
+      })
+      if (!selected) return
+      const filePath = typeof selected === 'string' ? selected : (selected as any).path
+      if (!filePath) return
+
+      dailyImporting.value = true
+      const bytes = await readFile(filePath)
+      const text = typeof bytes === 'string' ? bytes : new TextDecoder().decode(bytes as Uint8Array)
+      await doImportDailyData(text)
+    } catch (e: any) {
+      if (e?.message !== 'User cancelled') {
+        ElMessage.error('导入失败')
+      }
+    } finally {
+      dailyImporting.value = false
+    }
+  } else {
+    importFileInput.value?.click()
+  }
+}
+
+async function doImportDailyData(text: string) {
+  let data: any
+  try {
+    data = JSON.parse(text)
+  } catch {
+    ElMessage.error('文件格式错误，请选择有效的 .dsa-daily.json 文件')
+    return
+  }
+  if (!data?.records || !Array.isArray(data.records)) {
+    ElMessage.error('文件内容无效，缺少 records 数据')
+    return
+  }
+  const res: any = await systemApi.importDailyData(data)
+  ElMessage.success(`导入完成: 成功 ${res?.imported ?? 0} 条, 跳过 ${res?.skipped ?? 0} 条`)
 }
 
 async function handleImportFile(event: Event) {
@@ -755,19 +820,7 @@ async function handleImportFile(event: Event) {
   dailyImporting.value = true
   try {
     const text = await file.text()
-    let data: any
-    try {
-      data = JSON.parse(text)
-    } catch {
-      ElMessage.error('文件格式错误，请选择有效的 .dsa-daily.json 文件')
-      return
-    }
-    if (!data?.records || !Array.isArray(data.records)) {
-      ElMessage.error('文件内容无效，缺少 records 数据')
-      return
-    }
-    const res: any = await systemApi.importDailyData(data)
-    ElMessage.success(`导入完成: 成功 ${res?.imported ?? 0} 条, 跳过 ${res?.skipped ?? 0} 条`)
+    await doImportDailyData(text)
   } catch {
     ElMessage.error('导入失败')
   } finally {

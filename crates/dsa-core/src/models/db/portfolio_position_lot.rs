@@ -3,7 +3,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "portfolio_position_lots", comment = "组合持仓批次(FIFO)", primary = "identity")]
+#[table(
+    name = "portfolio_position_lots",
+    comment = "组合持仓批次(FIFO)",
+    primary = "identity"
+)]
 pub struct PortfolioPositionLot {
     #[field(primary = true, increment = 1)]
     pub id: i64,
@@ -11,7 +15,11 @@ pub struct PortfolioPositionLot {
     #[field(rename = "account_id", required = true, comment = "账户ID")]
     pub account_id: i64,
 
-    #[field(rename = "cost_method", default_value = "'fifo'", comment = "成本方法: fifo/avg")]
+    #[field(
+        rename = "cost_method",
+        default_value = "'fifo'",
+        comment = "成本方法: fifo/avg"
+    )]
     pub cost_method: String,
 
     #[field(required = true, comment = "股票代码")]
@@ -26,7 +34,11 @@ pub struct PortfolioPositionLot {
     #[field(rename = "open_date", required = true, comment = "建仓日期")]
     pub open_date: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "remaining_quantity", default_value = "0", comment = "剩余数量")]
+    #[field(
+        rename = "remaining_quantity",
+        default_value = "0",
+        comment = "剩余数量"
+    )]
     pub remaining_quantity: f64,
 
     #[field(rename = "unit_cost", default_value = "0", comment = "单位成本")]

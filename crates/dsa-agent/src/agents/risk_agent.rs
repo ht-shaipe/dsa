@@ -16,17 +16,25 @@ pub struct RiskAgent {
 
 impl RiskAgent {
     pub fn new(llm: Box<dyn LlmService>, model: &str) -> Self {
-        Self { llm, model: model.to_string() }
+        Self {
+            llm,
+            model: model.to_string(),
+        }
     }
 }
 
 #[async_trait(?Send)]
 impl BaseAgent for RiskAgent {
-    fn name(&self) -> &str { "risk" }
-    fn role(&self) -> &str { "风险管理专家" }
+    fn name(&self) -> &str {
+        "risk"
+    }
+    fn role(&self) -> &str {
+        "风险管理专家"
+    }
 
     async fn process(&self, input: &Value) -> DsaResult<Value> {
-        let code = input.get("code")
+        let code = input
+            .get("code")
             .and_then(|c| c.as_str())
             .unwrap_or_default();
 
@@ -34,21 +42,26 @@ impl BaseAgent for RiskAgent {
             return Err(DsaError::Validation("风控分析需要股票代码".to_string()));
         }
 
-        let current_price = input.get("currentPrice")
+        let current_price = input
+            .get("currentPrice")
             .and_then(|p| p.as_f64())
             .unwrap_or(0.0);
-        let change_pct = input.get("changePercent")
+        let change_pct = input
+            .get("changePercent")
             .and_then(|c| c.as_f64())
             .unwrap_or(0.0);
-        let turnover_rate = input.get("turnoverRate")
+        let turnover_rate = input
+            .get("turnoverRate")
             .and_then(|t| t.as_f64())
             .unwrap_or(0.0);
-        let market_trend = input.get("marketTrend")
+        let market_trend = input
+            .get("marketTrend")
             .and_then(|m| m.as_str())
             .unwrap_or_default();
 
         // 收集技术分析结果（如有）
-        let technical = input.get("technical")
+        let technical = input
+            .get("technical")
             .and_then(|t| t.as_str())
             .unwrap_or_default();
 
@@ -95,16 +108,25 @@ impl BaseAgent for RiskAgent {
         });
 
         let start = std::time::Instant::now();
-        let response = self.llm.chat(&body).await
+        let response = self
+            .llm
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("风控Agent调用LLM失败: {}", e)))?;
         let elapsed = start.elapsed().as_millis() as i64;
 
         let conf = dsa_core::get_global_config();
         dsa_core::utils::record_llm_usage_from_response(
-            &response, &conf.llm.provider, &self.model, "agent_risk", elapsed, &code,
+            &response,
+            &conf.llm.provider,
+            &self.model,
+            "agent_risk",
+            elapsed,
+            &code,
         );
 
-        let content = response.get("choices")
+        let content = response
+            .get("choices")
             .and_then(|c| Value::as_array(c))
             .and_then(|a| a.first().cloned())
             .and_then(|f| f.get("message").cloned())

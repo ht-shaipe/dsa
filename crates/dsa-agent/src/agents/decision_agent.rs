@@ -16,17 +16,25 @@ pub struct DecisionAgent {
 
 impl DecisionAgent {
     pub fn new(llm: Box<dyn LlmService>, model: &str) -> Self {
-        Self { llm, model: model.to_string() }
+        Self {
+            llm,
+            model: model.to_string(),
+        }
     }
 }
 
 #[async_trait(?Send)]
 impl BaseAgent for DecisionAgent {
-    fn name(&self) -> &str { "decision" }
-    fn role(&self) -> &str { "投资决策专家" }
+    fn name(&self) -> &str {
+        "decision"
+    }
+    fn role(&self) -> &str {
+        "投资决策专家"
+    }
 
     async fn process(&self, input: &Value) -> DsaResult<Value> {
-        let code = input.get("code")
+        let code = input
+            .get("code")
             .and_then(|c| c.as_str())
             .unwrap_or_default();
 
@@ -35,17 +43,21 @@ impl BaseAgent for DecisionAgent {
         }
 
         // 收集各Agent的分析结果
-        let technical = input.get("technical")
+        let technical = input
+            .get("technical")
             .and_then(|t| t.as_str())
             .unwrap_or_default();
-        let intel = input.get("intel")
+        let intel = input
+            .get("intel")
             .and_then(|i| i.as_str())
             .unwrap_or_default();
-        let risk = input.get("risk")
+        let risk = input
+            .get("risk")
             .and_then(|r| r.as_str())
             .unwrap_or_default();
 
-        let current_price = input.get("currentPrice")
+        let current_price = input
+            .get("currentPrice")
             .and_then(|p| p.as_f64())
             .unwrap_or(0.0);
 
@@ -85,16 +97,25 @@ impl BaseAgent for DecisionAgent {
         });
 
         let start = std::time::Instant::now();
-        let response = self.llm.chat(&body).await
+        let response = self
+            .llm
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("决策Agent调用LLM失败: {}", e)))?;
         let elapsed = start.elapsed().as_millis() as i64;
 
         let conf = dsa_core::get_global_config();
         dsa_core::utils::record_llm_usage_from_response(
-            &response, &conf.llm.provider, &self.model, "agent_decision", elapsed, &code,
+            &response,
+            &conf.llm.provider,
+            &self.model,
+            "agent_decision",
+            elapsed,
+            &code,
         );
 
-        let content = response.get("choices")
+        let content = response
+            .get("choices")
             .and_then(|c| Value::as_array(c))
             .and_then(|a| a.first().cloned())
             .and_then(|f| f.get("message").cloned())

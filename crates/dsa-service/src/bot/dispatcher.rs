@@ -8,8 +8,8 @@ use dsa_core::DsaResult;
 use tube::Value;
 
 use super::commands::{
-    HelpCommand, StatusCommand, AnalyzeCommand, MarketCommand,
-    AskCommand, ChatCommand, HistoryCommand, BotCommand,
+    AnalyzeCommand, AskCommand, BotCommand, ChatCommand, HelpCommand, HistoryCommand,
+    MarketCommand, StatusCommand,
 };
 
 /// Bot 上下文 - 携带消息来源平台和用户信息
@@ -136,10 +136,16 @@ mod tests {
 
     #[test]
     fn test_parse_command() {
-        assert_eq!(BotDispatcher::parse_command("/analyze 600519"), ("analyze", "600519"));
+        assert_eq!(
+            BotDispatcher::parse_command("/analyze 600519"),
+            ("analyze", "600519")
+        );
         assert_eq!(BotDispatcher::parse_command("/help"), ("help", ""));
         assert_eq!(BotDispatcher::parse_command("/market  "), ("market", ""));
-        assert_eq!(BotDispatcher::parse_command("/ask how is AAPL?"), ("ask", "how is AAPL?"));
+        assert_eq!(
+            BotDispatcher::parse_command("/ask how is AAPL?"),
+            ("ask", "how is AAPL?")
+        );
     }
 
     #[test]
@@ -179,7 +185,8 @@ mod tests {
         let dispatcher = BotDispatcher::new();
         let cmds = dispatcher.list_commands();
         assert!(!cmds.is_empty());
-        let names: Vec<String> = cmds.iter()
+        let names: Vec<String> = cmds
+            .iter()
             .filter_map(|v| v.get("name").and_then(|n| n.as_str()))
             .collect();
         assert!(names.contains(&"help".to_string()));

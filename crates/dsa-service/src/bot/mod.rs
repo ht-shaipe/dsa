@@ -3,6 +3,6 @@
 //! 支持: 钉钉、飞书、Discord 等平台接入
 //! 内置命令: /help, /status, /analyze, /market, /ask, /chat, /history
 
-pub mod dispatcher;
 pub mod commands;
+pub mod dispatcher;
 pub mod platforms;

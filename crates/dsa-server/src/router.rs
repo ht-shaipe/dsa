@@ -3,11 +3,17 @@
 use actix_web::{web, Error as ActixError, HttpRequest, HttpResponse};
 use tube_web::response::{get_error, get_success};
 
-pub async fn api_handler(req: HttpRequest, payload: web::Payload) -> Result<HttpResponse, ActixError> {
+pub async fn api_handler(
+    req: HttpRequest,
+    payload: web::Payload,
+) -> Result<HttpResponse, ActixError> {
     api_handler_inner(req, payload).await
 }
 
-async fn api_handler_inner(req: HttpRequest, payload: web::Payload) -> Result<HttpResponse, ActixError> {
+async fn api_handler_inner(
+    req: HttpRequest,
+    payload: web::Payload,
+) -> Result<HttpResponse, ActixError> {
     let mut param = tube_web::parse_request(req, payload).await;
 
     if param.method == "get" && !param.path.is_empty() {
@@ -40,7 +46,10 @@ async fn api_handler_inner(req: HttpRequest, payload: web::Payload) -> Result<Ht
         "report" => crate::handler::report::distribute(&param).await,
         "bot" => crate::handler::bot::distribute(&param).await,
         "indicator" => crate::handler::indicator::distribute(&param).await,
-        _ => Err(error!("请求方法{}.{}系统未提供。", param.module, param.method)),
+        _ => Err(error!(
+            "请求方法{}.{}系统未提供。",
+            param.module, param.method
+        )),
     };
 
     match res {

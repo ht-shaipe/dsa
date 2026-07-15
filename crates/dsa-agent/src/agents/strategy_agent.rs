@@ -6,7 +6,9 @@ use tube::Value;
 pub struct StrategyAgent;
 
 impl StrategyAgent {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// 列出所有可用策略
     pub fn list_strategies() -> Vec<Value> {
@@ -31,9 +33,18 @@ impl StrategyAgent {
 
     /// 根据市场上下文路由最佳策略
     pub fn route_strategy(context: &Value) -> Value {
-        let trend = context.get("trend").and_then(|v| v.as_str()).unwrap_or_default();
-        let change_pct = context.get("changePercent").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let volume_signal = context.get("volumeSignal").and_then(|v| v.as_str()).unwrap_or_default();
+        let trend = context
+            .get("trend")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let change_pct = context
+            .get("changePercent")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let volume_signal = context
+            .get("volumeSignal")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
 
         let strategy = if trend.contains("up") && change_pct > 3.0 {
             "bull_trend"
@@ -52,9 +63,9 @@ impl StrategyAgent {
         };
 
         let strategies = Self::list_strategies();
-        let matched = strategies.iter().find(|s| {
-            s.get("id").and_then(|v| v.as_str()).unwrap_or_default() == strategy
-        });
+        let matched = strategies
+            .iter()
+            .find(|s| s.get("id").and_then(|v| v.as_str()).unwrap_or_default() == strategy);
 
         value!({
             "recommendedStrategy": strategy,

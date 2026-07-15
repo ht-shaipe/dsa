@@ -39,10 +39,7 @@ impl MarketReviewGenerator {
                 .or_else(|| v.get("change_pct"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
-            market_context.push_str(&format!(
-                "{}: {:.2} ({:+.2}%)  ",
-                name, price, chg
-            ));
+            market_context.push_str(&format!("{}: {:.2} ({:+.2}%)  ", name, price, chg));
         }
 
         if let Some(ref v) = sz {
@@ -56,10 +53,7 @@ impl MarketReviewGenerator {
                 .or_else(|| v.get("change_pct"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
-            market_context.push_str(&format!(
-                "{}: {:.2} ({:+.2}%)  ",
-                name, price, chg
-            ));
+            market_context.push_str(&format!("{}: {:.2} ({:+.2}%)  ", name, price, chg));
         }
 
         if let Some(ref v) = cy {
@@ -73,10 +67,7 @@ impl MarketReviewGenerator {
                 .or_else(|| v.get("change_pct"))
                 .and_then(|v| v.as_f64())
                 .unwrap_or(0.0);
-            market_context.push_str(&format!(
-                "{}: {:.2} ({:+.2}%)",
-                name, price, chg
-            ));
+            market_context.push_str(&format!("{}: {:.2} ({:+.2}%)", name, price, chg));
         }
 
         if market_context.is_empty() {
@@ -111,7 +102,12 @@ impl MarketReviewGenerator {
         let elapsed = start.elapsed().as_millis() as i64;
 
         dsa_core::utils::record_llm_usage_from_response(
-            &response, &conf.llm.provider, &conf.llm.model, "market_review", elapsed, "",
+            &response,
+            &conf.llm.provider,
+            &conf.llm.model,
+            "market_review",
+            elapsed,
+            "",
         );
 
         // 提取内容

@@ -1,7 +1,7 @@
 //! 历史工具 - 分析上下文从历史记录
 
-use dsa_core::utils;
 use deck_mysql::{DataRow, Helper};
+use dsa_core::utils;
 use tube::Value;
 
 use super::registry::{ToolParameter, ToolRegistry};
@@ -9,7 +9,9 @@ use super::registry::{ToolParameter, ToolRegistry};
 pub struct HistoryTools;
 
 impl HistoryTools {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// 获取历史分析上下文
     pub fn get_analysis_context(code: &str, limit: i64) -> Value {
@@ -17,11 +19,14 @@ impl HistoryTools {
             Ok(c) => c,
             Err(_) => return value!({"data": []}),
         };
-        let sql = format!("SELECT id, stock_code, stock_name, sentiment_score, operation_advice, \
+        let sql = format!(
+            "SELECT id, stock_code, stock_name, sentiment_score, operation_advice, \
              trendPrediction, idealBuy, secondaryBuy, stopLoss, takeProfit, \
              analysisSummary, createTime \
              FROM analysis_history WHERE stock_code = '{}' AND status >= 1 \
-             ORDER BY create_time DESC LIMIT {}", code, limit);
+             ORDER BY create_time DESC LIMIT {}",
+            code, limit
+        );
         match Helper::query_rows(&sql, vec![], &connector) {
             Ok(rows) => {
                 let results: Vec<Value> = rows.iter().map(|r| r.to_value2()).collect();
@@ -38,10 +43,7 @@ async fn analysis_context(params: &Value) -> dsa_core::DsaResult<Value> {
         .get("code")
         .and_then(|v| v.as_str())
         .unwrap_or_default();
-    let limit = params
-        .get("limit")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(10);
+    let limit = params.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
     Ok(HistoryTools::get_analysis_context(&code, limit))
 }
 

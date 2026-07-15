@@ -49,22 +49,46 @@ pub struct BacktestResult {
     #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "eval_window_days", default_value = "10", comment = "评估窗口天数")]
+    #[field(
+        rename = "eval_window_days",
+        default_value = "10",
+        comment = "评估窗口天数"
+    )]
     pub eval_window_days: i32,
 
-    #[field(rename = "engine_version", length = 16, default_value = "''", comment = "引擎版本")]
+    #[field(
+        rename = "engine_version",
+        length = 16,
+        default_value = "''",
+        comment = "引擎版本"
+    )]
     pub engine_version: String,
 
-    #[field(rename = "eval_status", length = 16, default_value = "'pending'", comment = "评估状态")]
+    #[field(
+        rename = "eval_status",
+        length = 16,
+        default_value = "'pending'",
+        comment = "评估状态"
+    )]
     pub eval_status: String,
 
     #[field(rename = "evaluated_at", comment = "评估时间")]
     pub evaluated_at: Option<chrono::NaiveDateTime>,
 
-    #[field(rename = "operation_advice", length = 20, default_value = "''", comment = "操作建议")]
+    #[field(
+        rename = "operation_advice",
+        length = 20,
+        default_value = "''",
+        comment = "操作建议"
+    )]
     pub operation_advice: String,
 
-    #[field(rename = "position_recommendation", length = 8, default_value = "''", comment = "仓位建议")]
+    #[field(
+        rename = "position_recommendation",
+        length = 8,
+        default_value = "''",
+        comment = "仓位建议"
+    )]
     pub position_recommendation: String,
 
     #[field(rename = "start_price", default_value = "0", comment = "起始价")]
@@ -79,10 +103,19 @@ pub struct BacktestResult {
     #[field(rename = "min_low", default_value = "0", comment = "最低价")]
     pub min_low: f64,
 
-    #[field(rename = "stock_return_pct", default_value = "0", comment = "股票回报%")]
+    #[field(
+        rename = "stock_return_pct",
+        default_value = "0",
+        comment = "股票回报%"
+    )]
     pub stock_return_pct: f64,
 
-    #[field(rename = "direction_expected", length = 16, default_value = "''", comment = "预期方向")]
+    #[field(
+        rename = "direction_expected",
+        length = 16,
+        default_value = "''",
+        comment = "预期方向"
+    )]
     pub direction_expected: String,
 
     #[field(length = 16, default_value = "''", comment = "结果")]
@@ -94,24 +127,50 @@ pub struct BacktestResult {
     #[field(rename = "take_profit_price", default_value = "0", comment = "止盈价")]
     pub take_profit_price: f64,
 
-    #[field(rename = "hit_stop_loss", default_value = "0", comment = "是否触及止损")]
+    #[field(
+        rename = "hit_stop_loss",
+        default_value = "0",
+        comment = "是否触及止损"
+    )]
     pub hit_stop_loss: i8,
 
-    #[field(rename = "hit_take_profit", default_value = "0", comment = "是否触及止盈")]
+    #[field(
+        rename = "hit_take_profit",
+        default_value = "0",
+        comment = "是否触及止盈"
+    )]
     pub hit_take_profit: i8,
 
-    #[field(rename = "first_hit", length = 16, default_value = "''", comment = "首次触及类型")]
+    #[field(
+        rename = "first_hit",
+        length = 16,
+        default_value = "''",
+        comment = "首次触及类型"
+    )]
     pub first_hit: String,
 
     #[field(rename = "first_hit_date", comment = "首次触及日期")]
     pub first_hit_date: Option<chrono::NaiveDate>,
 
-    #[field(rename = "first_hit_trading_days", default_value = "0", comment = "首次触及交易天数")]
+    #[field(
+        rename = "first_hit_trading_days",
+        default_value = "0",
+        comment = "首次触及交易天数"
+    )]
     pub first_hit_trading_days: i32,
 
-    #[field(rename = "simulated_exit_reason", length = 24, default_value = "''", comment = "模拟出场原因")]
+    #[field(
+        rename = "simulated_exit_reason",
+        length = 24,
+        default_value = "''",
+        comment = "模拟出场原因"
+    )]
     pub simulated_exit_reason: String,
 
-    #[field(rename = "simulated_return_pct", default_value = "0", comment = "模拟回报%")]
+    #[field(
+        rename = "simulated_return_pct",
+        default_value = "0",
+        comment = "模拟回报%"
+    )]
     pub simulated_return_pct: f64,
 }

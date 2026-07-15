@@ -1,3 +1,6 @@
+use deck::sqlite::DataTable;
+use deck::QueryExecutor;
+use deck::TableService;
 use dsa_core::db::{execute, query_rows, row_get_f64, row_get_i64, row_get_string};
 use dsa_core::models::db::PortfolioAccount as PortfolioAccountModel;
 use dsa_core::models::db::PortfolioCashLedger as PortfolioCashLedgerModel;
@@ -8,49 +11,76 @@ use dsa_core::models::db::PortfolioPosition as PortfolioPositionModel;
 use dsa_core::models::db::PortfolioPositionLot as PortfolioPositionLotModel;
 use dsa_core::models::db::PortfolioTrade as PortfolioTradeModel;
 use dsa_core::utils;
-use deck::sqlite::DataTable;
-use deck::QueryExecutor;
-use deck::TableService;
 
 use qta_crawler::Real;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
-struct TradeTable { request: RequestParameter }
+struct TradeTable {
+    request: RequestParameter,
+}
 
 impl DataTable<PortfolioTradeModel> for TradeTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<PortfolioTradeModel> for TradeTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl TradeTable {
-    fn new(param: &RequestParameter) -> Self { TradeTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        TradeTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_trades(&self, account_id: i64, limit: i64) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let (sql, p) = if account_id > 0 {
-            ("SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
+            (
+                "SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
               trade_date, commission, trade_currency, dedup_hash, remark, status, create_time \
               FROM portfolio_trades WHERE account_id = :aid AND status = 1 \
-              ORDER BY create_time DESC LIMIT :limit".to_string(),
-             vec![("aid".to_string(), Value::from(account_id)),
-                  ("limit".to_string(), Value::from(limit))])
+              ORDER BY create_time DESC LIMIT :limit"
+                    .to_string(),
+                vec![
+                    ("aid".to_string(), Value::from(account_id)),
+                    ("limit".to_string(), Value::from(limit)),
+                ],
+            )
         } else {
-            ("SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
+            (
+                "SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
               trade_date, commission, trade_currency, dedup_hash, remark, status, create_time \
               FROM portfolio_trades WHERE status = 1 \
-              ORDER BY create_time DESC LIMIT :limit".to_string(),
-             vec![("limit".to_string(), Value::from(limit))])
+              ORDER BY create_time DESC LIMIT :limit"
+                    .to_string(),
+                vec![("limit".to_string(), Value::from(limit))],
+            )
         };
         let rows = query_rows(&sql, p, &connector)
             .map_err(|e| tube::Error::msg(format!("查询交易记录失败: {}", e)))?;
         Ok(rows)
     }
 
-    fn insert_trade(&self, account_id: i64, code: &str, name: &str, direction: &str,
-                    price: f64, quantity: i64, commission: f64, remark: &str, trade_date: Option<chrono::NaiveDateTime>) -> Result<Value> {
+    fn insert_trade(
+        &self,
+        account_id: i64,
+        code: &str,
+        name: &str,
+        direction: &str,
+        price: f64,
+        quantity: i64,
+        commission: f64,
+        remark: &str,
+        trade_date: Option<chrono::NaiveDateTime>,
+    ) -> Result<Value> {
         let trade_date_val = trade_date.unwrap_or_else(|| chrono::Local::now().naive_local());
         let data = value!({
             "account_id": account_id,
@@ -67,7 +97,9 @@ impl TradeTable {
             "status": 1,
             "create_time": chrono::Local::now().naive_local(),
         });
-        self.insert().data(&data).execute()
+        self.insert()
+            .data(&data)
+            .execute()
             .map_err(|e| tube::Error::msg(format!("插入交易记录失败: {}", e)))
     }
 
@@ -80,27 +112,54 @@ impl TradeTable {
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询交易汇总失败: {}", e)))?;
-        Ok(rows.first().map(|r| row_get_f64(r, "realizedPnl")).unwrap_or(0.0))
+        )
+        .map_err(|e| tube::Error::msg(format!("查询交易汇总失败: {}", e)))?;
+        Ok(rows
+            .first()
+            .map(|r| row_get_f64(r, "realizedPnl"))
+            .unwrap_or(0.0))
     }
 
-    fn import_one_trade(&self, account_id: i64, code: &str, name: &str, direction: &str,
-                        price: f64, quantity: i64, commission: f64, remark: &str) -> Result<Value> {
-        self.insert_trade(account_id, code, name, direction, price, quantity, commission, remark, None)
+    fn import_one_trade(
+        &self,
+        account_id: i64,
+        code: &str,
+        name: &str,
+        direction: &str,
+        price: f64,
+        quantity: i64,
+        commission: f64,
+        remark: &str,
+    ) -> Result<Value> {
+        self.insert_trade(
+            account_id, code, name, direction, price, quantity, commission, remark, None,
+        )
     }
 }
 
-struct AccountTable { request: RequestParameter }
+struct AccountTable {
+    request: RequestParameter,
+}
 
 impl DataTable<PortfolioAccountModel> for AccountTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<PortfolioAccountModel> for AccountTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl AccountTable {
-    fn new(param: &RequestParameter) -> Self { AccountTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        AccountTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_accounts(&self) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
@@ -119,22 +178,38 @@ impl AccountTable {
             sql,
             vec![("id".to_string(), Value::from(account_id))],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询账户失败: {}", e)))?;
-        Ok(rows.first().map(|r| row_get_f64(r, "initialCapital")).unwrap_or(0.0))
+        )
+        .map_err(|e| tube::Error::msg(format!("查询账户失败: {}", e)))?;
+        Ok(rows
+            .first()
+            .map(|r| row_get_f64(r, "initialCapital"))
+            .unwrap_or(0.0))
     }
 }
 
-struct CashLedgerTable { request: RequestParameter }
+struct CashLedgerTable {
+    request: RequestParameter,
+}
 
 impl DataTable<PortfolioCashLedgerModel> for CashLedgerTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<PortfolioCashLedgerModel> for CashLedgerTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl CashLedgerTable {
-    fn new(param: &RequestParameter) -> Self { CashLedgerTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        CashLedgerTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_cash_ledger(&self, account_id: i64, limit: i64) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
@@ -147,11 +222,18 @@ impl CashLedgerTable {
                 ("limit".to_string(), Value::from(limit)),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询现金流水失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("查询现金流水失败: {}", e)))?;
         Ok(rows)
     }
 
-    fn insert_cash_event(&self, account_id: i64, direction: &str, amount: f64, note: &str) -> Result<Value> {
+    fn insert_cash_event(
+        &self,
+        account_id: i64,
+        direction: &str,
+        amount: f64,
+        note: &str,
+    ) -> Result<Value> {
         let data = value!({
             "account_id": account_id,
             "event_date": chrono::Local::now().naive_local(),
@@ -161,22 +243,36 @@ impl CashLedgerTable {
             "note": note,
             "create_time": chrono::Local::now().naive_local(),
         });
-        self.insert().data(&data).execute()
+        self.insert()
+            .data(&data)
+            .execute()
             .map_err(|e| tube::Error::msg(format!("插入现金流水失败: {}", e)))
     }
 }
 
-struct CorporateActionTable { request: RequestParameter }
+struct CorporateActionTable {
+    request: RequestParameter,
+}
 
 impl DataTable<PortfolioCorporateActionModel> for CorporateActionTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<PortfolioCorporateActionModel> for CorporateActionTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl CorporateActionTable {
-    fn new(param: &RequestParameter) -> Self { CorporateActionTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        CorporateActionTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_corporate_actions(&self, account_id: i64, limit: i64) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
@@ -189,12 +285,20 @@ impl CorporateActionTable {
                 ("limit".to_string(), Value::from(limit)),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询公司行动失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("查询公司行动失败: {}", e)))?;
         Ok(rows)
     }
 
-    fn insert_corporate_action(&self, account_id: i64, symbol: &str, action_type: &str,
-                                cash_dividend_per_share: f64, split_ratio: &str, note: &str) -> Result<Value> {
+    fn insert_corporate_action(
+        &self,
+        account_id: i64,
+        symbol: &str,
+        action_type: &str,
+        cash_dividend_per_share: f64,
+        split_ratio: &str,
+        note: &str,
+    ) -> Result<Value> {
         let data = value!({
             "account_id": account_id,
             "symbol": symbol,
@@ -207,26 +311,48 @@ impl CorporateActionTable {
             "note": note,
             "create_time": chrono::Local::now().naive_local(),
         });
-        self.insert().data(&data).execute()
+        self.insert()
+            .data(&data)
+            .execute()
             .map_err(|e| tube::Error::msg(format!("插入公司行动失败: {}", e)))
     }
 }
 
-struct DailySnapshotTable { request: RequestParameter }
+struct DailySnapshotTable {
+    request: RequestParameter,
+}
 
 impl DataTable<PortfolioDailySnapshotModel> for DailySnapshotTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<PortfolioDailySnapshotModel> for DailySnapshotTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl DailySnapshotTable {
-    fn new(param: &RequestParameter) -> Self { DailySnapshotTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        DailySnapshotTable {
+            request: param.clone(),
+        }
+    }
 
-    fn insert_snapshot(&self, account_id: i64, total_equity: f64, cash_balance: f64,
-                       market_value: f64, daily_pnl: f64, daily_pnl_pct: f64,
-                       total_pnl: f64, total_pnl_pct: f64) -> Result<Value> {
+    fn insert_snapshot(
+        &self,
+        account_id: i64,
+        total_equity: f64,
+        cash_balance: f64,
+        market_value: f64,
+        daily_pnl: f64,
+        daily_pnl_pct: f64,
+        total_pnl: f64,
+        total_pnl_pct: f64,
+    ) -> Result<Value> {
         let data = value!({
             "account_id": account_id,
             "snapshot_date": chrono::Local::now().naive_local(),
@@ -239,7 +365,9 @@ impl DailySnapshotTable {
             "total_pnl_pct": total_pnl_pct,
             "create_time": chrono::Local::now().naive_local(),
         });
-        self.insert().data(&data).execute()
+        self.insert()
+            .data(&data)
+            .execute()
             .map_err(|e| tube::Error::msg(format!("创建快照失败: {}", e)))
     }
 
@@ -251,22 +379,38 @@ impl DailySnapshotTable {
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
-        ).unwrap_or_default();
-        Ok(rows.first().map(|r| row_get_f64(r, "totalEquity")).unwrap_or(fallback))
+        )
+        .unwrap_or_default();
+        Ok(rows
+            .first()
+            .map(|r| row_get_f64(r, "totalEquity"))
+            .unwrap_or(fallback))
     }
 }
 
-struct FxRateTable { request: RequestParameter }
+struct FxRateTable {
+    request: RequestParameter,
+}
 
 impl DataTable<PortfolioFxRateModel> for FxRateTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<PortfolioFxRateModel> for FxRateTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl FxRateTable {
-    fn new(param: &RequestParameter) -> Self { FxRateTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        FxRateTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_fx_rates(&self, limit: i64) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
@@ -275,25 +419,39 @@ impl FxRateTable {
             sql,
             vec![("limit".to_string(), Value::from(limit))],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询汇率失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("查询汇率失败: {}", e)))?;
         Ok(rows)
     }
 
-    fn upsert_fx_rate(&self, from_currency: &str, to_currency: &str, rate: f64, source: &str) -> Result<Value> {
+    fn upsert_fx_rate(
+        &self,
+        from_currency: &str,
+        to_currency: &str,
+        rate: f64,
+        source: &str,
+    ) -> Result<Value> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
-        let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+        let now_expr = if is_sqlite {
+            "datetime('now')"
+        } else {
+            "NOW()"
+        };
         let upsert_clause = if is_sqlite {
             "rate = excluded.rate, source = excluded.source, is_stale = 0, updated_time = datetime('now')"
         } else {
             "rate = VALUES(rate), source = VALUES(source), is_stale = 0, updated_time = NOW()"
         };
-        let sql = format!("INSERT INTO portfolio_fx_rates \
+        let sql = format!(
+            "INSERT INTO portfolio_fx_rates \
              (from_currency, to_currency, rate_date, rate, source, is_stale, updated_time) \
              VALUES (:from, :to, {}, :rate, :src, 0, {}) \
-             ON DUPLICATE KEY UPDATE {}", now_expr, now_expr, upsert_clause);
-         execute(
-             &sql,
+             ON DUPLICATE KEY UPDATE {}",
+            now_expr, now_expr, upsert_clause
+        );
+        execute(
+            &sql,
             vec![
                 ("from".to_string(), Value::from(from_currency)),
                 ("to".to_string(), Value::from(to_currency)),
@@ -301,21 +459,35 @@ impl FxRateTable {
                 ("src".to_string(), Value::from(source)),
             ],
             &connector,
-        ).map(|n| tube::Value::from(n as i64)).map_err(|e| tube::Error::msg(format!("更新汇率失败: {}", e)))
+        )
+        .map(|n| tube::Value::from(n as i64))
+        .map_err(|e| tube::Error::msg(format!("更新汇率失败: {}", e)))
     }
 }
 
-struct PositionLotTable { request: RequestParameter }
+struct PositionLotTable {
+    request: RequestParameter,
+}
 
 impl DataTable<PortfolioPositionLotModel> for PositionLotTable {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 impl TableService<PortfolioPositionLotModel> for PositionLotTable {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 impl PositionLotTable {
-    fn new(param: &RequestParameter) -> Self { PositionLotTable { request: param.clone() } }
+    fn new(param: &RequestParameter) -> Self {
+        PositionLotTable {
+            request: param.clone(),
+        }
+    }
 
     fn query_lots(&self, account_id: i64) -> Result<Vec<Value>> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
@@ -325,25 +497,36 @@ impl PositionLotTable {
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询FIFO批次失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("查询FIFO批次失败: {}", e)))?;
         Ok(rows)
     }
 }
 
-pub struct Portfolio { request: RequestParameter }
+pub struct Portfolio {
+    request: RequestParameter,
+}
 
 impl DataTable<PortfolioPositionModel> for Portfolio {
-    fn datasource_key(&self) -> String { crate::DATASOURCE_KEY.to_owned() }
+    fn datasource_key(&self) -> String {
+        crate::DATASOURCE_KEY.to_owned()
+    }
 }
 
 impl TableService<PortfolioPositionModel> for Portfolio {
-    fn value(&self) -> Value { self.request.value.clone() }
-    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) { self.request.get_auth_user() }
+    fn value(&self) -> Value {
+        self.request.value.clone()
+    }
+    fn authorizer(&self) -> ((i8, u64, u64), (i8, u64), (i8, u64)) {
+        self.request.get_auth_user()
+    }
 }
 
 impl Portfolio {
     pub fn new(param: &RequestParameter) -> Self {
-        Portfolio { request: param.clone() }
+        Portfolio {
+            request: param.clone(),
+        }
     }
 
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
@@ -393,10 +576,7 @@ impl Portfolio {
             return Err(tube::Error::msg("请提供股票代码".to_string()));
         }
 
-        let price = params
-            .get("price")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let price = params.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
         if price <= 0.0 {
             return Err(tube::Error::msg("请提供有效价格".to_string()));
         }
@@ -416,13 +596,23 @@ impl Portfolio {
             .unwrap_or(0.0);
         let remark = utils::param_string(params, "remark");
 
-        let trade_date = params.get("tradeDate").and_then(|v| v.as_str())
-            .and_then(|s| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S").ok()
-                .or_else(|| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()
-                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())));
+        let trade_date = params
+            .get("tradeDate")
+            .and_then(|v| v.as_str())
+            .and_then(|s| {
+                chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
+                    .ok()
+                    .or_else(|| {
+                        chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                            .ok()
+                            .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                    })
+            });
 
         let trade_table = TradeTable::new(&self.request);
-        trade_table.insert_trade(account_id, &code, &name, "buy", price, quantity, commission, &remark, trade_date)?;
+        trade_table.insert_trade(
+            account_id, &code, &name, "buy", price, quantity, commission, &remark, trade_date,
+        )?;
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let check_sql = "SELECT id, quantity, avg_cost FROM portfolio_positions \
@@ -434,7 +624,8 @@ impl Portfolio {
                 ("code".to_string(), Value::from(code.as_str())),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询持仓失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("查询持仓失败: {}", e)))?;
 
         if existing.is_empty() {
             let mv = price * quantity as f64;
@@ -455,7 +646,9 @@ impl Portfolio {
                 "create_time": chrono::Local::now().naive_local(),
                 "modify_time": chrono::Local::now().naive_local(),
             });
-            self.insert().data(&data).execute()
+            self.insert()
+                .data(&data)
+                .execute()
                 .map_err(|e| tube::Error::msg(format!("创建持仓失败: {}", e)))?;
         } else {
             let row = &existing[0];
@@ -479,12 +672,19 @@ impl Portfolio {
             };
 
             let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
-            let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
-            let update_sql = format!("UPDATE portfolio_positions SET \
+            let now_expr = if is_sqlite {
+                "datetime('now')"
+            } else {
+                "NOW()"
+            };
+            let update_sql = format!(
+                "UPDATE portfolio_positions SET \
                  quantity = :qty, avg_cost = :avg_cost, current_price = :price, \
                  market_value = :mv, unrealized_pnl = :pnl, unrealized_pnl_pct = :pnl_pct, \
                  snapshot_date = {}, modify_time = {} \
-                 WHERE id = :id", now_expr, now_expr);
+                 WHERE id = :id",
+                now_expr, now_expr
+            );
             execute(
                 &update_sql,
                 vec![
@@ -497,7 +697,8 @@ impl Portfolio {
                     ("id".to_string(), Value::from(pos_id)),
                 ],
                 &connector,
-            ).map_err(|e| tube::Error::msg(format!("更新持仓失败: {}", e)))?;
+            )
+            .map_err(|e| tube::Error::msg(format!("更新持仓失败: {}", e)))?;
         }
 
         Ok(value!({"action": "buy", "code": code, "price": price, "quantity": quantity}))
@@ -518,10 +719,7 @@ impl Portfolio {
             return Err(tube::Error::msg("请提供股票代码".to_string()));
         }
 
-        let price = params
-            .get("price")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let price = params.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
         let quantity = params
             .get("quantity")
             .and_then(|v| v.as_f64())
@@ -532,10 +730,18 @@ impl Portfolio {
             .unwrap_or(0.0);
         let remark = utils::param_string(params, "remark");
 
-        let trade_date = params.get("tradeDate").and_then(|v| v.as_str())
-            .and_then(|s| chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S").ok()
-                .or_else(|| chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok()
-                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())));
+        let trade_date = params
+            .get("tradeDate")
+            .and_then(|v| v.as_str())
+            .and_then(|s| {
+                chrono::NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S")
+                    .ok()
+                    .or_else(|| {
+                        chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                            .ok()
+                            .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                    })
+            });
 
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
         let check_sql = "SELECT id, quantity, avg_cost, stock_name FROM portfolio_positions \
@@ -547,7 +753,8 @@ impl Portfolio {
                 ("code".to_string(), Value::from(code.as_str())),
             ],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询持仓失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("查询持仓失败: {}", e)))?;
 
         if existing.is_empty() {
             return Err(tube::Error::msg(format!("无持仓: {}", code)));
@@ -568,18 +775,33 @@ impl Portfolio {
         let sell_price = if price <= 0.0 { avg_cost } else { price };
 
         let trade_table = TradeTable::new(&self.request);
-        trade_table.insert_trade(account_id, &code, &stock_name, "sell", sell_price, sell_qty, commission, &remark, trade_date)?;
+        trade_table.insert_trade(
+            account_id,
+            &code,
+            &stock_name,
+            "sell",
+            sell_price,
+            sell_qty,
+            commission,
+            &remark,
+            trade_date,
+        )?;
 
         let remaining = old_qty - sell_qty;
         if remaining <= 0 {
             let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
-            let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+            let now_expr = if is_sqlite {
+                "datetime('now')"
+            } else {
+                "NOW()"
+            };
             let update_sql = format!("UPDATE portfolio_positions SET quantity = 0, status = 0, modify_time = {} WHERE id = :id", now_expr);
             execute(
                 &update_sql,
                 vec![("id".to_string(), Value::from(pos_id))],
                 &connector,
-            ).map_err(|e| tube::Error::msg(format!("清仓失败: {}", e)))?;
+            )
+            .map_err(|e| tube::Error::msg(format!("清仓失败: {}", e)))?;
         } else {
             let mv = sell_price * remaining as f64;
             let pnl = (sell_price - avg_cost) * remaining as f64;
@@ -590,7 +812,11 @@ impl Portfolio {
             };
 
             let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
-            let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+            let now_expr = if is_sqlite {
+                "datetime('now')"
+            } else {
+                "NOW()"
+            };
             let update_sql = format!("UPDATE portfolio_positions SET \
                  quantity = :qty, avg_cost = :avg_cost, current_price = :price, market_value = :mv, \
                  unrealized_pnl = :pnl, unrealized_pnl_pct = :pnl_pct, \
@@ -607,7 +833,8 @@ impl Portfolio {
                     ("id".to_string(), Value::from(pos_id)),
                 ],
                 &connector,
-            ).map_err(|e| tube::Error::msg(format!("更新持仓失败: {}", e)))?;
+            )
+            .map_err(|e| tube::Error::msg(format!("更新持仓失败: {}", e)))?;
         }
 
         Ok(value!({"action": "sell", "code": code, "price": sell_price, "quantity": sell_qty}))
@@ -623,15 +850,21 @@ impl Portfolio {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let (sql, p) = if account_id > 0 {
-            ("SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
+            (
+                "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
               current_price, market_value, unrealized_pnl, unrealized_pnl_pct \
-              FROM portfolio_positions WHERE account_id = :aid AND status = 1".to_string(),
-             vec![("aid".to_string(), Value::from(account_id))])
+              FROM portfolio_positions WHERE account_id = :aid AND status = 1"
+                    .to_string(),
+                vec![("aid".to_string(), Value::from(account_id))],
+            )
         } else {
-            ("SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
+            (
+                "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
               current_price, market_value, unrealized_pnl, unrealized_pnl_pct \
-              FROM portfolio_positions WHERE status = 1".to_string(),
-             vec![])
+              FROM portfolio_positions WHERE status = 1"
+                    .to_string(),
+                vec![],
+            )
         };
 
         let rows = query_rows(&sql, p, &connector)
@@ -650,7 +883,8 @@ impl Portfolio {
             let avg_cost: f64 = row_get_f64(row, "avgCost");
             let stock_name = row_get_string(row, "stockName");
 
-            let pure_code = code.trim_start_matches("sh")
+            let pure_code = code
+                .trim_start_matches("sh")
                 .trim_start_matches("sz")
                 .trim_start_matches("bj")
                 .trim_start_matches("SH")
@@ -663,12 +897,17 @@ impl Portfolio {
 
             let current_price = match real.get_price(&full_code).await {
                 Ok(v) => {
-                    let p = v.get("close")
+                    let p = v
+                        .get("close")
                         .or_else(|| v.get("current_price"))
                         .or_else(|| v.get("price"))
                         .and_then(|val| val.as_f64())
                         .unwrap_or(db_current_price);
-                    if p > 0.0 { p } else { db_current_price }
+                    if p > 0.0 {
+                        p
+                    } else {
+                        db_current_price
+                    }
                 }
                 Err(e) => {
                     log!("portfolio summary get_price({}) error: {}", full_code, e);
@@ -724,17 +963,23 @@ impl Portfolio {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let (sql, p) = if account_id > 0 {
-            ("SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
+            (
+                "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
               current_price, market_value, unrealized_pnl, unrealized_pnl_pct, \
               snapshot_date, status, create_time, modify_time \
-              FROM portfolio_positions WHERE account_id = :aid AND status = 1".to_string(),
-             vec![("aid".to_string(), Value::from(account_id))])
+              FROM portfolio_positions WHERE account_id = :aid AND status = 1"
+                    .to_string(),
+                vec![("aid".to_string(), Value::from(account_id))],
+            )
         } else {
-            ("SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
+            (
+                "SELECT id, account_id, stock_code, stock_name, quantity, avg_cost, \
               current_price, market_value, unrealized_pnl, unrealized_pnl_pct, \
               snapshot_date, status, create_time, modify_time \
-              FROM portfolio_positions WHERE status = 1".to_string(),
-             vec![])
+              FROM portfolio_positions WHERE status = 1"
+                    .to_string(),
+                vec![],
+            )
         };
 
         let rows = query_rows(&sql, p, &connector)
@@ -750,7 +995,8 @@ impl Portfolio {
             let avg_cost: f64 = row_get_f64(row, "avgCost");
             let db_current_price: f64 = row_get_f64(row, "currentPrice");
 
-            let pure_code = code.trim_start_matches("sh")
+            let pure_code = code
+                .trim_start_matches("sh")
                 .trim_start_matches("sz")
                 .trim_start_matches("bj")
                 .trim_start_matches("SH")
@@ -762,12 +1008,17 @@ impl Portfolio {
 
             let current_price = match real.get_price(&full_code).await {
                 Ok(v) => {
-                    let p = v.get("close")
+                    let p = v
+                        .get("close")
                         .or_else(|| v.get("current_price"))
                         .or_else(|| v.get("price"))
                         .and_then(|val| val.as_f64())
                         .unwrap_or(db_current_price);
-                    if p > 0.0 { p } else { db_current_price }
+                    if p > 0.0 {
+                        p
+                    } else {
+                        db_current_price
+                    }
                 }
                 Err(e) => {
                     log!("portfolio positions get_price({}) error: {}", full_code, e);
@@ -805,10 +1056,7 @@ impl Portfolio {
             .get("accountId")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0) as i64;
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let table = TradeTable::new(&self.request);
         let results = table.query_trades(account_id, limit)?;
@@ -835,7 +1083,8 @@ impl Portfolio {
             pos_sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询持仓汇总失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("查询持仓汇总失败: {}", e)))?;
 
         let market_value: f64 = pos_rows
             .first()
@@ -877,8 +1126,14 @@ impl Portfolio {
         };
 
         snap_table.insert_snapshot(
-            account_id, total_equity, cash_balance, market_value,
-            daily_pnl, daily_pnl_pct, total_pnl, total_pnl_pct,
+            account_id,
+            total_equity,
+            cash_balance,
+            market_value,
+            daily_pnl,
+            daily_pnl_pct,
+            total_pnl,
+            total_pnl_pct,
         )?;
 
         Ok(value!({
@@ -904,10 +1159,7 @@ impl Portfolio {
             return Err(tube::Error::msg("请提供账户ID".to_string()));
         }
 
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let table = CashLedgerTable::new(&self.request);
         let results = table.query_cash_ledger(account_id, limit)?;
@@ -929,10 +1181,7 @@ impl Portfolio {
             return Err(tube::Error::msg("direction 必须为 in 或 out".to_string()));
         }
 
-        let amount = params
-            .get("amount")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let amount = params.get("amount").and_then(|v| v.as_f64()).unwrap_or(0.0);
         if amount <= 0.0 {
             return Err(tube::Error::msg("请提供有效金额".to_string()));
         }
@@ -955,10 +1204,7 @@ impl Portfolio {
             return Err(tube::Error::msg("请提供账户ID".to_string()));
         }
 
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let table = CorporateActionTable::new(&self.request);
         let results = table.query_corporate_actions(account_id, limit)?;
@@ -994,8 +1240,12 @@ impl Portfolio {
 
         let table = CorporateActionTable::new(&self.request);
         table.insert_corporate_action(
-            account_id, &symbol, &action_type,
-            cash_dividend_per_share, &split_ratio, &note,
+            account_id,
+            &symbol,
+            &action_type,
+            cash_dividend_per_share,
+            &split_ratio,
+            &note,
         )?;
 
         Ok(value!({"accountId": account_id, "symbol": symbol, "actionType": action_type}))
@@ -1018,10 +1268,7 @@ impl Portfolio {
 
     async fn fx_rates(&self) -> Result<Value> {
         let params = self.params();
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let table = FxRateTable::new(&self.request);
         let results = table.query_fx_rates(limit)?;
@@ -1040,10 +1287,7 @@ impl Portfolio {
             return Err(tube::Error::msg("请提供目标货币".to_string()));
         }
 
-        let rate = params
-            .get("rate")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let rate = params.get("rate").and_then(|v| v.as_f64()).unwrap_or(0.0);
         if rate <= 0.0 {
             return Err(tube::Error::msg("请提供有效汇率".to_string()));
         }
@@ -1073,7 +1317,8 @@ impl Portfolio {
             sql,
             vec![("aid".to_string(), Value::from(account_id))],
             &connector,
-        ).map_err(|e| tube::Error::msg(format!("查询持仓失败: {}", e)))?;
+        )
+        .map_err(|e| tube::Error::msg(format!("查询持仓失败: {}", e)))?;
 
         if rows.is_empty() {
             return Ok(value!({
@@ -1084,13 +1329,23 @@ impl Portfolio {
             }));
         }
 
-        let codes: Vec<String> = rows.iter().map(|r| row_get_string(r, "stockCode")).collect();
-        let mut sector_cache: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let codes: Vec<String> = rows
+            .iter()
+            .map(|r| row_get_string(r, "stockCode"))
+            .collect();
+        let mut sector_cache: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         let em = qta_crawler::EastMoney::new();
         if let Ok(spot_data) = em.stock_zh_a_spot().await {
             for item in &spot_data {
-                let code = item.get("代码").and_then(|v| v.as_str()).unwrap_or_default();
-                let industry = item.get("所处行业").and_then(|v| v.as_str()).unwrap_or_default();
+                let code = item
+                    .get("代码")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let industry = item
+                    .get("所处行业")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
                 if !code.is_empty() && !industry.is_empty() && codes.contains(&code) {
                     sector_cache.insert(code, industry);
                 }
@@ -1100,7 +1355,8 @@ impl Portfolio {
         let mut total_mv = 0.0_f64;
         let mut max_mv = 0.0_f64;
         let mut max_loss_pct = 0.0_f64;
-        let mut sector_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut sector_map: std::collections::HashMap<String, f64> =
+            std::collections::HashMap::new();
 
         for row in &rows {
             let code = row_get_string(row, "stockCode");
@@ -1115,7 +1371,8 @@ impl Portfolio {
                 max_loss_pct = pnl_pct;
             }
 
-            let sector = sector_cache.get(&code)
+            let sector = sector_cache
+                .get(&code)
                 .map(|s| s.as_str())
                 .unwrap_or("其他");
 
@@ -1195,10 +1452,7 @@ impl Portfolio {
                 continue;
             }
 
-            let price = trade
-                .get("price")
-                .and_then(|v| v.as_f64())
-                .unwrap_or(0.0);
+            let price = trade.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
             if price <= 0.0 {
                 fail_count += 1;
                 errors.push(value!({"index": idx as i64, "error": "缺少有效price"}));
@@ -1223,8 +1477,7 @@ impl Portfolio {
             let remark = utils::param_string(trade, "remark");
 
             match trade_table.import_one_trade(
-                account_id, &code, &name, &direction,
-                price, quantity, commission, &remark,
+                account_id, &code, &name, &direction, price, quantity, commission, &remark,
             ) {
                 Ok(_) => success_count += 1,
                 Err(e) => {

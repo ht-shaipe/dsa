@@ -1,13 +1,15 @@
 //! 回测工具 - 对接回测引擎
 
-use dsa_core::utils;
 use deck_mysql::{DataRow, Helper};
+use dsa_core::utils;
 use tube::Value;
 
 pub struct BacktestTools;
 
 impl BacktestTools {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// 获取回测摘要 - 从数据库聚合真实统计数据
     pub fn get_backtest_summary(code: &str) -> Value {
@@ -32,14 +34,18 @@ impl BacktestTools {
              AVG(returnPct) as avg_return, \
              MAX(maxDrawdown) as max_drawdown, \
              SUM(CASE WHEN directionCorrect = 1 THEN 1 ELSE 0 END) as dir_correct \
-             FROM backtest_results WHERE status = 1".to_string()
+             FROM backtest_results WHERE status = 1"
+                .to_string()
         } else {
-            format!("SELECT COUNT(*) as total_trades, \
+            format!(
+                "SELECT COUNT(*) as total_trades, \
              SUM(CASE WHEN returnPct > 0 THEN 1 ELSE 0 END) as wins, \
              AVG(returnPct) as avg_return, \
              MAX(maxDrawdown) as max_drawdown, \
              SUM(CASE WHEN directionCorrect = 1 THEN 1 ELSE 0 END) as dir_correct \
-             FROM backtest_results WHERE status = 1 AND stock_code = '{}'", code)
+             FROM backtest_results WHERE status = 1 AND stock_code = '{}'",
+                code
+            )
         };
 
         match Helper::query_rows(&sql, vec![], &connector) {
@@ -61,10 +67,17 @@ impl BacktestTools {
                         };
                         let std_dev = Helper::query_rows(&std_dev_sql, vec![], &connector)
                             .ok()
-                            .and_then(|r| r.first().map(|row| row.get_value(0).as_f64().unwrap_or(0.0)))
+                            .and_then(|r| {
+                                r.first()
+                                    .map(|row| row.get_value(0).as_f64().unwrap_or(0.0))
+                            })
                             .unwrap_or(0.0)
                             / 100.0;
-                        if std_dev > 0.0 { (avg_r / std_dev) * (252.0_f64).sqrt() } else { 0.0 }
+                        if std_dev > 0.0 {
+                            (avg_r / std_dev) * (252.0_f64).sqrt()
+                        } else {
+                            0.0
+                        }
                     } else {
                         0.0
                     };

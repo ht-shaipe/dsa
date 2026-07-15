@@ -1,6 +1,6 @@
+use ai_llm_kit::{LlmFactory, LlmProvider, LlmService};
 use tube::{Result, Value};
 use tube_web::RequestParameter;
-use ai_llm_kit::{LlmFactory, LlmProvider, LlmService};
 
 lazy_static::lazy_static! {
     static ref DATA_SYNC_STATUS: std::sync::Mutex<DataSyncStatus> = std::sync::Mutex::new(DataSyncStatus::default());
@@ -15,10 +15,16 @@ struct DataSyncStatus {
     phase: String,
 }
 
-pub struct System { request: RequestParameter }
+pub struct System {
+    request: RequestParameter,
+}
 
 impl System {
-    pub fn new(param: &RequestParameter) -> Self { System { request: param.clone() } }
+    pub fn new(param: &RequestParameter) -> Self {
+        System {
+            request: param.clone(),
+        }
+    }
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
             "get" => self.get_config().await,
@@ -39,13 +45,12 @@ impl System {
             "daily_data_stats" => self.daily_data_stats().await,
             "export_daily_data" => self.export_daily_data().await,
             "import_daily_data" => self.import_daily_data().await,
-            _ => Err(tube::Error::from(format!(
-                "system不支持方法: {}",
-                method
-            ))),
+            _ => Err(tube::Error::from(format!("system不支持方法: {}", method))),
         }
     }
-    fn params(&self) -> &Value { &self.request.value }
+    fn params(&self) -> &Value {
+        &self.request.value
+    }
 
     async fn get_config(&self) -> Result<Value> {
         let conf = dsa_core::get_global_config();
@@ -55,11 +60,12 @@ impl System {
     }
 
     async fn reload_config(&self) -> Result<Value> {
-        let conf_path = std::env::var("DSA_CONFIG_PATH")
-            .unwrap_or_else(|_| "conf/config.toml".to_string());
+        let conf_path =
+            std::env::var("DSA_CONFIG_PATH").unwrap_or_else(|_| "conf/config.toml".to_string());
         let path = std::path::Path::new(&conf_path);
 
-        let conf = dsa_core::config::AppConfig::load(path).map_err(|e| tube::Error::msg(e.to_string()))?;
+        let conf =
+            dsa_core::config::AppConfig::load(path).map_err(|e| tube::Error::msg(e.to_string()))?;
         dsa_core::set_global_config(conf.clone());
 
         let connector = conf.build_connector();
@@ -70,10 +76,7 @@ impl System {
 
     async fn save_config(&self) -> Result<Value> {
         let params = self.params();
-        let patch = params
-            .get("config")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let patch = params.get("config").cloned().unwrap_or(Value::Null);
 
         let current = dsa_core::get_global_config();
         let mut current_json = serde_json::to_value(&current)
@@ -101,10 +104,7 @@ impl System {
 
     async fn validate_config(&self) -> Result<Value> {
         let params = self.params();
-        let config_json = params
-            .get("config")
-            .cloned()
-            .unwrap_or(Value::Null);
+        let config_json = params.get("config").cloned().unwrap_or(Value::Null);
 
         let config_str = serde_json::to_string(&config_json)
             .map_err(|e| tube::Error::from(format!("配置转换失败: {}", e)))?;
@@ -214,9 +214,7 @@ impl System {
             ],
             _ => {
                 let model = conf.llm.model.clone();
-                vec![
-                    value!({"id": model.as_str(), "name": model.as_str()}),
-                ]
+                vec![value!({"id": model.as_str(), "name": model.as_str()})]
             }
         };
 
@@ -321,7 +319,9 @@ impl System {
         {
             let st = DATA_SYNC_STATUS.lock().unwrap();
             if st.running {
-                return Ok(value!({"message": "同步已在进行中", "progress": st.done, "total": st.total}));
+                return Ok(
+                    value!({"message": "同步已在进行中", "progress": st.done, "total": st.total}),
+                );
             }
         }
 
@@ -330,14 +330,27 @@ impl System {
         let retention_days = sync_conf.retention_days as i64;
 
         let em = qta_crawler::EastMoney::new();
-        let spot = em.stock_zh_a_spot().await
+        let spot = em
+            .stock_zh_a_spot()
+            .await
             .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
 
-        let codes: Vec<(String, String)> = spot.iter()
+        let codes: Vec<(String, String)> = spot
+            .iter()
             .filter_map(|s| {
-                let code: String = s.get("代码").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-                let name: String = s.get("名称").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-                if code.is_empty() { return None; }
+                let code: String = s
+                    .get("代码")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let name: String = s
+                    .get("名称")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                if code.is_empty() {
+                    return None;
+                }
                 if sync_conf.should_include_code(&code, &name) {
                     Some((code, name))
                 } else {
@@ -568,8 +581,14 @@ impl System {
 
         let (clean_sql, count_sql) = if is_sqlite {
             (
-                format!("DELETE FROM stock_daily WHERE trade_date < '{}'", cutoff_date),
-                format!("SELECT COUNT(*) as cnt FROM stock_daily WHERE trade_date < '{}'", cutoff_date),
+                format!(
+                    "DELETE FROM stock_daily WHERE trade_date < '{}'",
+                    cutoff_date
+                ),
+                format!(
+                    "SELECT COUNT(*) as cnt FROM stock_daily WHERE trade_date < '{}'",
+                    cutoff_date
+                ),
             )
         } else {
             (
@@ -580,7 +599,10 @@ impl System {
 
         let count_before = dsa_core::db::query_rows(&count_sql, vec![], &connector)
             .ok()
-            .and_then(|rows| rows.first().map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64))
+            .and_then(|rows| {
+                rows.first()
+                    .map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64)
+            })
             .unwrap_or(-1);
 
         let result = dsa_core::db::execute(&clean_sql, vec![], &connector)
@@ -598,17 +620,24 @@ impl System {
         let connector = dsa_core::db::get_db_connector()
             .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
 
-        let stock_count_sql = "SELECT COUNT(DISTINCT stock_code) AS cnt FROM stock_daily WHERE status >= 1";
+        let stock_count_sql =
+            "SELECT COUNT(DISTINCT stock_code) AS cnt FROM stock_daily WHERE status >= 1";
         let total_count_sql = "SELECT COUNT(*) AS cnt FROM stock_daily WHERE status >= 1";
 
         let stock_count: i64 = dsa_core::db::query_rows(stock_count_sql, vec![], &connector)
             .ok()
-            .and_then(|rows| rows.first().map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64))
+            .and_then(|rows| {
+                rows.first()
+                    .map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64)
+            })
             .unwrap_or(0);
 
         let total_count: i64 = dsa_core::db::query_rows(total_count_sql, vec![], &connector)
             .ok()
-            .and_then(|rows| rows.first().map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64))
+            .and_then(|rows| {
+                rows.first()
+                    .map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64)
+            })
             .unwrap_or(0);
 
         Ok(value!({
@@ -663,10 +692,15 @@ impl System {
         let count = records.len() as i64;
         let stock_count = dsa_core::db::query_rows(
             "SELECT COUNT(DISTINCT stock_code) AS cnt FROM stock_daily WHERE status >= 1",
-            vec![], &connector,
-        ).ok()
-            .and_then(|rows| rows.first().map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64))
-            .unwrap_or(0);
+            vec![],
+            &connector,
+        )
+        .ok()
+        .and_then(|rows| {
+            rows.first()
+                .map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64)
+        })
+        .unwrap_or(0);
 
         Ok(value!({
             "version": "1.0",
@@ -679,9 +713,13 @@ impl System {
 
     async fn import_daily_data(&self) -> Result<Value> {
         let params = self.params();
-        let data = params.get("data").ok_or_else(|| tube::Error::msg("缺少data字段"))?;
+        let data = params
+            .get("data")
+            .ok_or_else(|| tube::Error::msg("缺少data字段"))?;
 
-        let records = data.get("records").and_then(|v| v.as_array())
+        let records = data
+            .get("records")
+            .and_then(|v| v.as_array())
             .ok_or_else(|| tube::Error::msg("缺少records数组"))?;
 
         if records.is_empty() {
@@ -691,7 +729,11 @@ impl System {
         let connector = dsa_core::db::get_db_connector()
             .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
         let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
-        let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+        let now_expr = if is_sqlite {
+            "datetime('now')"
+        } else {
+            "NOW()"
+        };
 
         let sql = if is_sqlite {
             format!(
@@ -745,22 +787,70 @@ impl System {
                     ("code".to_string(), Value::from(code.to_string())),
                     ("name".to_string(), Value::from(name.to_string())),
                     ("date".to_string(), Value::from(date.to_string())),
-                    ("open".to_string(), Value::from(rec.get("o").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("high".to_string(), Value::from(rec.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("low".to_string(), Value::from(rec.get("l").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("close".to_string(), Value::from(rec.get("cl").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("vol".to_string(), Value::from(rec.get("v").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64)),
-                    ("amt".to_string(), Value::from(rec.get("a").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("pct".to_string(), Value::from(rec.get("pc").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("m5".to_string(), Value::from(rec.get("m5").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("m10".to_string(), Value::from(rec.get("m10").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("m20".to_string(), Value::from(rec.get("m20").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("m60".to_string(), Value::from(rec.get("m60").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("df".to_string(), Value::from(rec.get("df").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("de".to_string(), Value::from(rec.get("de").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("mh".to_string(), Value::from(rec.get("mh").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("vr".to_string(), Value::from(rec.get("vr").and_then(|v| v.as_f64()).unwrap_or(0.0))),
-                    ("tr".to_string(), Value::from(rec.get("tr").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    (
+                        "open".to_string(),
+                        Value::from(rec.get("o").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "high".to_string(),
+                        Value::from(rec.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "low".to_string(),
+                        Value::from(rec.get("l").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "close".to_string(),
+                        Value::from(rec.get("cl").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "vol".to_string(),
+                        Value::from(rec.get("v").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64),
+                    ),
+                    (
+                        "amt".to_string(),
+                        Value::from(rec.get("a").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "pct".to_string(),
+                        Value::from(rec.get("pc").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "m5".to_string(),
+                        Value::from(rec.get("m5").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "m10".to_string(),
+                        Value::from(rec.get("m10").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "m20".to_string(),
+                        Value::from(rec.get("m20").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "m60".to_string(),
+                        Value::from(rec.get("m60").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "df".to_string(),
+                        Value::from(rec.get("df").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "de".to_string(),
+                        Value::from(rec.get("de").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "mh".to_string(),
+                        Value::from(rec.get("mh").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "vr".to_string(),
+                        Value::from(rec.get("vr").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
+                    (
+                        "tr".to_string(),
+                        Value::from(rec.get("tr").and_then(|v| v.as_f64()).unwrap_or(0.0)),
+                    ),
                 ],
                 &connector,
             );

@@ -1,8 +1,8 @@
 //! 筹码工具 - 筹码分布分析
 
-use dsa_core::utils;
 use deck_mysql::DataRow;
 use deck_mysql::Helper;
+use dsa_core::utils;
 use tube::Value;
 
 use super::registry::{ToolParameter, ToolRegistry};
@@ -10,7 +10,9 @@ use super::registry::{ToolParameter, ToolRegistry};
 pub struct ChipTools;
 
 impl ChipTools {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 
     /// 获取筹码分布 (simplified: compute from kline volume distribution)
     pub fn get_chip_distribution(code: &str) -> Value {
@@ -36,7 +38,10 @@ impl ChipTools {
                     m.insert("message".to_string(), Value::from("无K线数据"));
                     return Value::Object(m);
                 }
-                let total_vol: f64 = rows.iter().map(|r| r.get_value(1).as_f64().unwrap_or(0.0)).sum();
+                let total_vol: f64 = rows
+                    .iter()
+                    .map(|r| r.get_value(1).as_f64().unwrap_or(0.0))
+                    .sum();
                 if total_vol <= 0.0 {
                     let mut m = tube::Map::new();
                     m.insert("code".to_string(), Value::from(code.to_string()));
@@ -45,10 +50,18 @@ impl ChipTools {
                     m.insert("message".to_string(), Value::from("成交量数据为零"));
                     return Value::Object(m);
                 }
-                let weighted_price: f64 = rows.iter()
-                    .map(|r| r.get_value(0).as_f64().unwrap_or(0.0) * r.get_value(1).as_f64().unwrap_or(0.0))
-                    .sum::<f64>() / total_vol;
-                let mut vols: Vec<f64> = rows.iter().map(|r| r.get_value(1).as_f64().unwrap_or(0.0)).collect();
+                let weighted_price: f64 = rows
+                    .iter()
+                    .map(|r| {
+                        r.get_value(0).as_f64().unwrap_or(0.0)
+                            * r.get_value(1).as_f64().unwrap_or(0.0)
+                    })
+                    .sum::<f64>()
+                    / total_vol;
+                let mut vols: Vec<f64> = rows
+                    .iter()
+                    .map(|r| r.get_value(1).as_f64().unwrap_or(0.0))
+                    .collect();
                 vols.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
                 let top3_vol: f64 = vols.iter().take(3).sum();
                 let concentration = (top3_vol / total_vol * 100.0).min(100.0);

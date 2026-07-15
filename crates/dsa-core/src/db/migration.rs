@@ -80,7 +80,10 @@ fn compute_schema_hash() -> String {
 fn run_migrations_mysql(connector: &Connector) {
     let current_hash = compute_schema_hash();
     if is_schema_current_mysql(connector, &current_hash) {
-        info!("schema is up-to-date (hash={}), skipping all migrations", &current_hash[..8]);
+        info!(
+            "schema is up-to-date (hash={}), skipping all migrations",
+            &current_hash[..8]
+        );
         return;
     }
 
@@ -101,7 +104,11 @@ fn run_migrations_mysql(connector: &Connector) {
         let sql = create_table_sql(cls, Dialect::Mysql);
         info!("creating table `{}` …", cls.table_name);
         execute_ddl_mysql(connector, &sql);
-        record_migration_mysql(connector, &version, &format!("create table {}", cls.table_name));
+        record_migration_mysql(
+            connector,
+            &version,
+            &format!("create table {}", cls.table_name),
+        );
     }
 
     info!("all mysql table migrations completed");
@@ -126,7 +133,10 @@ fn run_migrations_mysql(_connector: &Connector) {
 fn run_migrations_sqlite(connector: &Connector) {
     let current_hash = compute_schema_hash();
     if is_schema_current_sqlite(connector, &current_hash) {
-        info!("schema is up-to-date (hash={}), skipping all migrations", &current_hash[..8]);
+        info!(
+            "schema is up-to-date (hash={}), skipping all migrations",
+            &current_hash[..8]
+        );
         return;
     }
 
@@ -147,7 +157,11 @@ fn run_migrations_sqlite(connector: &Connector) {
         let sql = create_table_sql(cls, Dialect::Sqlite);
         info!("creating table `{}` …", cls.table_name);
         execute_ddl_sqlite(connector, &sql);
-        record_migration_sqlite(connector, &version, &format!("create table {}", cls.table_name));
+        record_migration_sqlite(
+            connector,
+            &version,
+            &format!("create table {}", cls.table_name),
+        );
     }
 
     info!("all sqlite table migrations completed");
@@ -208,7 +222,8 @@ fn record_schema_hash_sqlite(connector: &Connector, hash: &str) {
 
 #[cfg(feature = "mysql")]
 fn is_schema_current_mysql(connector: &Connector, current_hash: &str) -> bool {
-    let sql = "SELECT `version` FROM `schema_migrations` WHERE `version` LIKE 'schema_hash:%' LIMIT 1";
+    let sql =
+        "SELECT `version` FROM `schema_migrations` WHERE `version` LIKE 'schema_hash:%' LIMIT 1";
     match deck_mysql::Helper::query_rows(sql, vec![], connector) {
         Ok(rows) => {
             if let Some(row) = rows.first() {
@@ -259,7 +274,10 @@ fn collect_models() -> Vec<(&'static str, Class)> {
         ("portfolio_positions", PortfolioPosition::class()),
         ("portfolio_position_lots", PortfolioPositionLot::class()),
         ("portfolio_cash_ledger", PortfolioCashLedger::class()),
-        ("portfolio_corporate_actions", PortfolioCorporateAction::class()),
+        (
+            "portfolio_corporate_actions",
+            PortfolioCorporateAction::class(),
+        ),
         ("portfolio_daily_snapshots", PortfolioDailySnapshot::class()),
         ("portfolio_fx_rates", PortfolioFxRate::class()),
         ("alert_rules", AlertRule::class()),
@@ -287,11 +305,18 @@ pub fn create_table_sql(cls: &Class, dialect: Dialect) -> String {
     let mut autoincrement_col: Option<String> = None;
 
     for attr in &cls.attributes {
-        if attr.increment > 0 && attr.primary && cls.primary_type == "identity" && dialect == Dialect::Sqlite {
+        if attr.increment > 0
+            && attr.primary
+            && cls.primary_type == "identity"
+            && dialect == Dialect::Sqlite
+        {
             let name = column_name(attr);
             autoincrement_col = Some(name.clone());
             primary_keys.push(name.clone());
-            cols.push(format!("\"{}\" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT", name));
+            cols.push(format!(
+                "\"{}\" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT",
+                name
+            ));
             continue;
         }
         let col = build_column_def(attr, &cls.primary_type, dialect);
@@ -303,10 +328,7 @@ pub fn create_table_sql(cls: &Class, dialect: Dialect) -> String {
 
     if !primary_keys.is_empty() {
         if autoincrement_col.is_none() {
-            cols.push(format!(
-                "PRIMARY KEY ({})",
-                primary_keys.join(", ")
-            ));
+            cols.push(format!("PRIMARY KEY ({})", primary_keys.join(", ")));
         }
     }
 
@@ -467,7 +489,10 @@ fn rust_type_to_sql_sqlite(base: &str) -> String {
         "NaiveDateTime" => "TEXT".to_owned(),
         "Vec<u8>" => "BLOB".to_owned(),
         _ => {
-            if base.contains("String") || base.contains("NaiveDateTime") || base.contains("DateTime") {
+            if base.contains("String")
+                || base.contains("NaiveDateTime")
+                || base.contains("DateTime")
+            {
                 "TEXT".to_owned()
             } else if base.contains("Vec<u8>") || base.contains("Bytes") {
                 "BLOB".to_owned()
@@ -487,7 +512,10 @@ fn is_migration_applied_mysql(connector: &Connector, version: &str) -> bool {
     let sql = "SELECT COUNT(*) AS cnt FROM `schema_migrations` WHERE `version` = :version";
     match deck_mysql::Helper::query_rows(
         sql,
-        vec![("version".to_string(), tube::Value::from(version.to_string()))],
+        vec![(
+            "version".to_string(),
+            tube::Value::from(version.to_string()),
+        )],
         connector,
     ) {
         Ok(rows) => {
@@ -502,7 +530,10 @@ fn is_migration_applied_mysql(connector: &Connector, version: &str) -> bool {
             false
         }
         Err(e) => {
-            warn!("migration check query failed (table may not exist yet): {}", e);
+            warn!(
+                "migration check query failed (table may not exist yet): {}",
+                e
+            );
             false
         }
     }
@@ -514,8 +545,14 @@ fn record_migration_mysql(connector: &Connector, version: &str, description: &st
     match deck_mysql::Helper::execute(
         sql,
         vec![
-            ("version".to_string(), tube::Value::from(version.to_string())),
-            ("description".to_string(), tube::Value::from(description.to_string())),
+            (
+                "version".to_string(),
+                tube::Value::from(version.to_string()),
+            ),
+            (
+                "description".to_string(),
+                tube::Value::from(description.to_string()),
+            ),
         ],
         connector,
     ) {
@@ -613,7 +650,10 @@ fn is_migration_applied_sqlite(connector: &Connector, version: &str) -> bool {
     match sqlite_query_count(connector, &sql) {
         Ok(cnt) => cnt > 0,
         Err(e) => {
-            warn!("sqlite migration check failed (table may not exist yet): {}", e);
+            warn!(
+                "sqlite migration check failed (table may not exist yet): {}",
+                e
+            );
             false
         }
     }
@@ -635,7 +675,11 @@ fn execute_ddl_sqlite(connector: &Connector, sql: &str) {
     match Connection::open(&conn_str) {
         Ok(conn) => {
             if let Err(e) = conn.execute_batch(sql) {
-                warn!("sqlite DDL execution FAILED: {} — sql: {}", e, &sql[..sql.len().min(200)]);
+                warn!(
+                    "sqlite DDL execution FAILED: {} — sql: {}",
+                    e,
+                    &sql[..sql.len().min(200)]
+                );
             }
         }
         Err(e) => {
@@ -648,12 +692,10 @@ fn execute_ddl_sqlite(connector: &Connector, sql: &str) {
 fn sqlite_query_count(connector: &Connector, sql: &str) -> Result<i64, String> {
     let conn_str = connector.get_conn_str();
     match Connection::open(&conn_str) {
-        Ok(conn) => {
-            match conn.query_row(sql, [], |row| row.get::<_, i64>(0)) {
-                Ok(cnt) => Ok(cnt),
-                Err(e) => Err(format!("{}", e)),
-            }
-        }
+        Ok(conn) => match conn.query_row(sql, [], |row| row.get::<_, i64>(0)) {
+            Ok(cnt) => Ok(cnt),
+            Err(e) => Err(format!("{}", e)),
+        },
         Err(e) => Err(format!("{}", e)),
     }
 }
@@ -711,10 +753,19 @@ mod tests {
         assert_eq!(rust_type_to_sql("f32", Dialect::Mysql), "FLOAT");
         assert_eq!(rust_type_to_sql("String", Dialect::Mysql), "VARCHAR(255)");
         assert_eq!(rust_type_to_sql("bool", Dialect::Mysql), "TINYINT(1)");
-        assert_eq!(rust_type_to_sql("NaiveDateTime", Dialect::Mysql), "DATETIME");
+        assert_eq!(
+            rust_type_to_sql("NaiveDateTime", Dialect::Mysql),
+            "DATETIME"
+        );
         assert_eq!(rust_type_to_sql("Vec<u8>", Dialect::Mysql), "BLOB");
-        assert_eq!(rust_type_to_sql("Option<String>", Dialect::Mysql), "VARCHAR(255)");
-        assert_eq!(rust_type_to_sql("Option<NaiveDateTime>", Dialect::Mysql), "DATETIME");
+        assert_eq!(
+            rust_type_to_sql("Option<String>", Dialect::Mysql),
+            "VARCHAR(255)"
+        );
+        assert_eq!(
+            rust_type_to_sql("Option<NaiveDateTime>", Dialect::Mysql),
+            "DATETIME"
+        );
     }
 
     #[test]

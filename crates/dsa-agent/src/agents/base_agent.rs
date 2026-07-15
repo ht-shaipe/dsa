@@ -1,7 +1,7 @@
 //! 基础Agent trait
 
 use async_trait::async_trait;
-use dsa_core::{DsaResult};
+use dsa_core::DsaResult;
 use tube::Value;
 
 #[async_trait(?Send)]

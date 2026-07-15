@@ -35,7 +35,11 @@ pub fn execute(sql: &str, param: Vec<(String, Value)>, connector: &Connector) ->
     }
 }
 
-pub fn query_rows(sql: &str, param: Vec<(String, Value)>, connector: &Connector) -> Result<Vec<Value>> {
+pub fn query_rows(
+    sql: &str,
+    param: Vec<(String, Value)>,
+    connector: &Connector,
+) -> Result<Vec<Value>> {
     match connector.db_type {
         DatabaseType::Sqlite => {
             #[cfg(feature = "sqlite")]
@@ -60,7 +64,10 @@ pub fn query_rows(sql: &str, param: Vec<(String, Value)>, connector: &Connector)
             #[cfg(feature = "mysql")]
             {
                 let rows = deck_mysql::Helper::query_rows(sql, param, connector)?;
-                Ok(rows.iter().map(|r| deck_mysql::DataRow::to_value2(r)).collect())
+                Ok(rows
+                    .iter()
+                    .map(|r| deck_mysql::DataRow::to_value2(r))
+                    .collect())
             }
             #[cfg(not(feature = "mysql"))]
             {
@@ -81,7 +88,10 @@ pub fn get_db_connector() -> std::result::Result<Connector, crate::DsaError> {
 }
 
 pub fn row_get_string(row: &Value, key: &str) -> String {
-    row.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string()
+    row.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string()
 }
 
 pub fn row_get_f64(row: &Value, key: &str) -> f64 {

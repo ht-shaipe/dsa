@@ -66,7 +66,8 @@ impl Orchestrator {
     }
 
     async fn chat(&self, params: &Value) -> DsaResult<Value> {
-        let message = params.get("message")
+        let message = params
+            .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
 
@@ -89,11 +90,14 @@ impl Orchestrator {
         });
 
         let start = std::time::Instant::now();
-        let response = llm.chat(&body).await
+        let response = llm
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("LLM调用失败: {}", e)))?;
         let elapsed = start.elapsed().as_millis() as i64;
 
-        let content = response.get("choices")
+        let content = response
+            .get("choices")
             .and_then(|c| Value::as_array(c))
             .and_then(|a| a.first().cloned())
             .and_then(|f| f.get("message").cloned())
@@ -102,10 +106,17 @@ impl Orchestrator {
 
         let usage_default = value!({});
         let usage = response.get("usage").unwrap_or(&usage_default);
-        let prompt_tokens = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-        let completion_tokens = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+        let prompt_tokens = usage
+            .get("prompt_tokens")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as i32;
+        let completion_tokens = usage
+            .get("completion_tokens")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as i32;
 
-        let session_id = params.get("sessionId")
+        let session_id = params
+            .get("sessionId")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
 
@@ -145,7 +156,8 @@ impl Orchestrator {
     }
 
     async fn stream(&self, params: &Value) -> DsaResult<Value> {
-        let message = params.get("message")
+        let message = params
+            .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
 
@@ -169,17 +181,20 @@ impl Orchestrator {
         });
 
         // 创建流式回调
-        let callback: Arc<StreamCallback> = Arc::new(|chunk: String, done: bool| -> StreamCallbackFuture {
-            Box::pin(async move {
-                if done {
-                    Ok(value!({"type": "done"}))
-                } else {
-                    Ok(value!({"type": "chunk", "content": chunk}))
-                }
-            })
-        });
+        let callback: Arc<StreamCallback> =
+            Arc::new(|chunk: String, done: bool| -> StreamCallbackFuture {
+                Box::pin(async move {
+                    if done {
+                        Ok(value!({"type": "done"}))
+                    } else {
+                        Ok(value!({"type": "chunk", "content": chunk}))
+                    }
+                })
+            });
 
-        let result = llm.chat_stream(&body, callback).await
+        let result = llm
+            .chat_stream(&body, callback)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("LLM流式调用失败: {}", e)))?;
 
         Ok(result)
@@ -196,7 +211,9 @@ impl Orchestrator {
             .map_err(|e| DsaError::LlmAnalysis(format!("不支持的LLM: {}", e)))?;
         let llm = LlmFactory::create(provider, &api_key);
 
-        let models = llm.models().await
+        let models = llm
+            .models()
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("获取模型列表失败: {}", e)))?;
 
         Ok(models)
@@ -225,9 +242,12 @@ impl Orchestrator {
                 let mut v = r.clone();
                 if let Value::Object(ref mut map) = v {
                     if let Some(Value::Text(ref mut s)) = map.get_mut("content") {
-                        let clean: String = s.replace('\r', "").replace('\t', " ").chars().map(|c| {
-                            if c.is_control() && c != '\n' { ' ' } else { c }
-                        }).collect();
+                        let clean: String = s
+                            .replace('\r', "")
+                            .replace('\t', " ")
+                            .chars()
+                            .map(|c| if c.is_control() && c != '\n' { ' ' } else { c })
+                            .collect();
                         *s = clean;
                     }
                 }
@@ -240,7 +260,8 @@ impl Orchestrator {
     /// 运行完整的多Agent分析管道
     /// 流程: 数据采集 → 技术分析 → 情报分析 → 风控评估 → 综合决策 → 组合建议
     pub async fn run_pipeline(&self, params: &Value) -> DsaResult<Value> {
-        let code = params.get("code")
+        let code = params
+            .get("code")
             .and_then(|c| c.as_str())
             .unwrap_or_default();
 
@@ -273,7 +294,12 @@ impl Orchestrator {
         self.run_multi_pipeline(&code, &model, &conf).await
     }
 
-    async fn run_single_pipeline(&self, code: &str, model: &str, conf: &dsa_core::config::AppConfig) -> DsaResult<Value> {
+    async fn run_single_pipeline(
+        &self,
+        code: &str,
+        model: &str,
+        conf: &dsa_core::config::AppConfig,
+    ) -> DsaResult<Value> {
         let llm = Self::create_llm()?;
         let system_prompt = format!(
             "你是一位资深证券分析师，请对股票{}进行全方位分析，包括技术面、基本面、情报面、风控和操作建议。以JSON格式输出。",
@@ -287,12 +313,14 @@ impl Orchestrator {
         };
         let kline_result = DataTools::get_kline_data(code, "daily").await;
 
-        let current_price = quote_result.as_ref()
+        let current_price = quote_result
+            .as_ref()
             .ok()
             .and_then(|q| q.get("current_price").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
 
-        let kline_summary = kline_result.as_ref()
+        let kline_summary = kline_result
+            .as_ref()
             .ok()
             .and_then(|k| k.get("data").and_then(|d| tube::Value::as_array(d)))
             .map(|arr| format!("最近{}根K线", arr.len()))
@@ -313,11 +341,14 @@ impl Orchestrator {
             "temperature": 0.7,
         });
 
-        let response = llm.chat(&body).await
+        let response = llm
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("LLM调用失败: {}", e)))?;
         let elapsed = start.elapsed().as_millis() as i64;
 
-        let content = response.get("choices")
+        let content = response
+            .get("choices")
             .and_then(|c| tube::Value::as_array(c))
             .and_then(|a| a.first().cloned())
             .and_then(|f| f.get("message").cloned())
@@ -326,10 +357,24 @@ impl Orchestrator {
 
         let usage_default = value!({});
         let usage = response.get("usage").unwrap_or(&usage_default);
-        let pt = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
-        let ct = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+        let pt = usage
+            .get("prompt_tokens")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as i32;
+        let ct = usage
+            .get("completion_tokens")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as i32;
 
-        dsa_core::utils::record_llm_usage(&conf.llm.provider, model, "pipeline_single", pt, ct, elapsed, code);
+        dsa_core::utils::record_llm_usage(
+            &conf.llm.provider,
+            model,
+            "pipeline_single",
+            pt,
+            ct,
+            elapsed,
+            code,
+        );
 
         Ok(value!({
             "code": code,
@@ -338,7 +383,12 @@ impl Orchestrator {
         }))
     }
 
-    async fn run_multi_pipeline(&self, code: &str, model: &str, conf: &dsa_core::config::AppConfig) -> DsaResult<Value> {
+    async fn run_multi_pipeline(
+        &self,
+        code: &str,
+        model: &str,
+        conf: &dsa_core::config::AppConfig,
+    ) -> DsaResult<Value> {
         let max_steps = conf.agent.max_steps as usize;
         let mut step = 0usize;
 
@@ -352,46 +402,60 @@ impl Orchestrator {
         let kline_result = DataTools::get_kline_data(&code, "daily").await;
 
         // 构建基础上下文
-        let current_price = quote_result.as_ref()
+        let current_price = quote_result
+            .as_ref()
             .ok()
             .and_then(|q| q.get("current_price").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
 
-        let change_percent = quote_result.as_ref()
+        let change_percent = quote_result
+            .as_ref()
             .ok()
             .and_then(|q| q.get("change_percent").and_then(|p| p.as_f64()))
             .unwrap_or(0.0);
 
-        let turnover_rate = quote_result.as_ref()
+        let turnover_rate = quote_result
+            .as_ref()
             .ok()
             .and_then(|q| q.get("turnover_rate").and_then(|t| t.as_f64()))
             .unwrap_or(0.0);
 
-        let kline_data = kline_result.as_ref()
+        let kline_data = kline_result
+            .as_ref()
             .ok()
             .and_then(|k| k.get("data").and_then(|d| Value::as_array(d)))
             .unwrap_or_default();
 
         // 技术指标本地计算
-        let trend_analysis = crate::tools::analysis_tools::AnalysisTools::analyze_trend(&kline_data);
-        let volume_analysis = crate::tools::analysis_tools::AnalysisTools::analyze_volume(&kline_data);
+        let trend_analysis =
+            crate::tools::analysis_tools::AnalysisTools::analyze_trend(&kline_data);
+        let volume_analysis =
+            crate::tools::analysis_tools::AnalysisTools::analyze_volume(&kline_data);
 
-        let trend_str = trend_analysis.get("trend")
+        let trend_str = trend_analysis
+            .get("trend")
             .and_then(|t| t.as_str())
             .unwrap_or_default();
-        let vol_signal = volume_analysis.get("signal")
+        let vol_signal = volume_analysis
+            .get("signal")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
-        let market_trend = trend_analysis.get("direction")
+        let market_trend = trend_analysis
+            .get("direction")
             .and_then(|d| d.as_str())
             .unwrap_or_default();
 
         // 技能评估
-        let chip_concentration = quote_result.as_ref()
+        let chip_concentration = quote_result
+            .as_ref()
             .ok()
             .and_then(|q| q.get("chipConcentration").and_then(|v| v.as_f64()))
             .or_else(|| {
-                if conf.stock.enable_chip_distribution { None } else { None }
+                if conf.stock.enable_chip_distribution {
+                    None
+                } else {
+                    None
+                }
             })
             .unwrap_or(0.0);
 
@@ -408,7 +472,9 @@ impl Orchestrator {
 
         // 2. 技术分析Agent
         step += 1;
-        if step > max_steps { return Err(DsaError::Agent("已达到最大步骤数限制".to_string())); }
+        if step > max_steps {
+            return Err(DsaError::Agent("已达到最大步骤数限制".to_string()));
+        }
         let tech_agent = technical_agent::TechnicalAgent::new(Self::recreate_llm(), &model);
         let tech_input = value!({
             "code": &code,
@@ -417,13 +483,16 @@ impl Orchestrator {
             "volume": volume_analysis.clone(),
         });
         let tech_result = tech_agent.process(&tech_input).await?;
-        let tech_analysis = tech_result.get("llmAnalysis")
+        let tech_analysis = tech_result
+            .get("llmAnalysis")
             .and_then(|a| a.as_str())
             .unwrap_or_default();
 
         // 3. 情报分析Agent - 使用真实新闻数据
         step += 1;
-        if step > max_steps { return Err(DsaError::Agent("已达到最大步骤数限制".to_string())); }
+        if step > max_steps {
+            return Err(DsaError::Agent("已达到最大步骤数限制".to_string()));
+        }
         let search_tools = crate::tools::search_tools::SearchTools::new();
         let news_result = search_tools.search_stock_news(&code).await;
         let news_items: Vec<Value> = news_result
@@ -431,7 +500,8 @@ impl Orchestrator {
             .and_then(|r| r.get("results").and_then(|v| tube::Value::as_array(v)))
             .unwrap_or_default();
 
-        let industry: String = quote_result.as_ref()
+        let industry: String = quote_result
+            .as_ref()
             .ok()
             .and_then(|q| q.get("industry").and_then(|v| v.as_str()))
             .unwrap_or_default();
@@ -443,13 +513,16 @@ impl Orchestrator {
             "news": news_items,
         });
         let intel_result = intel_agent.process(&intel_input).await?;
-        let intel_analysis = intel_result.get("llmAnalysis")
+        let intel_analysis = intel_result
+            .get("llmAnalysis")
             .and_then(|a| a.as_str())
             .unwrap_or_default();
 
         // 4. 风控Agent
         step += 1;
-        if step > max_steps { return Err(DsaError::Agent("已达到最大步骤数限制".to_string())); }
+        if step > max_steps {
+            return Err(DsaError::Agent("已达到最大步骤数限制".to_string()));
+        }
         let risk_agent = risk_agent::RiskAgent::new(Self::recreate_llm(), &model);
         let risk_input = value!({
             "code": &code,
@@ -460,13 +533,16 @@ impl Orchestrator {
             "technical": &tech_analysis,
         });
         let risk_result = risk_agent.process(&risk_input).await?;
-        let risk_analysis = risk_result.get("riskAnalysis")
+        let risk_analysis = risk_result
+            .get("riskAnalysis")
             .and_then(|a| a.as_str())
             .unwrap_or_default();
 
         // 5. 决策Agent
         step += 1;
-        if step > max_steps { return Err(DsaError::Agent("已达到最大步骤数限制".to_string())); }
+        if step > max_steps {
+            return Err(DsaError::Agent("已达到最大步骤数限制".to_string()));
+        }
         let decision_agent = decision_agent::DecisionAgent::new(Self::recreate_llm(), &model);
         let decision_input = value!({
             "code": &code,
@@ -476,19 +552,28 @@ impl Orchestrator {
             "risk": &risk_analysis,
         });
         let decision_result = decision_agent.process(&decision_input).await?;
-        let decision_analysis = decision_result.get("decision")
+        let decision_analysis = decision_result
+            .get("decision")
             .and_then(|d| d.as_str())
             .unwrap_or_default();
 
-        let stock_name_for_decision = quote_result.as_ref()
+        let stock_name_for_decision = quote_result
+            .as_ref()
             .ok()
             .and_then(|q| q.get("name").and_then(|n| n.as_str()))
             .unwrap_or_default();
-        Self::persist_decision_signal(&code, &stock_name_for_decision, &decision_analysis, current_price);
+        Self::persist_decision_signal(
+            &code,
+            &stock_name_for_decision,
+            &decision_analysis,
+            current_price,
+        );
 
         // 6. 组合Agent - 使用真实持仓数据
         step += 1;
-        if step > max_steps { return Err(DsaError::Agent("已达到最大步骤数限制".to_string())); }
+        if step > max_steps {
+            return Err(DsaError::Agent("已达到最大步骤数限制".to_string()));
+        }
         let (positions, total_assets) = Self::fetch_portfolio_positions(&code);
         let portfolio_agent = portfolio_agent::PortfolioAgent::new(Self::recreate_llm(), &model);
         let portfolio_input = value!({
@@ -522,9 +607,15 @@ impl Orchestrator {
             Err(_) => return,
         };
 
-        let action = if decision_content.contains("\"buy\"") || decision_content.contains("买入") || decision_content.contains("\"action\": \"buy\"") {
+        let action = if decision_content.contains("\"buy\"")
+            || decision_content.contains("买入")
+            || decision_content.contains("\"action\": \"buy\"")
+        {
             "buy"
-        } else if decision_content.contains("\"sell\"") || decision_content.contains("卖出") || decision_content.contains("\"action\": \"sell\"") {
+        } else if decision_content.contains("\"sell\"")
+            || decision_content.contains("卖出")
+            || decision_content.contains("\"action\": \"sell\"")
+        {
             "sell"
         } else {
             "hold"
@@ -533,11 +624,15 @@ impl Orchestrator {
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
         let check_sql = "SELECT id FROM decision_signals WHERE stock_code = :code AND action = :action AND signal_date = :date AND status = 1 LIMIT 1";
-        if let Ok(existing) = dsa_core::db::query_rows(check_sql, vec![
-            ("code".to_string(), Value::from(code.to_string())),
-            ("action".to_string(), Value::from(action.to_string())),
-            ("date".to_string(), Value::from(today.clone())),
-        ], &connector) {
+        if let Ok(existing) = dsa_core::db::query_rows(
+            check_sql,
+            vec![
+                ("code".to_string(), Value::from(code.to_string())),
+                ("action".to_string(), Value::from(action.to_string())),
+                ("date".to_string(), Value::from(today.clone())),
+            ],
+            &connector,
+        ) {
             if !existing.is_empty() {
                 return;
             }
@@ -547,37 +642,49 @@ impl Orchestrator {
              (stock_code, stock_name, signal_date, action, sentiment_score, confidence_level, \
               entry_price, reasoning, evidence, scope_type, status, create_time) \
              VALUES (:code, :name, :date, :action, 0, 'medium', :price, :reasoning, :evidence, 'pipeline', 1, NOW())";
-        let _ = dsa_core::db::execute(sql, vec![
-            ("code".to_string(), Value::from(code.to_string())),
-            ("name".to_string(), Value::from(name.to_string())),
-            ("date".to_string(), Value::from(today)),
-            ("action".to_string(), Value::from(action.to_string())),
-            ("price".to_string(), Value::from(current_price)),
-            ("reasoning".to_string(), Value::from(decision_content.chars().take(500).collect::<String>())),
-            ("evidence".to_string(), Value::from("auto_pipeline")),
-        ], &connector);
+        let _ = dsa_core::db::execute(
+            sql,
+            vec![
+                ("code".to_string(), Value::from(code.to_string())),
+                ("name".to_string(), Value::from(name.to_string())),
+                ("date".to_string(), Value::from(today)),
+                ("action".to_string(), Value::from(action.to_string())),
+                ("price".to_string(), Value::from(current_price)),
+                (
+                    "reasoning".to_string(),
+                    Value::from(decision_content.chars().take(500).collect::<String>()),
+                ),
+                ("evidence".to_string(), Value::from("auto_pipeline")),
+            ],
+            &connector,
+        );
     }
 
     async fn skills(&self) -> DsaResult<Value> {
         let conf = dsa_core::get_global_config();
         let router = SkillRouter::new(default_skills());
         let all = router.evaluate_all(&value!({}));
-        let skills: Vec<Value> = all.iter().map(|s| {
-            let name_string: String = s.get("skill").and_then(|v| v.as_str()).unwrap_or_default();
-            let desc: String = match name_string.as_str() {
-                "bull_trend" => "多头趋势策略".to_string(),
-                "shrink_pullback" => "缩量回调策略".to_string(),
-                "chip_focus" => "筹码集中策略".to_string(),
-                "no_chase" => "不追高策略".to_string(),
-                _ => name_string.clone(),
-            };
-            let enabled = conf.agent.skills.is_empty() || conf.agent.skills.contains(&name_string);
-            value!({
-                "name": name_string,
-                "description": desc,
-                "enabled": enabled,
+        let skills: Vec<Value> = all
+            .iter()
+            .map(|s| {
+                let name_string: String =
+                    s.get("skill").and_then(|v| v.as_str()).unwrap_or_default();
+                let desc: String = match name_string.as_str() {
+                    "bull_trend" => "多头趋势策略".to_string(),
+                    "shrink_pullback" => "缩量回调策略".to_string(),
+                    "chip_focus" => "筹码集中策略".to_string(),
+                    "no_chase" => "不追高策略".to_string(),
+                    _ => name_string.clone(),
+                };
+                let enabled =
+                    conf.agent.skills.is_empty() || conf.agent.skills.contains(&name_string);
+                value!({
+                    "name": name_string,
+                    "description": desc,
+                    "enabled": enabled,
+                })
             })
-        }).collect();
+            .collect();
         Ok(Value::Array(skills))
     }
 
@@ -592,10 +699,13 @@ impl Orchestrator {
         let filtered: Vec<Value> = if conf.agent.skills.is_empty() {
             strategies
         } else {
-            strategies.into_iter().filter(|s| {
-                let name = s.get("name").and_then(|n| n.as_str()).unwrap_or_default();
-                conf.agent.skills.contains(&name.to_string())
-            }).collect()
+            strategies
+                .into_iter()
+                .filter(|s| {
+                    let name = s.get("name").and_then(|n| n.as_str()).unwrap_or_default();
+                    conf.agent.skills.contains(&name.to_string())
+                })
+                .collect()
         };
         Ok(Value::Array(filtered))
     }
@@ -610,41 +720,67 @@ impl Orchestrator {
              p.market_value, p.unrealized_pnl, p.unrealized_pnl_pct, a.initial_capital \
              FROM portfolio_positions p \
              JOIN portfolio_accounts a ON p.account_id = a.id \
-             WHERE p.status >= 1 AND a.status >= 1".to_string()
+             WHERE p.status >= 1 AND a.status >= 1"
+                .to_string()
         } else {
-            format!("SELECT p.stock_code, p.stock_name, p.quantity, p.avg_cost, p.current_price, \
+            format!(
+                "SELECT p.stock_code, p.stock_name, p.quantity, p.avg_cost, p.current_price, \
              p.market_value, p.unrealized_pnl, p.unrealized_pnl_pct, a.initial_capital \
              FROM portfolio_positions p \
              JOIN portfolio_accounts a ON p.account_id = a.id \
-             WHERE p.status >= 1 AND a.status >= 1 AND p.stock_code = '{}'", code)
+             WHERE p.status >= 1 AND a.status >= 1 AND p.stock_code = '{}'",
+                code
+            )
         };
         match dsa_core::db::query_rows(&sql, vec![], &connector) {
             Ok(rows) => {
                 let total = rows.iter().fold(0.0, |acc, p| {
                     acc + p.get("marketValue").and_then(|v| v.as_f64()).unwrap_or(0.0)
                 });
-                let account_total = rows.first()
+                let account_total = rows
+                    .first()
                     .and_then(|r| r.get("initialCapital").and_then(|v| v.as_f64()))
                     .filter(|v| *v > 0.0);
-                (rows, if total > 0.0 || account_total.is_some() { account_total } else { None })
+                (
+                    rows,
+                    if total > 0.0 || account_total.is_some() {
+                        account_total
+                    } else {
+                        None
+                    },
+                )
             }
             Err(_) => (vec![], None),
         }
     }
 
     /// ReAct模式 - LLM自主调用工具循环
-    async fn run_react_pipeline(&self, code: &str, model: &str, _conf: &dsa_core::config::AppConfig) -> DsaResult<Value> {
+    async fn run_react_pipeline(
+        &self,
+        code: &str,
+        model: &str,
+        _conf: &dsa_core::config::AppConfig,
+    ) -> DsaResult<Value> {
         let llm = Self::recreate_llm();
         let executor = crate::agents::react_executor::ReactExecutor::new(llm, model);
-        let query = format!("请全面分析股票{}的技术面、资金面、消息面，给出操作建议", code);
+        let query = format!(
+            "请全面分析股票{}的技术面、资金面、消息面，给出操作建议",
+            code
+        );
         let context = value!({"code": code});
         executor.run(&query, &context).await
     }
 
     /// Quick模式 - 仅技术分析+简短建议
-    async fn run_quick_pipeline(&self, code: &str, model: &str, _conf: &dsa_core::config::AppConfig) -> DsaResult<Value> {
+    async fn run_quick_pipeline(
+        &self,
+        code: &str,
+        model: &str,
+        _conf: &dsa_core::config::AppConfig,
+    ) -> DsaResult<Value> {
         let kline_result = DataTools::get_kline_data(&code, "daily").await;
-        let kline_data = kline_result.ok()
+        let kline_data = kline_result
+            .ok()
             .and_then(|k| k.get("data").and_then(|d| tube::Value::as_array(d)))
             .unwrap_or_default();
 
@@ -663,15 +799,24 @@ impl Orchestrator {
             "temperature": 0.5,
         });
         let start = std::time::Instant::now();
-        let response = llm.chat(&body).await
+        let response = llm
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("Quick分析LLM失败: {}", e)))?;
         let elapsed = start.elapsed().as_millis() as i64;
         let analysis = response["choices"][0]["message"]["content"]
-            .as_str().unwrap_or_default().to_string();
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
 
         let conf = dsa_core::get_global_config();
         dsa_core::utils::record_llm_usage_from_response(
-            &response, &conf.llm.provider, model, "pipeline_quick", elapsed, code,
+            &response,
+            &conf.llm.provider,
+            model,
+            "pipeline_quick",
+            elapsed,
+            code,
         );
 
         Ok(value!({
@@ -684,9 +829,15 @@ impl Orchestrator {
     }
 
     /// Specialist模式 - 技能Agent+策略Agent+深度分析
-    async fn run_specialist_pipeline(&self, code: &str, model: &str, _conf: &dsa_core::config::AppConfig) -> DsaResult<Value> {
+    async fn run_specialist_pipeline(
+        &self,
+        code: &str,
+        model: &str,
+        _conf: &dsa_core::config::AppConfig,
+    ) -> DsaResult<Value> {
         let kline_result = DataTools::get_kline_data(&code, "daily").await;
-        let kline_data = kline_result.ok()
+        let kline_data = kline_result
+            .ok()
             .and_then(|k| k.get("data").and_then(|d| tube::Value::as_array(d)))
             .unwrap_or_default();
 
@@ -694,8 +845,13 @@ impl Orchestrator {
             Ok(q) => Ok(q),
             Err(_) => DataTools::get_realtime_quote(&format!("sh{}", code)).await,
         };
-        let change_pct = quote_result.ok()
-            .and_then(|q| q.get("changePercent").or_else(|| q.get("change_pct")).and_then(|v| v.as_f64()))
+        let change_pct = quote_result
+            .ok()
+            .and_then(|q| {
+                q.get("changePercent")
+                    .or_else(|| q.get("change_pct"))
+                    .and_then(|v| v.as_f64())
+            })
             .unwrap_or(0.0);
 
         let trend = crate::tools::analysis_tools::AnalysisTools::analyze_trend(&kline_data);
@@ -703,9 +859,20 @@ impl Orchestrator {
         let patterns = crate::tools::pattern_tools::PatternTools::analyze_patterns(&kline_data);
         let chip = crate::tools::chip_tools::ChipTools::get_chip_distribution(code);
 
-        let trend_str = trend.get("trend").and_then(|t| t.as_str()).unwrap_or_default().to_string();
-        let vol_signal = volume.get("signal").and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        let chip_conc = chip.get("concentration").and_then(|v| v.as_f64()).unwrap_or(50.0);
+        let trend_str = trend
+            .get("trend")
+            .and_then(|t| t.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let vol_signal = volume
+            .get("signal")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let chip_conc = chip
+            .get("concentration")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(50.0);
 
         // Skill Agent
         let llm = Self::recreate_llm();
@@ -717,7 +884,10 @@ impl Orchestrator {
             "changePercent": change_pct,
             "chipConcentration": chip_conc,
         });
-        let skill_result = skill_agent.evaluate_skills(code, &skill_context).await.unwrap_or(value!({}));
+        let skill_result = skill_agent
+            .evaluate_skills(code, &skill_context)
+            .await
+            .unwrap_or(value!({}));
 
         // Strategy Agent
         let strategy_context = value!({
@@ -725,7 +895,8 @@ impl Orchestrator {
             "changePercent": change_pct,
             "volumeSignal": &vol_signal,
         });
-        let strategy_result = crate::agents::strategy_agent::StrategyAgent::route_strategy(&strategy_context);
+        let strategy_result =
+            crate::agents::strategy_agent::StrategyAgent::route_strategy(&strategy_context);
 
         // Deep LLM analysis with all context
         let llm2 = Self::recreate_llm();
@@ -747,15 +918,24 @@ impl Orchestrator {
             "temperature": 0.6,
         });
         let start = std::time::Instant::now();
-        let response = llm2.chat(&body).await
+        let response = llm2
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("Specialist分析LLM失败: {}", e)))?;
         let elapsed = start.elapsed().as_millis() as i64;
         let analysis = response["choices"][0]["message"]["content"]
-            .as_str().unwrap_or_default().to_string();
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
 
         let conf = dsa_core::get_global_config();
         dsa_core::utils::record_llm_usage_from_response(
-            &response, &conf.llm.provider, model, "pipeline_specialist", elapsed, code,
+            &response,
+            &conf.llm.provider,
+            model,
+            "pipeline_specialist",
+            elapsed,
+            code,
         );
 
         Ok(value!({

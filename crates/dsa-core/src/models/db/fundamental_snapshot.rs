@@ -3,7 +3,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "fundamental_snapshot", comment = "基本面快照", primary = "identity")]
+#[table(
+    name = "fundamental_snapshot",
+    comment = "基本面快照",
+    primary = "identity"
+)]
 pub struct FundamentalSnapshot {
     #[field(primary = true, increment = 1)]
     pub id: i64,

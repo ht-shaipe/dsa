@@ -16,7 +16,10 @@ pub struct SkillRouter {
 
 impl SkillRouter {
     pub fn new(skills: Vec<Box<dyn Skill>>) -> Self {
-        Self { skills, threshold: 40 }
+        Self {
+            skills,
+            threshold: 40,
+        }
     }
 
     /// 设置阈值
@@ -27,19 +30,20 @@ impl SkillRouter {
 
     /// 路由：运行所有技能，返回强度超过阈值的结果
     pub fn route(&self, context: &Value) -> Vec<Value> {
-        self.skills.iter()
+        self.skills
+            .iter()
             .map(|skill| skill.evaluate(context))
             .filter(|result| {
-                result.get("strength")
-                    .and_then(|s| s.as_u64())
-                    .unwrap_or(0) as u32 >= self.threshold
+                result.get("strength").and_then(|s| s.as_u64()).unwrap_or(0) as u32
+                    >= self.threshold
             })
             .collect()
     }
 
     /// 运行所有技能，不管阈值
     pub fn evaluate_all(&self, context: &Value) -> Vec<Value> {
-        self.skills.iter()
+        self.skills
+            .iter()
             .map(|skill| skill.evaluate(context))
             .collect()
     }

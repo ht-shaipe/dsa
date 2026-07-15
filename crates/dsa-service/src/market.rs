@@ -36,8 +36,12 @@ impl Market {
             match v {
                 Some(data) => {
                     let close = data.get("close").and_then(|p| p.as_f64()).unwrap_or(0.0);
-                    let change_pct = data.get("changePercent").and_then(|p| p.as_f64()).unwrap_or(0.0);
-                    let name = data.get("name")
+                    let change_pct = data
+                        .get("changePercent")
+                        .and_then(|p| p.as_f64())
+                        .unwrap_or(0.0);
+                    let name = data
+                        .get("name")
                         .and_then(|n| n.as_str())
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| default_name.to_string());
@@ -72,7 +76,8 @@ impl Market {
 
     async fn review(&self) -> Result<Value> {
         let gen = dsa_pipeline::market_review::MarketReviewGenerator::new();
-        gen.generate(&value!({})).await
+        gen.generate(&value!({}))
+            .await
             .map_err(|e| tube::Error::from(format!("生成市场回顾失败: {}", e)))
     }
 
@@ -95,7 +100,8 @@ impl Market {
     }
 
     async fn index(&self) -> Result<Value> {
-        let code = self.value()
+        let code = self
+            .value()
             .get("code")
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| "sh000001".to_string());
@@ -108,7 +114,8 @@ impl Market {
     }
 
     async fn calendar(&self) -> Result<Value> {
-        let market = self.value()
+        let market = self
+            .value()
             .get("market")
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| "SSE".to_string());

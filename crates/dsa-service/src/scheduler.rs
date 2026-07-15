@@ -1,18 +1,24 @@
-use tube::{Result, Value};
-use tube_web::RequestParameter;
+use chrono::Timelike;
 use dsa_core::utils;
 use std::sync::atomic::{AtomicBool, Ordering};
-use chrono::Timelike;
+use tube::{Result, Value};
+use tube_web::RequestParameter;
 
 lazy_static::lazy_static! {
     static ref SCHEDULER_RUNNING: AtomicBool = AtomicBool::new(false);
     static ref LAST_TRIGGER_TIME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 }
 
-pub struct Scheduler { request: RequestParameter }
+pub struct Scheduler {
+    request: RequestParameter,
+}
 
 impl Scheduler {
-    pub fn new(param: &RequestParameter) -> Self { Scheduler { request: param.clone() } }
+    pub fn new(param: &RequestParameter) -> Self {
+        Scheduler {
+            request: param.clone(),
+        }
+    }
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
             "start" => self.start().await,
@@ -26,7 +32,9 @@ impl Scheduler {
             ))),
         }
     }
-    fn params(&self) -> &Value { &self.request.value }
+    fn params(&self) -> &Value {
+        &self.request.value
+    }
 
     async fn start(&self) -> Result<Value> {
         if SCHEDULER_RUNNING.load(Ordering::SeqCst) {
@@ -36,9 +44,7 @@ impl Scheduler {
         SCHEDULER_RUNNING.store(true, Ordering::SeqCst);
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(
-                tokio::time::Duration::from_secs(60)
-            );
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
 
             while SCHEDULER_RUNNING.load(Ordering::SeqCst) {
                 interval.tick().await;
@@ -107,15 +113,13 @@ impl Scheduler {
 
     async fn jobs(&self) -> Result<Value> {
         let conf = dsa_core::get_global_config();
-        let jobs = vec![
-            value!({
-                "name": "daily_analysis",
-                "type": "daily",
-                "schedule": conf.scheduler.times,
-                "enabled": conf.scheduler.enabled,
-                "stocks": conf.stock.watchlist,
-            }),
-        ];
+        let jobs = vec![value!({
+            "name": "daily_analysis",
+            "type": "daily",
+            "schedule": conf.scheduler.times,
+            "enabled": conf.scheduler.enabled,
+            "stocks": conf.stock.watchlist,
+        })];
 
         Ok(Value::Array(jobs))
     }
@@ -158,7 +162,8 @@ impl Scheduler {
             &conf.llm.model,
             conf.llm.temperature,
             conf.llm.timeout_seconds,
-        ).map_err(|e| tube::Error::msg(e.to_string()))?;
+        )
+        .map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let renderer = dsa_pipeline::report_renderer::ReportRenderer::new();
         let mut results = Vec::new();
@@ -167,10 +172,13 @@ impl Scheduler {
             match Self::analyze_single_code(&pipeline, &renderer, code).await {
                 Ok((report_text, report)) => {
                     Self::save_scheduled_report(code, &report, &report_text);
-                    results.push(value!({"code": code.as_str(), "status": "ok", "text": report_text}));
+                    results
+                        .push(value!({"code": code.as_str(), "status": "ok", "text": report_text}));
                 }
                 Err(e) => {
-                    results.push(value!({"code": code.as_str(), "status": "error", "error": e.to_string()}));
+                    results.push(
+                        value!({"code": code.as_str(), "status": "error", "error": e.to_string()}),
+                    );
                 }
             }
         }
@@ -186,7 +194,9 @@ impl Scheduler {
         renderer: &dsa_pipeline::report_renderer::ReportRenderer,
         code: &str,
     ) -> Result<(String, dsa_core::models::AnalysisReport)> {
-        let bars = utils::fetch_kline(code, "daily").await.map_err(|e| tube::Error::msg(e.to_string()))?;
+        let bars = utils::fetch_kline(code, "daily")
+            .await
+            .map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let realtime = utils::fetch_realtime_quote(code).await.ok();
 
@@ -200,7 +210,8 @@ impl Scheduler {
 
         let report = pipeline
             .analyze_stock(code, &name, &bars, realtime.as_ref(), market_ctx)
-            .await.map_err(|e| tube::Error::msg(e.to_string()))?;
+            .await
+            .map_err(|e| tube::Error::msg(e.to_string()))?;
 
         let text = renderer.render_text(&report);
         Ok((text, report))
@@ -223,7 +234,11 @@ impl Scheduler {
         let report_json_str = serde_json::to_string(report).unwrap_or_else(|_| "{}".to_string());
 
         let is_sqlite = conf.database.is_sqlite();
-        let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+        let now_expr = if is_sqlite {
+            "datetime('now')"
+        } else {
+            "NOW()"
+        };
         let sql = &format!("INSERT INTO analysis_history \
              (stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysis_summary, risk_warning, report_json, report_type, status, \
@@ -231,18 +246,31 @@ impl Scheduler {
              VALUES (:code, :name, :score, :dtype, :advice, :summary, :risk, :json, 'scheduled', 1, \
               :provider, :model, {}, {})", now_expr, now_expr);
 
-        if let Err(e) = dsa_core::db::execute(sql, vec![
-            ("code".to_string(), Value::from(code.to_string())),
-            ("name".to_string(), Value::from(name.to_string())),
-            ("score".to_string(), Value::from(sentiment_score)),
-            ("dtype".to_string(), Value::from(decision_type.to_string())),
-            ("advice".to_string(), Value::from(operation_advice.to_string())),
-            ("summary".to_string(), Value::from(analysis_summary.to_string())),
-            ("risk".to_string(), Value::from(risk_warning.to_string())),
-            ("json".to_string(), Value::from(report_json_str)),
-            ("provider".to_string(), Value::from(conf.llm.provider.clone())),
-            ("model".to_string(), Value::from(conf.llm.model.clone())),
-        ], &connector) {
+        if let Err(e) = dsa_core::db::execute(
+            sql,
+            vec![
+                ("code".to_string(), Value::from(code.to_string())),
+                ("name".to_string(), Value::from(name.to_string())),
+                ("score".to_string(), Value::from(sentiment_score)),
+                ("dtype".to_string(), Value::from(decision_type.to_string())),
+                (
+                    "advice".to_string(),
+                    Value::from(operation_advice.to_string()),
+                ),
+                (
+                    "summary".to_string(),
+                    Value::from(analysis_summary.to_string()),
+                ),
+                ("risk".to_string(), Value::from(risk_warning.to_string())),
+                ("json".to_string(), Value::from(report_json_str)),
+                (
+                    "provider".to_string(),
+                    Value::from(conf.llm.provider.clone()),
+                ),
+                ("model".to_string(), Value::from(conf.llm.model.clone())),
+            ],
+            &connector,
+        ) {
             tracing::error!("save_scheduled_report 失败: {}", e);
         }
     }

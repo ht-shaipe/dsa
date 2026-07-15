@@ -7,11 +7,14 @@ use tube::Value;
 pub struct BullTrendSkill;
 
 impl Skill for BullTrendSkill {
-    fn name(&self) -> &str { "bull_trend" }
+    fn name(&self) -> &str {
+        "bull_trend"
+    }
 
     fn evaluate(&self, context: &Value) -> Value {
         // 从上下文获取趋势分析结果
-        let trend = context.get("trend")
+        let trend = context
+            .get("trend")
             .and_then(|t| t.as_str())
             .unwrap_or_default();
 
@@ -35,14 +38,18 @@ impl Skill for BullTrendSkill {
 pub struct ShrinkPullbackSkill;
 
 impl Skill for ShrinkPullbackSkill {
-    fn name(&self) -> &str { "shrink_pullback" }
+    fn name(&self) -> &str {
+        "shrink_pullback"
+    }
 
     fn evaluate(&self, context: &Value) -> Value {
-        let vol_signal = context.get("volumeSignal")
+        let vol_signal = context
+            .get("volumeSignal")
             .and_then(|v| v.as_str())
             .unwrap_or_default();
 
-        let trend = context.get("trend")
+        let trend = context
+            .get("trend")
             .and_then(|t| t.as_str())
             .unwrap_or_default();
 
@@ -67,11 +74,14 @@ impl Skill for ShrinkPullbackSkill {
 pub struct ChipFocusSkill;
 
 impl Skill for ChipFocusSkill {
-    fn name(&self) -> &str { "chip_focus" }
+    fn name(&self) -> &str {
+        "chip_focus"
+    }
 
     fn evaluate(&self, context: &Value) -> Value {
         // 筹码集中度评估
-        let chip_concentration = context.get("chipConcentration")
+        let chip_concentration = context
+            .get("chipConcentration")
             .and_then(|c| c.as_f64())
             .unwrap_or(50.0);
 
@@ -98,16 +108,19 @@ impl Skill for ChipFocusSkill {
 pub struct NoChaseSkill;
 
 impl Skill for NoChaseSkill {
-    fn name(&self) -> &str { "no_chase" }
+    fn name(&self) -> &str {
+        "no_chase"
+    }
 
     fn evaluate(&self, context: &Value) -> Value {
-        let change_pct = context.get("changePercent")
+        let change_pct = context
+            .get("changePercent")
             .and_then(|c| c.as_f64())
             .unwrap_or(0.0);
 
         // 涨幅越大，追高风险越大（strength越低表示越不建议买入）
         let strength = if change_pct > 7.0 {
-            5  // 涨幅太大，强烈不建议追
+            5 // 涨幅太大，强烈不建议追
         } else if change_pct > 5.0 {
             15
         } else if change_pct > 3.0 {
@@ -115,9 +128,9 @@ impl Skill for NoChaseSkill {
         } else if change_pct > 0.0 {
             60
         } else if change_pct > -3.0 {
-            75  // 小幅下跌可能是机会
+            75 // 小幅下跌可能是机会
         } else {
-            40  // 大幅下跌需观察
+            40 // 大幅下跌需观察
         };
 
         value!({

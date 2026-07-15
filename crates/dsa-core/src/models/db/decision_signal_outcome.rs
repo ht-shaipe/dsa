@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 
 #[allow(dead_code)]
 #[derive(Model, Default, Debug, Clone, Serialize, Deserialize)]
-#[table(name = "decision_signal_outcomes", comment = "决策信号回测结果", primary = "identity")]
+#[table(
+    name = "decision_signal_outcomes",
+    comment = "决策信号回测结果",
+    primary = "identity"
+)]
 pub struct DecisionSignalOutcome {
     #[field(primary = true, increment = 1)]
     pub id: i64,

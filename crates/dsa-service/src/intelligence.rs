@@ -16,10 +16,15 @@ fn is_safe_url(url: &str) -> bool {
         .split(':')
         .next()
         .unwrap_or("");
-    
-    if host_part == "localhost" || host_part == "127.0.0.1" || host_part == "0.0.0.0" 
-       || host_part == "::1" || host_part.starts_with("10.")
-       || host_part.starts_with("192.168.") || host_part.starts_with("169.254.") {
+
+    if host_part == "localhost"
+        || host_part == "127.0.0.1"
+        || host_part == "0.0.0.0"
+        || host_part == "::1"
+        || host_part.starts_with("10.")
+        || host_part.starts_with("192.168.")
+        || host_part.starts_with("169.254.")
+    {
         return false;
     }
     if host_part.starts_with("172.") {
@@ -135,10 +140,7 @@ impl Intelligence {
 
     async fn source_update(&self) -> Result<Value> {
         let params = self.params();
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = params.get("id").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if id == 0 {
             return Err(tube::Error::from("请提供ID".to_string()));
         }
@@ -199,10 +201,7 @@ impl Intelligence {
 
     async fn source_delete(&self) -> Result<Value> {
         let params = self.params();
-        let id = params
-            .get("id")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0) as i64;
+        let id = params.get("id").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64;
         if id == 0 {
             return Err(tube::Error::from("请提供ID".to_string()));
         }
@@ -223,7 +222,9 @@ impl Intelligence {
         }
 
         if !is_safe_url(&url) {
-            return Err(tube::Error::from("不安全的URL: 不允许访问内部地址".to_string()));
+            return Err(tube::Error::from(
+                "不安全的URL: 不允许访问内部地址".to_string(),
+            ));
         }
 
         match self.client.get(&url).send().await {
@@ -324,10 +325,7 @@ impl Intelligence {
             .get("sourceId")
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0) as i64;
-        let limit = params
-            .get("limit")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(50.0) as i64;
+        let limit = params.get("limit").and_then(|v| v.as_f64()).unwrap_or(50.0) as i64;
 
         let (sql, p) = if source_id > 0 {
             (
@@ -393,10 +391,19 @@ impl Intelligence {
 
         let mut created = 0i64;
         for tmpl in &items {
-            let name = tmpl.get("name").and_then(|v| v.as_str()).unwrap_or_default();
-            let source_type = tmpl.get("type").and_then(|v| v.as_str()).unwrap_or_default();
+            let name = tmpl
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            let source_type = tmpl
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
             let url = tmpl.get("url").and_then(|v| v.as_str()).unwrap_or_default();
-            let market = tmpl.get("market").and_then(|v| v.as_str()).unwrap_or_else(|| "cn".to_string());
+            let market = tmpl
+                .get("market")
+                .and_then(|v| v.as_str())
+                .unwrap_or_else(|| "cn".to_string());
 
             let create_params = value!({
                 "name": name,
@@ -466,12 +473,17 @@ impl Intelligence {
 
     async fn fetch_rss(&self, source_id: i64, url: &str, market: &str) -> Result<Vec<Value>> {
         if !is_safe_url(url) {
-            return Err(tube::Error::from("不安全的URL: 不允许访问内部地址".to_string()));
+            return Err(tube::Error::from(
+                "不安全的URL: 不允许访问内部地址".to_string(),
+            ));
         }
 
-        let response = self.client.get(url).send().await.map_err(|e| {
-            tube::Error::from(format!("RSS抓取失败: {}", e))
-        })?;
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| tube::Error::from(format!("RSS抓取失败: {}", e)))?;
 
         let body = response
             .text()
@@ -503,7 +515,11 @@ impl Intelligence {
             }
 
             let scope_value = Self::extract_stock_codes(&title, &description);
-            let scope_type = if scope_value.is_empty() { "all" } else { "stock" };
+            let scope_type = if scope_value.is_empty() {
+                "all"
+            } else {
+                "stock"
+            };
             let insert_sql = "INSERT INTO intelligence_items \
                  (source_id, title, content, source_url, scope_type, scope_value, market, \
                   published_at, fetched_at, create_time) \
@@ -532,12 +548,17 @@ impl Intelligence {
 
     async fn fetch_api(&self, source_id: i64, url: &str, market: &str) -> Result<Vec<Value>> {
         if !is_safe_url(url) {
-            return Err(tube::Error::from("不安全的URL: 不允许访问内部地址".to_string()));
+            return Err(tube::Error::from(
+                "不安全的URL: 不允许访问内部地址".to_string(),
+            ));
         }
 
-        let response = self.client.get(url).send().await.map_err(|e| {
-            tube::Error::from(format!("API抓取失败: {}", e))
-        })?;
+        let response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| tube::Error::from(format!("API抓取失败: {}", e)))?;
 
         let body = response
             .text()
@@ -610,12 +631,17 @@ impl Intelligence {
             Ok(c) => c,
             Err(_) => return,
         };
-        let sql = "UPDATE intelligence_sources SET last_fetched_at = NOW(), last_status = :status, \
+        let sql =
+            "UPDATE intelligence_sources SET last_fetched_at = NOW(), last_status = :status, \
               modify_time = NOW() WHERE id = :id";
-        let _ = execute(sql, vec![
-            ("status".to_string(), Value::from(status.to_string())),
-            ("id".to_string(), Value::from(source_id)),
-        ], &connector);
+        let _ = execute(
+            sql,
+            vec![
+                ("status".to_string(), Value::from(status.to_string())),
+                ("id".to_string(), Value::from(source_id)),
+            ],
+            &connector,
+        );
     }
 
     fn extract_xml_items(xml: &str) -> Vec<String> {
@@ -673,7 +699,9 @@ impl Intelligence {
                     if !codes.contains(&slice) {
                         codes.push(slice);
                     }
-                    if codes.len() >= 5 { break; }
+                    if codes.len() >= 5 {
+                        break;
+                    }
                 }
             }
         }

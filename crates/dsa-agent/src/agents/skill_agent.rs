@@ -16,7 +16,10 @@ pub struct SkillAgent {
 
 impl SkillAgent {
     pub fn new(llm: Box<dyn LlmService>, model: &str) -> Self {
-        Self { llm, model: model.to_string() }
+        Self {
+            llm,
+            model: model.to_string(),
+        }
     }
 
     pub async fn evaluate_skills(&self, code: &str, context: &Value) -> DsaResult<Value> {
@@ -33,7 +36,8 @@ impl SkillAgent {
         let all_scores = router.evaluate_all(&skill_context);
 
         // 使用LLM综合技能结果生成建议
-        let skill_summary: String = all_scores.iter()
+        let skill_summary: String = all_scores
+            .iter()
             .filter_map(|s| {
                 let name = s.get("skill").and_then(|v| v.as_str()).unwrap_or_default();
                 let strength = s.get("strength").and_then(|v| v.as_f64()).unwrap_or(0.0);
@@ -46,7 +50,8 @@ impl SkillAgent {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let best_skill = routed.first()
+        let best_skill = routed
+            .first()
             .and_then(|s| s.get("skill").and_then(|v| v.as_str()))
             .unwrap_or_else(|| "无".to_string());
 
@@ -66,16 +71,25 @@ impl SkillAgent {
         });
 
         let start = std::time::Instant::now();
-        let response = self.llm.chat(&body).await
+        let response = self
+            .llm
+            .chat(&body)
+            .await
             .map_err(|e| DsaError::LlmAnalysis(format!("技能Agent调用LLM失败: {}", e)))?;
         let elapsed = start.elapsed().as_millis() as i64;
 
         let conf = dsa_core::get_global_config();
         dsa_core::utils::record_llm_usage_from_response(
-            &response, &conf.llm.provider, &self.model, "agent_skill", elapsed, &code,
+            &response,
+            &conf.llm.provider,
+            &self.model,
+            "agent_skill",
+            elapsed,
+            &code,
         );
 
-        let analysis = response.get("choices")
+        let analysis = response
+            .get("choices")
             .and_then(|c| Value::as_array(c))
             .and_then(|a| a.first().cloned())
             .and_then(|f| f.get("message").cloned())

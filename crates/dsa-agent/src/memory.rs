@@ -10,7 +10,9 @@ pub struct AgentMemory {
 
 impl AgentMemory {
     pub fn new() -> Self {
-        Self { messages: Vec::new() }
+        Self {
+            messages: Vec::new(),
+        }
     }
 
     /// 添加消息
@@ -48,7 +50,8 @@ impl AgentMemory {
         // 从后往前计算
         let mut keep_from = self.messages.len();
         for (i, msg) in self.messages.iter().rev().enumerate() {
-            let content_chars = msg.get("content")
+            let content_chars = msg
+                .get("content")
                 .and_then(|c| c.as_str())
                 .map(|s| s.len())
                 .unwrap_or(0);

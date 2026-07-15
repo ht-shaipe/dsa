@@ -1,7 +1,7 @@
 //! 分析上下文构建器 - 对齐原项目 analysis_context_builder.py
 
-use dsa_core::models::{KlineBar, TechnicalIndicators};
 use crate::pipeline::AnalysisContext;
+use dsa_core::models::{KlineBar, TechnicalIndicators};
 use tube::Value;
 
 pub struct AnalysisContextBuilder;
@@ -68,11 +68,22 @@ impl AnalysisContextBuilder {
              MACD: DIF={:.4} DEA={:.4} 柱={:.4} | \
              RSI14={:.2} | \
              多头排列={} | 趋势评分={}",
-            current_price, tech.ma5, tech.ma10, tech.ma20, tech.ma60,
-            tech.bias_ma5, tech.bias_ma10,
-            tech.macd, tech.macd_signal, tech.macd_hist,
+            current_price,
+            tech.ma5,
+            tech.ma10,
+            tech.ma20,
+            tech.ma60,
+            tech.bias_ma5,
+            tech.bias_ma10,
+            tech.macd,
+            tech.macd_signal,
+            tech.macd_hist,
             tech.rsi_14,
-            if tech.is_bullish_alignment { "是" } else { "否" },
+            if tech.is_bullish_alignment {
+                "是"
+            } else {
+                "否"
+            },
             tech.trend_score,
         )
     }
@@ -84,8 +95,14 @@ impl AnalysisContextBuilder {
                 let code = v.get("code").and_then(|v| v.as_str()).unwrap_or_default();
                 let price = v.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let change_pct = v.get("change_pct").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let volume_ratio = v.get("volume_ratio").and_then(|v| v.as_f64()).unwrap_or(0.0);
-                let turnover_rate = v.get("turnover_rate").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                let volume_ratio = v
+                    .get("volume_ratio")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let turnover_rate = v
+                    .get("turnover_rate")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
                 let pe = v.get("pe").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 let pb = v.get("pb").and_then(|v| v.as_f64()).unwrap_or(0.0);
                 format!(
@@ -122,12 +139,27 @@ mod tests {
     #[test]
     fn test_summarize_kline_empty() {
         let kline: Vec<KlineBar> = vec![];
-        let result = AnalysisContextBuilder::build("000001", "test", &kline, None, &TechnicalIndicators {
-            ma5: 0.0, ma10: 0.0, ma20: 0.0, ma60: 0.0,
-            macd: 0.0, macd_signal: 0.0, macd_hist: 0.0,
-            rsi_14: 50.0, bias_ma5: 0.0, bias_ma10: 0.0,
-            is_bullish_alignment: false, trend_score: 50,
-        }, None);
+        let result = AnalysisContextBuilder::build(
+            "000001",
+            "test",
+            &kline,
+            None,
+            &TechnicalIndicators {
+                ma5: 0.0,
+                ma10: 0.0,
+                ma20: 0.0,
+                ma60: 0.0,
+                macd: 0.0,
+                macd_signal: 0.0,
+                macd_hist: 0.0,
+                rsi_14: 50.0,
+                bias_ma5: 0.0,
+                bias_ma10: 0.0,
+                is_bullish_alignment: false,
+                trend_score: 50,
+            },
+            None,
+        );
         assert_eq!(result.kline_summary, "无K线数据");
     }
 
@@ -135,12 +167,27 @@ mod tests {
     fn test_summarize_kline_with_data() {
         let closes: Vec<f64> = (0..10).map(|i| 10.0 + i as f64).collect();
         let kline = make_kline(&closes);
-        let result = AnalysisContextBuilder::build("600519", "茅台", &kline, None, &TechnicalIndicators {
-            ma5: 14.0, ma10: 13.0, ma20: 12.0, ma60: 0.0,
-            macd: 0.1, macd_signal: 0.05, macd_hist: 0.1,
-            rsi_14: 60.0, bias_ma5: 2.0, bias_ma10: 3.0,
-            is_bullish_alignment: true, trend_score: 75,
-        }, Some("大盘上涨"));
+        let result = AnalysisContextBuilder::build(
+            "600519",
+            "茅台",
+            &kline,
+            None,
+            &TechnicalIndicators {
+                ma5: 14.0,
+                ma10: 13.0,
+                ma20: 12.0,
+                ma60: 0.0,
+                macd: 0.1,
+                macd_signal: 0.05,
+                macd_hist: 0.1,
+                rsi_14: 60.0,
+                bias_ma5: 2.0,
+                bias_ma10: 3.0,
+                is_bullish_alignment: true,
+                trend_score: 75,
+            },
+            Some("大盘上涨"),
+        );
         assert!(result.kline_summary.contains("最近10日K线"));
         assert!(result.kline_summary.contains("19.00"));
         assert!(result.market_context.contains("大盘上涨"));
@@ -159,12 +206,27 @@ mod tests {
             "pe": 35.0,
             "pb": 12.0,
         });
-        let result = AnalysisContextBuilder::build("600519", "茅台", &kline, Some(&realtime), &TechnicalIndicators {
-            ma5: 11.0, ma10: 10.5, ma20: 10.0, ma60: 0.0,
-            macd: 0.0, macd_signal: 0.0, macd_hist: 0.0,
-            rsi_14: 55.0, bias_ma5: 1.0, bias_ma10: 2.0,
-            is_bullish_alignment: false, trend_score: 60,
-        }, None);
+        let result = AnalysisContextBuilder::build(
+            "600519",
+            "茅台",
+            &kline,
+            Some(&realtime),
+            &TechnicalIndicators {
+                ma5: 11.0,
+                ma10: 10.5,
+                ma20: 10.0,
+                ma60: 0.0,
+                macd: 0.0,
+                macd_signal: 0.0,
+                macd_hist: 0.0,
+                rsi_14: 55.0,
+                bias_ma5: 1.0,
+                bias_ma10: 2.0,
+                is_bullish_alignment: false,
+                trend_score: 60,
+            },
+            None,
+        );
         assert!(result.realtime_summary.contains("茅台"));
         assert!(result.realtime_summary.contains("1800.00"));
         assert!(result.technical_summary.contains("1800.00"));

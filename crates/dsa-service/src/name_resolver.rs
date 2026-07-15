@@ -9,18 +9,25 @@ pub struct NameResolver {
 
 impl NameResolver {
     pub fn new(param: &RequestParameter) -> Self {
-        NameResolver { request: param.clone() }
+        NameResolver {
+            request: param.clone(),
+        }
     }
 
     pub async fn dispatch(&self, method: &str) -> Result<Value> {
         match method {
             "resolve" => self.resolve().await,
             "search" => self.search().await,
-            _ => Err(tube::Error::from(format!("name_resolver unsupported method: {}", method))),
+            _ => Err(tube::Error::from(format!(
+                "name_resolver unsupported method: {}",
+                method
+            ))),
         }
     }
 
-    fn params(&self) -> &Value { &self.request.value }
+    fn params(&self) -> &Value {
+        &self.request.value
+    }
 
     async fn resolve(&self) -> Result<Value> {
         let params = self.params();
@@ -30,7 +37,8 @@ impl NameResolver {
         }
 
         if query.len() == 6 && query.chars().all(|c| c.is_ascii_digit()) {
-            let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
+            let connector =
+                utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
             let sql = "SELECT stock_code, stock_name, close \
                  FROM stock_daily \
                  WHERE stock_code = :code AND status = 1 \
@@ -72,12 +80,15 @@ impl NameResolver {
         )
         .map_err(|e| tube::Error::from(format!("Search stock by name failed: {}", e)))?;
 
-        let results: Vec<Value> = rows.iter().map(|r| {
-            let code = row_get_string(r, "stockCode");
-            let name = row_get_string(r, "stockName");
-            let price: f64 = row_get_f64(r, "close");
-            value!({"code": code, "name": name, "price": price})
-        }).collect();
+        let results: Vec<Value> = rows
+            .iter()
+            .map(|r| {
+                let code = row_get_string(r, "stockCode");
+                let name = row_get_string(r, "stockName");
+                let price: f64 = row_get_f64(r, "close");
+                value!({"code": code, "name": name, "price": price})
+            })
+            .collect();
 
         Ok(value!({
             "matches": results,
@@ -110,12 +121,15 @@ impl NameResolver {
         )
         .map_err(|e| tube::Error::from(format!("Fuzzy search failed: {}", e)))?;
 
-        let results: Vec<Value> = rows.iter().map(|r| {
-            let code = row_get_string(r, "stockCode");
-            let name = row_get_string(r, "stockName");
-            let price: f64 = row_get_f64(r, "close");
-            value!({"code": code, "name": name, "price": price})
-        }).collect();
+        let results: Vec<Value> = rows
+            .iter()
+            .map(|r| {
+                let code = row_get_string(r, "stockCode");
+                let name = row_get_string(r, "stockName");
+                let price: f64 = row_get_f64(r, "close");
+                value!({"code": code, "name": name, "price": price})
+            })
+            .collect();
 
         Ok(Value::Array(results))
     }
