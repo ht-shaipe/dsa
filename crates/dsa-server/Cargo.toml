@@ -41,6 +41,7 @@ futures = { workspace = true }
 tube = { workspace = true }
 tube_web = { workspace = true }
 tube_value = { workspace = true }
+tube_jwt = { workspace = true }
 
 deck_connector = { workspace = true }
 regex = { workspace = true }

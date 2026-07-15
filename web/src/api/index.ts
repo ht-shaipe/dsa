@@ -19,7 +19,7 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const auth = useAuthStore()
   if (auth.token && auth.token !== 'local-dev') {
-    config.headers.Authorization = `Bearer ${auth.token}`
+    config.headers.Authorization = auth.token
   }
   return config
 })
@@ -59,74 +59,14 @@ export function callApiWithTimeout(module: string, method: string, params: Recor
   return api.post(`/${module}/${method}`, params, { timeout })
 }
 
-function proxyFetch(targetUrl: string, method: string, headers: Record<string, string> = {}, body?: string): Promise<any> {
-  return api.post('/proxy', { url: targetUrl, method, headers, body })
-}
-
-function unpackRemote(data: any): any {
-  if (data?.code === 200 || data?.code === 0) {
-    return data.result || data.data || data
-  }
-  return data
-}
-
-const remoteAuthBase = 'https://auth.htui.cc/api/pas'
-
-export interface RemoteLoginResult {
-  token: string
-  user?: any
-}
-
-export function remoteLogin(mobile: string, password: string): Promise<RemoteLoginResult> {
-  const reqBody = JSON.stringify({ mobile, password })
-  console.log('[LOGIN] request =>', JSON.stringify({ url: `${remoteAuthBase}/user/login`, body: { mobile, password } }))
-  return proxyFetch(`${remoteAuthBase}/user/login`, 'POST', { 'Content-Type': 'application/json' }, reqBody).then((data) => {
-    console.log('[LOGIN] proxy unpacked data =>', JSON.stringify(data))
-    const result = unpackRemote(data)
-    if (result?.token) {
-      return result
-    }
-    return Promise.reject(new Error(data?.message || result?.message || '登录失败'))
-  }).catch((err) => {
-    console.error('[LOGIN] error =>', err?.message, err)
-    return Promise.reject(err)
-  })
-}
-
-export function remoteRegister(mobile: string, password: string, name?: string): Promise<any> {
+export async function remoteRegister(mobile: string, password: string, name?: string): Promise<any> {
   const params: Record<string, any> = { mobile, password }
   if (name) params.name = name
-  return proxyFetch(`${remoteAuthBase}/user/register`, 'POST', { 'Content-Type': 'application/json' }, JSON.stringify(params)).then((data) => {
-    const result = unpackRemote(data)
-    if (result) return result
-    return Promise.reject(new Error(data?.message || '注册失败'))
-  })
-}
-
-export function remoteUpdateProfile(token: string, name: string, avatar?: string): Promise<any> {
-  const params: Record<string, any> = { name }
-  if (avatar) params.avatar = avatar
-  return proxyFetch(`${remoteAuthBase}/user/profile`, 'PUT', { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, JSON.stringify(params)).then((data) => {
-    const result = unpackRemote(data)
-    if (result) return result
-    return Promise.reject(new Error(data?.message || '修改失败'))
-  })
-}
-
-export function remoteGetProfile(token: string): Promise<any> {
-  return proxyFetch(`${remoteAuthBase}/user/profile`, 'GET', { 'Authorization': `Bearer ${token}` }).then((data) => {
-    const result = unpackRemote(data)
-    if (result) return result
-    return Promise.reject(new Error(data?.message || '获取失败'))
-  })
-}
-
-export function remoteChangePassword(token: string, oldPassword: string, newPassword: string): Promise<any> {
-  return proxyFetch(`${remoteAuthBase}/user/change-password`, 'POST', { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, JSON.stringify({ oldPassword, newPassword })).then((data) => {
-    const result = unpackRemote(data)
-    if (result) return result
-    return Promise.reject(new Error(data?.message || '修改失败'))
-  })
+  const { data } = await axios.post(`${getApiBase()}/auth/register`, params)
+  if (data?.code !== 200) {
+    throw new Error(data?.message || '注册失败')
+  }
+  return data.result
 }
 
 export default api

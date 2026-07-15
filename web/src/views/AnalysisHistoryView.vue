@@ -68,10 +68,10 @@
       <el-empty v-if="!records.length" description="暂无分析记录" />
     </el-card>
 
-    <el-drawer v-model="drawerVisible" :title="'分析详情 - ' + (currentRecord.stockName || currentRecord.stock_name || '')" size="640px">
+    <el-drawer v-model="drawerVisible" :title="'分析详情 - ' + (currentRecord.stockName || currentRecord.stock_name || '')" size="80%">
       <template v-if="currentRecord && currentRecord.id">
-        <el-descriptions :column="2" border style="margin-bottom:16px">
-          <el-descriptions-item label="股票代码">{{ currentRecord.stockCode || currentRecord.stock_code }}</el-descriptions-item>
+        <el-descriptions :column="2" border style="margin-bottom:16px" label-width="100px">
+          <el-descriptions-item label="股票代码" >{{ currentRecord.stockCode || currentRecord.stock_code }}</el-descriptions-item>
           <el-descriptions-item label="股票名称">{{ currentRecord.stockName || currentRecord.stock_name }}</el-descriptions-item>
           <el-descriptions-item label="情绪评分">
             <ScoreGauge :score="currentRecord.sentimentScore || currentRecord.sentiment_score || 0" :size="80" />
@@ -89,7 +89,7 @@
         </el-descriptions>
 
         <el-divider content-position="left">完整报告</el-divider>
-        <el-scrollbar v-if="reportMarkdown" class="report-content" max-height="calc(100vh - 280px)">
+        <el-scrollbar v-if="reportMarkdown" class="report-content" max-height="calc(100vh - 20px)">
           <MarkdownRenderer :content="reportMarkdown" />
         </el-scrollbar>
         <el-empty v-else description="暂无完整报告内容" />

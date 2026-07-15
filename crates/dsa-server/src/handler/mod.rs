@@ -28,3 +28,4 @@ pub mod stream;
 pub mod analysis_stream;
 pub mod indicator;
 pub mod proxy;
+pub mod auth;

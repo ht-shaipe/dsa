@@ -281,13 +281,19 @@ impl FxRateTable {
 
     fn upsert_fx_rate(&self, from_currency: &str, to_currency: &str, rate: f64, source: &str) -> Result<Value> {
         let connector = utils::get_db_connector().map_err(|e| tube::Error::msg(e.to_string()))?;
-        let sql = "INSERT INTO portfolio_fx_rates \
+        let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+        let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+        let upsert_clause = if is_sqlite {
+            "rate = excluded.rate, source = excluded.source, is_stale = 0, updated_time = datetime('now')"
+        } else {
+            "rate = VALUES(rate), source = VALUES(source), is_stale = 0, updated_time = NOW()"
+        };
+        let sql = format!("INSERT INTO portfolio_fx_rates \
              (from_currency, to_currency, rate_date, rate, source, is_stale, updated_time) \
-             VALUES (:from, :to, NOW(), :rate, :src, 0, NOW()) \
-             ON DUPLICATE KEY UPDATE rate = VALUES(rate), source = VALUES(source), \
-             is_stale = 0, updated_time = NOW()";
-        execute(
-            sql,
+             VALUES (:from, :to, {}, :rate, :src, 0, {}) \
+             ON DUPLICATE KEY UPDATE {}", now_expr, now_expr, upsert_clause);
+         execute(
+             &sql,
             vec![
                 ("from".to_string(), Value::from(from_currency)),
                 ("to".to_string(), Value::from(to_currency)),
@@ -472,13 +478,15 @@ impl Portfolio {
                 0.0
             };
 
-            let update_sql = "UPDATE portfolio_positions SET \
+            let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+            let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+            let update_sql = format!("UPDATE portfolio_positions SET \
                  quantity = :qty, avg_cost = :avg_cost, current_price = :price, \
                  market_value = :mv, unrealized_pnl = :pnl, unrealized_pnl_pct = :pnl_pct, \
-                 snapshot_date = NOW(), modify_time = NOW() \
-                 WHERE id = :id";
+                 snapshot_date = {}, modify_time = {} \
+                 WHERE id = :id", now_expr, now_expr);
             execute(
-                update_sql,
+                &update_sql,
                 vec![
                     ("qty".to_string(), Value::from(new_qty)),
                     ("avg_cost".to_string(), Value::from(new_avg)),
@@ -564,9 +572,11 @@ impl Portfolio {
 
         let remaining = old_qty - sell_qty;
         if remaining <= 0 {
-            let update_sql = "UPDATE portfolio_positions SET quantity = 0, status = 0, modify_time = NOW() WHERE id = :id";
+            let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+            let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+            let update_sql = format!("UPDATE portfolio_positions SET quantity = 0, status = 0, modify_time = {} WHERE id = :id", now_expr);
             execute(
-                update_sql,
+                &update_sql,
                 vec![("id".to_string(), Value::from(pos_id))],
                 &connector,
             ).map_err(|e| tube::Error::msg(format!("清仓失败: {}", e)))?;
@@ -579,12 +589,14 @@ impl Portfolio {
                 0.0
             };
 
-            let update_sql = "UPDATE portfolio_positions SET \
+            let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+            let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+            let update_sql = format!("UPDATE portfolio_positions SET \
                  quantity = :qty, avg_cost = :avg_cost, current_price = :price, market_value = :mv, \
                  unrealized_pnl = :pnl, unrealized_pnl_pct = :pnl_pct, \
-                 snapshot_date = NOW(), modify_time = NOW() WHERE id = :id";
+                 snapshot_date = {}, modify_time = {} WHERE id = :id", now_expr, now_expr);
             execute(
-                update_sql,
+                &update_sql,
                 vec![
                     ("qty".to_string(), Value::from(remaining)),
                     ("avg_cost".to_string(), Value::from(avg_cost)),

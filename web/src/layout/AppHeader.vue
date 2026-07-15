@@ -227,7 +227,6 @@ import { computed, ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
-import { remoteChangePassword } from '@/api/index'
 import { ElMessage } from 'element-plus'
 import { QuestionFilled, Sunny, Moon, Monitor, User, EditPen, Lock, SwitchButton } from '@element-plus/icons-vue'
 
@@ -315,7 +314,11 @@ async function savePassword() {
   }
   passwordSaving.value = true
   try {
-    await remoteChangePassword(authStore.token, passwordForm.oldPassword, passwordForm.newPassword)
+    const err = await authStore.changePassword(passwordForm.oldPassword, passwordForm.newPassword)
+    if (err) {
+      ElMessage.error(err)
+      return
+    }
     ElMessage.success('密码已修改，请重新登录')
     passwordDialogVisible.value = false
     authStore.logout()

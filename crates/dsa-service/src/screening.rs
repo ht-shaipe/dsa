@@ -267,9 +267,13 @@ impl Screening {
     async fn hotspots(&self) -> Result<Value> {
         let em = EastMoney::new();
         let industry = em.sector_rank("industry").await
-            .map_err(|e| tube::Error::from(format!("获取行业热点失败: {}", e)))?;
+            .unwrap_or_else(|e| { tube::err_log!("获取行业热点失败: {}", e); vec![] });
         let concept = em.sector_rank("concept").await
-            .map_err(|e| tube::Error::from(format!("获取概念热点失败: {}", e)))?;
+            .unwrap_or_else(|e| { tube::err_log!("获取概念热点失败: {}", e); vec![] });
+
+        if industry.is_empty() && concept.is_empty() {
+            return Err(error!("获取热点数据失败，请检查网络连接"));
+        }
 
         let mut all: Vec<Value> = Vec::new();
         all.extend(industry.into_iter().take(10));

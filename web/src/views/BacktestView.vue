@@ -26,7 +26,7 @@
             <el-timeline-item type="warning" size="large">
               <h4 style="margin:0 0 4px">2. 选择信号执行回测</h4>
               <p style="margin:0;color:var(--el-text-color-secondary)">
-                在下方"待回测信号"列表中找到想验证的信号，点击右侧<strong>「回测」</strong>按钮。也可以在<el-link type="primary" @click="$router.push('/decisions')" style="font-size:inherit">决策信号</el-link>页点"回测验证"跳转过来。
+                在下方"待回测信号"列表中找到想验证的信号，点击右侧<strong>「回测」</strong>按钮。也可以在<el-link type="primary" @click="$router.push('/decision-signals')" style="font-size:inherit">决策信号</el-link>页点"回测验证"跳转过来。
               </p>
             </el-timeline-item>
             <el-timeline-item type="success" size="large">

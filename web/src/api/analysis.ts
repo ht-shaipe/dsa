@@ -26,7 +26,7 @@ export function analyzeStream(code: string, name: string, callbacks: AnalysisStr
     'Accept': 'text/event-stream',
   }
   if (auth.token) {
-    headers['Authorization'] = `Bearer ${auth.token}`
+    headers['Authorization'] = auth.token
   }
 
   fetch(url, {

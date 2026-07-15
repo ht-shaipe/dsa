@@ -76,6 +76,26 @@ pub async fn start_server(
             .service(
                 web::scope("/api/v1")
                     .service(
+                        web::resource("/auth/login")
+                            .route(web::post().to(handler::auth::login)),
+                    )
+                    .service(
+                        web::resource("/auth/register")
+                            .route(web::post().to(handler::auth::register)),
+                    )
+                    .service(
+                        web::resource("/auth/profile")
+                            .route(web::post().to(handler::auth::get_profile)),
+                    )
+                    .service(
+                        web::resource("/auth/profile/update")
+                            .route(web::post().to(handler::auth::update_profile)),
+                    )
+                    .service(
+                        web::resource("/auth/change-password")
+                            .route(web::post().to(handler::auth::change_password)),
+                    )
+                    .service(
                         web::resource("/proxy")
                             .route(web::post().to(handler::proxy::proxy_post)),
                     )

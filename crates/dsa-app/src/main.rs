@@ -35,12 +35,9 @@ fn main() {
     let notify = shutdown_notify.clone();
 
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to build tokio runtime for Actix-web");
+        let sys = actix_rt::System::new();
 
-        rt.block_on(async {
+        sys.block_on(async {
             tube_web::logs::initialize_logging("");
             dsa_server::setup_database(&conf_clone);
 

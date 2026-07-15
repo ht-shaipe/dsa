@@ -52,6 +52,7 @@ tube = { path = "/Users/shaipe/workspace/rust/kit/tube", features = ["derive", "
 tube_web = { path = "/Users/shaipe/workspace/rust/kit/tube/web" }
 tube_net = { path = "/Users/shaipe/workspace/rust/kit/tube/net" }
 tube_value = { path = "/Users/shaipe/workspace/rust/kit/tube/value" }
+tube_jwt = { path = "/Users/shaipe/workspace/rust/kit/tube/jwt" }
 
 qta_crawler = { path = "/Users/shaipe/workspace/rust/kit/qta/crawler" }
 qta_tdx = { path = "/Users/shaipe/workspace/rust/kit/qta/tdx" }

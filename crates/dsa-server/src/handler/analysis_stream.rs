@@ -137,15 +137,23 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
         let elapsed = start.elapsed().as_millis() as i64;
 
         match stream_result {
-            Ok(_) => {
+            Ok(stream_val) => {
                 let fc = full_content.lock().await;
                 let content_str = fc.clone();
                 drop(fc);
 
+                let (pt, ct) = if let Some(usage) = stream_val.get("usage") {
+                    let p = usage.get("prompt_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+                    let c = usage.get("completion_tokens").and_then(|v| v.as_f64()).unwrap_or(0.0) as i32;
+                    (p, c)
+                } else {
+                    let est = estimate_tokens(&content_str);
+                    (est, est)
+                };
                 dsa_core::utils::record_llm_usage(
                     &conf.llm.provider, &conf.llm.model,
                     "analyze_stream",
-                    0, 0, elapsed, &code,
+                    pt, ct, elapsed, &code,
                 );
 
                 let report = pipeline.parse_report_from_content(&content_str);
@@ -257,4 +265,16 @@ fn save_report_to_db(code: &str, name: &str, report: &AnalysisReport, report_jso
     if let Err(e) = dsa_core::db::execute(&sql, params, &connector) {
         tracing::error!("stream save_report_to_db 失败: {}", e);
     }
+}
+
+fn estimate_tokens(text: &str) -> i32 {
+    let mut token_count: f64 = 0.0;
+    for ch in text.chars() {
+        if ch as u32 > 0x7F {
+            token_count += 1.5;
+        } else {
+            token_count += 0.25;
+        }
+    }
+    token_count.ceil() as i32
 }
