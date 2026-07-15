@@ -25,7 +25,22 @@ pub struct ProxyResponse {
 
 const ALLOWED_DOMAINS: &[&str] = &[
     "auth.htui.cc",
+    "eastmoney.com",
 ];
+
+const UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+fn eastmoney_referer(url: &str) -> Option<String> {
+    if url.contains("push2") || url.contains("push2his") || url.contains("qt/") {
+        Some("https://quote.eastmoney.com/".to_string())
+    } else if url.contains("search-api-web") || url.contains("searchapi") {
+        Some("https://so.eastmoney.com/".to_string())
+    } else if url.contains("eastmoney.com") {
+        Some("https://www.eastmoney.com/".to_string())
+    } else {
+        None
+    }
+}
 
 pub fn is_url_allowed(url: &str) -> bool {
     let host = if url.starts_with("https://") {
@@ -57,6 +72,7 @@ pub async fn send_proxy_request(
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
+        .user_agent(UA)
         .build()
         .unwrap_or_default();
 
@@ -69,6 +85,13 @@ pub async fn send_proxy_request(
     };
 
     let mut request_builder = client.request(req_method, url);
+
+    if url.contains("eastmoney.com") {
+        request_builder = request_builder.header("User-Agent", UA);
+        if let Some(referer) = eastmoney_referer(url) {
+            request_builder = request_builder.header("Referer", &referer);
+        }
+    }
 
     for (key, value) in headers {
         request_builder = request_builder.header(key.as_str(), value.as_str());

@@ -17,6 +17,8 @@ Cargo.lock
 *~
 **/dist
 
+**/*.db
+
 
 # OS
 .DS_Store

@@ -65,26 +65,37 @@
         <el-col :span="24">
           <el-card shadow="hover">
             <template #header>市场热点</template>
-            <el-row :gutter="16">
-              <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="h in hotspots" :key="h.code || h.name">
-                <el-card shadow="hover" class="hotspot-card" @click="showHotspotDetail(h)">
-                  <div class="hotspot-topic">{{ h.name }}</div>
-                  <div class="hotspot-code" v-if="h.code">{{ h.code }}</div>
-                  <div class="hotspot-stats">
-                    <span :class="Number(h.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
-                      {{ Number(h.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(h.changePercent || 0).toFixed(2) }}%
-                    </span>
-                    <span v-if="h.upCount != null && h.downCount != null" class="hotspot-counts">
-                      {{ h.upCount }}涨 / {{ h.downCount }}跌
-                    </span>
-                  </div>
-                  <el-tag v-if="h.sectorType" :type="h.sectorType === 'concept' ? 'warning' : 'primary'" size="small" style="margin-top:6px">
-                    {{ h.sectorType === 'concept' ? '概念' : '行业' }}
-                  </el-tag>
-                </el-card>
-              </el-col>
-            </el-row>
-            <el-empty v-if="!hotspots.length" description="暂无热点数据" />
+            <template v-if="hotspotsLoading">
+              <el-row :gutter="16">
+                <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="i in 8" :key="i">
+                  <el-card shadow="hover" class="hotspot-card">
+                    <el-skeleton :rows="3" animated />
+                  </el-card>
+                </el-col>
+              </el-row>
+            </template>
+            <template v-else>
+              <el-row :gutter="16">
+                <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="h in hotspots" :key="h.code || h.name">
+                  <el-card shadow="hover" class="hotspot-card" @click="showHotspotDetail(h)">
+                    <div class="hotspot-topic">{{ h.name }}</div>
+                    <div class="hotspot-code" v-if="h.code">{{ h.code }}</div>
+                    <div class="hotspot-stats">
+                      <span :class="Number(h.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
+                        {{ Number(h.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(h.changePercent || 0).toFixed(2) }}%
+                      </span>
+                      <span v-if="h.upCount != null && h.downCount != null" class="hotspot-counts">
+                        {{ h.upCount }}涨 / {{ h.downCount }}跌
+                      </span>
+                    </div>
+                    <el-tag v-if="h.sectorType" :type="h.sectorType === 'concept' ? 'warning' : 'primary'" size="small" style="margin-top:6px">
+                      {{ h.sectorType === 'concept' ? '概念' : '行业' }}
+                    </el-tag>
+                  </el-card>
+                </el-col>
+              </el-row>
+              <el-empty v-if="!hotspots.length" description="暂无热点数据" />
+            </template>
           </el-card>
         </el-col>
       </el-row>
@@ -194,6 +205,7 @@ const statusEnabled = ref(false)
 const dailyDataReady = ref(false)
 const strategies = ref<any[]>([])
 const hotspots = ref<any[]>([])
+const hotspotsLoading = ref(false)
 const screenResults = ref<any[]>([])
 const activeStrategy = ref('')
 const screening = ref(false)
@@ -226,10 +238,12 @@ async function loadStrategies() {
 }
 
 async function loadHotspots() {
+  hotspotsLoading.value = true
   try {
     const res: any = await screeningApi.hotspots()
     hotspots.value = Array.isArray(res) ? res : []
   } catch { /* ignore */ }
+  finally { hotspotsLoading.value = false }
 }
 
 async function runScreen() {

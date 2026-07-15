@@ -147,12 +147,15 @@
         </el-form>
 
         <el-divider content-position="left">操作</el-divider>
-        <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
           <el-button type="primary" @click="initDailyData" :loading="syncRunning" :disabled="syncRunning">
             {{ syncRunning ? '同步进行中...' : '初始化日线数据' }}
           </el-button>
           <el-button type="danger" @click="cleanDailyData" :loading="cleaning" :disabled="syncRunning">清理过期数据</el-button>
           <el-button @click="loadSyncStatus">刷新状态</el-button>
+          <el-button type="success" @click="exportDailyData" :loading="dailyExporting" :disabled="syncRunning">导出日线数据</el-button>
+          <el-button type="warning" @click="triggerImportDailyData" :loading="dailyImporting" :disabled="syncRunning">导入日线数据</el-button>
+          <input ref="importFileInput" type="file" accept=".dsa-daily.json" style="display:none" @change="handleImportFile" />
         </div>
 
         <el-card v-if="syncStatus.running || syncStatus.total > 0" shadow="never" style="max-width:650px">
@@ -160,14 +163,21 @@
             <el-tag :type="syncStatus.running ? 'warning' : 'success'">
               {{ syncStatus.running ? '同步中' : (syncStatus.phase === 'done' ? '已完成' : '未开始') }}
             </el-tag>
-            <span v-if="syncStatus.phase && syncStatus.phase !== 'done'" style="color:var(--el-text-color-secondary)">{{ syncStatus.phase }}</span>
+            <span v-if="syncStatus.running && syncStatus.phase" style="color:var(--el-text-color-secondary)">
+              {{ syncPhaseLabel }}
+            </span>
           </div>
           <el-progress
             v-if="syncStatus.total > 0"
             :percentage="Math.round((syncStatus.done / syncStatus.total) * 100)"
             :status="syncStatus.running ? '' : 'success'"
+            :stroke-width="18"
             :format="() => `${syncStatus.done} / ${syncStatus.total}`"
           />
+          <div style="margin-top:6px;font-size:12px;color:var(--el-text-color-secondary)">
+            <span v-if="syncStatus.running">已完成 {{ Math.round((syncStatus.done / syncStatus.total) * 100) }}%，约需 {{ estimatedTime }}</span>
+            <span v-else-if="syncStatus.phase === 'done'">全部 {{ syncStatus.total }} 只股票日线数据已同步完成</span>
+          </div>
           <div v-if="syncStatus.failed > 0" style="margin-top:4px;color:var(--el-color-danger)">
             失败: {{ syncStatus.failed }}
           </div>
@@ -382,6 +392,9 @@ const dataSyncForm = ref({
 const syncStatus = ref<Record<string, any>>({})
 const syncRunning = ref(false)
 const cleaning = ref(false)
+const dailyExporting = ref(false)
+const dailyImporting = ref(false)
+const importFileInput = ref<HTMLInputElement | null>(null)
 let syncPollTimer: ReturnType<typeof setInterval> | null = null
 
 // Intelligence
@@ -429,6 +442,26 @@ const downloadPercent = computed(() => {
   const { downloaded, total } = updater.progress.value
   if (!total || total === 0) return 0
   return Math.min(Math.round((downloaded / total) * 100), 100)
+})
+
+const syncPhaseLabel = computed(() => {
+  const phase = syncStatus.value.phase || ''
+  if (phase === 'fetching') return '正在获取日线数据...'
+  if (phase.startsWith('calculating_indicators')) return '正在计算技术指标...'
+  if (phase === 'calculating_indicators') return '正在计算技术指标...'
+  if (phase === 'done') return '同步完成'
+  return phase
+})
+
+const estimatedTime = computed(() => {
+  const s = syncStatus.value
+  if (!s.running || !s.total || s.done < 1) return '计算中...'
+  const remaining = s.total - s.done
+  const secsPerItem = s.phase === 'fetching' ? 0.35 : 0.01
+  const totalSecs = Math.round(remaining * secsPerItem)
+  if (totalSecs < 60) return `${totalSecs} 秒`
+  if (totalSecs < 3600) return `${Math.round(totalSecs / 60)} 分钟`
+  return `${(totalSecs / 3600).toFixed(1)} 小时`
 })
 
 const downloadedMB = computed(() => (updater.progress.value.downloaded / 1048576).toFixed(1) + ' MB')
@@ -687,6 +720,59 @@ function startSyncPolling() {
       syncPollTimer = null
     }
   }, 3000)
+}
+
+async function exportDailyData() {
+  dailyExporting.value = true
+  try {
+    const res: any = await systemApi.exportDailyData()
+    const jsonStr = JSON.stringify(res)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `dsa-daily-${new Date().toISOString().slice(0, 10)}.dsa-daily.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success(`导出成功: ${res?.stockCount ?? 0} 只股票, ${res?.recordCount ?? 0} 条记录`)
+  } catch {
+    ElMessage.error('导出失败')
+  } finally {
+    dailyExporting.value = false
+  }
+}
+
+function triggerImportDailyData() {
+  importFileInput.value?.click()
+}
+
+async function handleImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  input.value = ''
+
+  dailyImporting.value = true
+  try {
+    const text = await file.text()
+    let data: any
+    try {
+      data = JSON.parse(text)
+    } catch {
+      ElMessage.error('文件格式错误，请选择有效的 .dsa-daily.json 文件')
+      return
+    }
+    if (!data?.records || !Array.isArray(data.records)) {
+      ElMessage.error('文件内容无效，缺少 records 数据')
+      return
+    }
+    const res: any = await systemApi.importDailyData(data)
+    ElMessage.success(`导入完成: 成功 ${res?.imported ?? 0} 条, 跳过 ${res?.skipped ?? 0} 条`)
+  } catch {
+    ElMessage.error('导入失败')
+  } finally {
+    dailyImporting.value = false
+  }
 }
 
 // Intelligence

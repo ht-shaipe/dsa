@@ -1,16 +1,60 @@
 <template>
   <div class="dashboard">
     <div class="market-bar">
-      <div v-for="item in marketOverview" :key="item.name" class="market-item">
-        <span class="market-name">{{ item.name }}</span>
-        <span :class="['market-price', item.change >= 0 ? 'up' : 'down']">{{ formatNum(item.price, 2) }}</span>
-        <span :class="['market-change', item.change >= 0 ? 'up' : 'down']">
-          {{ item.change >= 0 ? '+' : '' }}{{ formatNum(item.change, 2) }}%
-        </span>
-      </div>
+      <template v-if="marketLoading">
+        <div v-for="i in 3" :key="i" class="market-item">
+          <el-skeleton :rows="0" animated>
+            <template #template>
+              <el-skeleton-item variant="text" style="width: 50px; height: 16px; margin-right: 8px" />
+              <el-skeleton-item variant="text" style="width: 60px; height: 20px; margin-right: 8px" />
+              <el-skeleton-item variant="text" style="width: 55px; height: 16px" />
+            </template>
+          </el-skeleton>
+        </div>
+      </template>
+      <template v-else>
+        <div v-for="item in marketOverview" :key="item.name" class="market-item">
+          <span class="market-name">{{ item.name }}</span>
+          <span :class="['market-price', item.change >= 0 ? 'up' : 'down']">{{ formatNum(item.price, 2) }}</span>
+          <span :class="['market-change', item.change >= 0 ? 'up' : 'down']">
+            {{ item.change >= 0 ? '+' : '' }}{{ formatNum(item.change, 2) }}%
+          </span>
+        </div>
+      </template>
       <div class="market-bar-right">
         <span class="market-time">{{ currentTime }}</span>
       </div>
+    </div>
+
+    <div class="stats-bar">
+      <template v-if="statsLoading">
+        <div class="stats-item">
+          <span class="stats-label">日线数据股票数</span>
+          <el-skeleton :rows="0" animated style="width: 80px">
+            <template #template>
+              <el-skeleton-item variant="text" style="width: 80px; height: 24px" />
+            </template>
+          </el-skeleton>
+        </div>
+        <div class="stats-item">
+          <span class="stats-label">日线数据总条数</span>
+          <el-skeleton :rows="0" animated style="width: 100px">
+            <template #template>
+              <el-skeleton-item variant="text" style="width: 100px; height: 24px" />
+            </template>
+          </el-skeleton>
+        </div>
+      </template>
+      <template v-else>
+        <div class="stats-item">
+          <span class="stats-label">日线数据股票数</span>
+          <span class="stats-value">{{ dailyStats.stockCount.toLocaleString() }}</span>
+        </div>
+        <div class="stats-item">
+          <span class="stats-label">日线数据总条数</span>
+          <span class="stats-value">{{ dailyStats.totalCount.toLocaleString() }}</span>
+        </div>
+      </template>
     </div>
 
     <div class="watchlist-section" v-if="watchlist.length">
@@ -120,11 +164,15 @@ import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import { marketApi } from '@/api/market'
 import { stockApi } from '@/api/stock'
 import { analysisApi } from '@/api/analysis'
+import { systemApi } from '@/api/system'
 import { useAnalysisStore } from '@/stores/analysis'
 
 const analysisStore = useAnalysisStore()
 const marketOverview = ref<any[]>([])
+const marketLoading = ref(true)
 const watchlist = ref<any[]>([])
+const dailyStats = ref({ stockCount: 0, totalCount: 0 })
+const statsLoading = ref(true)
 const selectedCode = ref('')
 const selectedName = ref('')
 const searchText = ref('')
@@ -213,6 +261,7 @@ async function loadMarketOverview() {
       { name: d.cy?.name || '创业板指', price: d.cy?.price || 0, change: d.cy?.changePercent || d.cy?.change_pct || 0 },
     ]
   } catch { /* ignore */ }
+  marketLoading.value = false
 }
 
 async function loadWatchlist() {
@@ -220,6 +269,14 @@ async function loadWatchlist() {
     const data: any = await stockApi.watchlist()
     watchlist.value = Array.isArray(data) ? data : []
   } catch { /* ignore */ }
+}
+
+async function loadDailyStats() {
+  try {
+    const data: any = await systemApi.dailyDataStats()
+    dailyStats.value = { stockCount: data?.stockCount || 0, totalCount: data?.totalCount || 0 }
+  } catch { /* ignore */ }
+  statsLoading.value = false
 }
 
 function analyzeFromWatchlist(row: any) {
@@ -232,6 +289,7 @@ onMounted(() => {
   tradingTimer.start()
   updateTime()
   clockTimer = setInterval(updateTime, 1000)
+  loadDailyStats()
 })
 
 onUnmounted(() => {
@@ -270,6 +328,24 @@ onUnmounted(() => {
 .market-change { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .market-bar-right { margin-left: auto; }
 .market-time { font-size: 12px; color: var(--el-text-color-placeholder); font-variant-numeric: tabular-nums; }
+
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 10px 20px;
+  background: var(--el-bg-color);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 1px solid var(--el-border-color-lighter);
+}
+.stats-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stats-label { font-size: 13px; color: var(--el-text-color-secondary); }
+.stats-value { font-size: 18px; font-weight: 600; color: var(--el-color-primary); font-variant-numeric: tabular-nums; }
 
 .watchlist-section {
   background: var(--el-bg-color);

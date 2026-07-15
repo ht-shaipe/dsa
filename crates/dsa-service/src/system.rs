@@ -36,6 +36,9 @@ impl System {
             "init_daily_data" => self.init_daily_data().await,
             "sync_status" => self.sync_status().await,
             "clean_daily_data" => self.clean_daily_data().await,
+            "daily_data_stats" => self.daily_data_stats().await,
+            "export_daily_data" => self.export_daily_data().await,
+            "import_daily_data" => self.import_daily_data().await,
             _ => Err(tube::Error::from(format!(
                 "system不支持方法: {}",
                 method
@@ -588,6 +591,191 @@ impl System {
             "wouldDelete": count_before,
             "retentionDays": retention_days,
             "cutoffDate": cutoff_date,
+        }))
+    }
+
+    async fn daily_data_stats(&self) -> Result<Value> {
+        let connector = dsa_core::db::get_db_connector()
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+
+        let stock_count_sql = "SELECT COUNT(DISTINCT stock_code) AS cnt FROM stock_daily WHERE status >= 1";
+        let total_count_sql = "SELECT COUNT(*) AS cnt FROM stock_daily WHERE status >= 1";
+
+        let stock_count: i64 = dsa_core::db::query_rows(stock_count_sql, vec![], &connector)
+            .ok()
+            .and_then(|rows| rows.first().map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64))
+            .unwrap_or(0);
+
+        let total_count: i64 = dsa_core::db::query_rows(total_count_sql, vec![], &connector)
+            .ok()
+            .and_then(|rows| rows.first().map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64))
+            .unwrap_or(0);
+
+        Ok(value!({
+            "stockCount": stock_count,
+            "totalCount": total_count,
+        }))
+    }
+
+    async fn export_daily_data(&self) -> Result<Value> {
+        let connector = dsa_core::db::get_db_connector()
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+
+        let sql = "SELECT stock_code, stock_name, trade_date, open, high, low, close, \
+                   volume, amount, pct_chg, ma5, ma10, ma20, ma60, dif, dea, macd_hist, \
+                   volume_ratio, turnover_rate \
+                   FROM stock_daily WHERE status >= 1 ORDER BY stock_code, trade_date";
+
+        let rows = dsa_core::db::query_rows(sql, vec![], &connector)
+            .map_err(|e| tube::Error::from(format!("查询日线数据失败: {}", e)))?;
+
+        let mut records: Vec<Value> = Vec::with_capacity(rows.len());
+        for row in &rows {
+            let trade_date_raw = dsa_core::db::row_get_string(row, "tradeDate");
+            let trade_date = if trade_date_raw.len() > 10 {
+                trade_date_raw[..10].to_string()
+            } else {
+                trade_date_raw
+            };
+            records.push(value!({
+                "c": dsa_core::db::row_get_string(row, "stockCode"),
+                "n": dsa_core::db::row_get_string(row, "stockName"),
+                "d": trade_date,
+                "o": dsa_core::db::row_get_f64(row, "open"),
+                "h": dsa_core::db::row_get_f64(row, "high"),
+                "l": dsa_core::db::row_get_f64(row, "low"),
+                "cl": dsa_core::db::row_get_f64(row, "close"),
+                "v": dsa_core::db::row_get_f64(row, "volume") as i64,
+                "a": dsa_core::db::row_get_f64(row, "amount"),
+                "pc": dsa_core::db::row_get_f64(row, "pctChg"),
+                "m5": dsa_core::db::row_get_f64(row, "ma5"),
+                "m10": dsa_core::db::row_get_f64(row, "ma10"),
+                "m20": dsa_core::db::row_get_f64(row, "ma20"),
+                "m60": dsa_core::db::row_get_f64(row, "ma60"),
+                "df": dsa_core::db::row_get_f64(row, "dif"),
+                "de": dsa_core::db::row_get_f64(row, "dea"),
+                "mh": dsa_core::db::row_get_f64(row, "macdHist"),
+                "vr": dsa_core::db::row_get_f64(row, "volumeRatio"),
+                "tr": dsa_core::db::row_get_f64(row, "turnoverRate"),
+            }));
+        }
+
+        let count = records.len() as i64;
+        let stock_count = dsa_core::db::query_rows(
+            "SELECT COUNT(DISTINCT stock_code) AS cnt FROM stock_daily WHERE status >= 1",
+            vec![], &connector,
+        ).ok()
+            .and_then(|rows| rows.first().map(|r| dsa_core::db::row_get_f64(r, "cnt") as i64))
+            .unwrap_or(0);
+
+        Ok(value!({
+            "version": "1.0",
+            "exportTime": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            "stockCount": stock_count,
+            "recordCount": count,
+            "records": Value::Array(records),
+        }))
+    }
+
+    async fn import_daily_data(&self) -> Result<Value> {
+        let params = self.params();
+        let data = params.get("data").ok_or_else(|| tube::Error::msg("缺少data字段"))?;
+
+        let records = data.get("records").and_then(|v| v.as_array())
+            .ok_or_else(|| tube::Error::msg("缺少records数组"))?;
+
+        if records.is_empty() {
+            return Ok(value!({"imported": 0, "skipped": 0}));
+        }
+
+        let connector = dsa_core::db::get_db_connector()
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+        let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+        let now_expr = if is_sqlite { "datetime('now')" } else { "NOW()" };
+
+        let sql = if is_sqlite {
+            format!(
+                "INSERT INTO stock_daily \
+                 (stock_code, stock_name, trade_date, open, high, low, close, volume, amount, \
+                  pct_chg, ma5, ma10, ma20, ma60, dif, dea, macd_hist, volume_ratio, turnover_rate, status, create_time) \
+                 VALUES (:code, :name, :date, :open, :high, :low, :close, :vol, :amt, \
+                  :pct, :m5, :m10, :m20, :m60, :df, :de, :mh, :vr, :tr, 1, {}) \
+                 ON CONFLICT(stock_code, trade_date) DO UPDATE SET \
+                 stock_name=CASE WHEN excluded.stock_name != '' THEN excluded.stock_name ELSE stock_daily.stock_name END, \
+                 open=excluded.open, high=excluded.high, low=excluded.low, close=excluded.close, \
+                 volume=excluded.volume, amount=excluded.amount, pct_chg=excluded.pct_chg, \
+                 ma5=excluded.ma5, ma10=excluded.ma10, ma20=excluded.ma20, ma60=excluded.ma60, \
+                 dif=excluded.dif, dea=excluded.dea, macd_hist=excluded.macd_hist, \
+                 volume_ratio=excluded.volume_ratio, turnover_rate=excluded.turnover_rate",
+                now_expr
+            )
+        } else {
+            format!(
+                "INSERT INTO stock_daily \
+                 (stock_code, stock_name, trade_date, open, high, low, close, volume, amount, \
+                  pct_chg, ma5, ma10, ma20, ma60, dif, dea, macd_hist, volume_ratio, turnover_rate, status, create_time) \
+                 VALUES (:code, :name, :date, :open, :high, :low, :close, :vol, :amt, \
+                  :pct, :m5, :m10, :m20, :m60, :df, :de, :mh, :vr, :tr, 1, {}) \
+                 ON DUPLICATE KEY UPDATE \
+                 stock_name=IF(VALUES(stock_name)!='',VALUES(stock_name),stock_name), \
+                 open=VALUES(open), high=VALUES(high), low=VALUES(low), close=VALUES(close), \
+                 volume=VALUES(volume), amount=VALUES(amount), pct_chg=VALUES(pct_chg), \
+                 ma5=VALUES(ma5), ma10=VALUES(ma10), ma20=VALUES(ma20), ma60=VALUES(ma60), \
+                 dif=VALUES(dif), dea=VALUES(dea), macd_hist=VALUES(macd_hist), \
+                 volume_ratio=VALUES(volume_ratio), turnover_rate=VALUES(turnover_rate)",
+                now_expr
+            )
+        };
+
+        let mut imported = 0u32;
+        let mut skipped = 0u32;
+
+        for rec in records {
+            let code = rec.get("c").and_then(|v| v.as_str()).unwrap_or_default();
+            let name = rec.get("n").and_then(|v| v.as_str()).unwrap_or_default();
+            let date = rec.get("d").and_then(|v| v.as_str()).unwrap_or_default();
+            if code.is_empty() || date.is_empty() {
+                skipped += 1;
+                continue;
+            }
+
+            let result = dsa_core::db::execute(
+                &sql,
+                vec![
+                    ("code".to_string(), Value::from(code.to_string())),
+                    ("name".to_string(), Value::from(name.to_string())),
+                    ("date".to_string(), Value::from(date.to_string())),
+                    ("open".to_string(), Value::from(rec.get("o").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("high".to_string(), Value::from(rec.get("h").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("low".to_string(), Value::from(rec.get("l").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("close".to_string(), Value::from(rec.get("cl").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("vol".to_string(), Value::from(rec.get("v").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64)),
+                    ("amt".to_string(), Value::from(rec.get("a").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("pct".to_string(), Value::from(rec.get("pc").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("m5".to_string(), Value::from(rec.get("m5").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("m10".to_string(), Value::from(rec.get("m10").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("m20".to_string(), Value::from(rec.get("m20").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("m60".to_string(), Value::from(rec.get("m60").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("df".to_string(), Value::from(rec.get("df").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("de".to_string(), Value::from(rec.get("de").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("mh".to_string(), Value::from(rec.get("mh").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("vr".to_string(), Value::from(rec.get("vr").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                    ("tr".to_string(), Value::from(rec.get("tr").and_then(|v| v.as_f64()).unwrap_or(0.0))),
+                ],
+                &connector,
+            );
+
+            match result {
+                Ok(_) => imported += 1,
+                Err(_) => skipped += 1,
+            }
+        }
+
+        tracing::info!("日线数据导入完成: 导入{}, 跳过{}", imported, skipped);
+
+        Ok(value!({
+            "imported": imported as i64,
+            "skipped": skipped as i64,
         }))
     }
 }

@@ -1,4 +1,4 @@
-import { callApi } from './index'
+import { callApi, callApiWithTimeout } from './index'
 
 export const systemApi = {
   get: () => callApi('system', 'get'),
@@ -12,4 +12,7 @@ export const systemApi = {
   initDailyData: () => callApi('system', 'init_daily_data'),
   syncStatus: () => callApi('system', 'sync_status'),
   cleanDailyData: () => callApi('system', 'clean_daily_data'),
+  dailyDataStats: () => callApi('system', 'daily_data_stats'),
+  exportDailyData: () => callApi('system', 'export_daily_data'),
+  importDailyData: (data: any) => callApiWithTimeout('system', 'import_daily_data', { data }, 300000),
 }
