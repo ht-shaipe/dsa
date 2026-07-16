@@ -284,9 +284,7 @@ impl Stock {
             for code in &codes {
                 let prefix = utils::market_prefix(code);
                 if let Ok(v) = real.get_price(&format!("{}{}", prefix, code)).await {
-                    if let Some(c) = v.get("code").and_then(|c| c.as_str()) {
-                        quote_map.insert(c.to_string(), v);
-                    }
+                    quote_map.insert(code.clone(), v);
                 }
             }
 

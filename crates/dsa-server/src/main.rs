@@ -14,6 +14,14 @@ struct Args {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    std::panic::set_hook(Box::new(|info| {
+        let msg = info.to_string();
+        if msg.contains("Broken pipe") || msg.contains("failed printing to stdout") {
+            return;
+        }
+        log::error!("PANIC: {}", msg);
+    }));
+
     let args = Args::parse();
 
     let conf_path =

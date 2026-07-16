@@ -5,15 +5,6 @@
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
           <span>分析历史</span>
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <el-input
-              v-model="searchKeyword"
-              placeholder="搜索股票代码/名称"
-              clearable
-              style="width:200px"
-              @keyup.enter="onSearch"
-            >
-              <template #prefix><el-icon><Search /></el-icon></template>
-            </el-input>
             <StockAutocomplete @select="onFilterStock" style="width:200px" />
             <el-button type="primary" @click="onSearch">搜索</el-button>
             <el-button @click="resetFilters">重置</el-button>
@@ -68,11 +59,14 @@
       <el-empty v-if="!records.length" description="暂无分析记录" />
     </el-card>
 
-    <el-drawer v-model="drawerVisible" :title="'分析详情 - ' + (currentRecord.stockName || currentRecord.stock_name || '')" size="80%">
+    <el-drawer v-model="drawerVisible" :title="'分析详情 - ' + (currentRecord.stockName || currentRecord.stock_name || '')"
+      size="80%">
       <template v-if="currentRecord && currentRecord.id">
         <el-descriptions :column="2" border style="margin-bottom:16px" label-width="100px">
-          <el-descriptions-item label="股票代码" >{{ currentRecord.stockCode || currentRecord.stock_code }}</el-descriptions-item>
-          <el-descriptions-item label="股票名称">{{ currentRecord.stockName || currentRecord.stock_name }}</el-descriptions-item>
+          <el-descriptions-item label="股票代码">{{ currentRecord.stockCode || currentRecord.stock_code
+            }}</el-descriptions-item>
+          <el-descriptions-item label="股票名称">{{ currentRecord.stockName || currentRecord.stock_name
+            }}</el-descriptions-item>
           <el-descriptions-item label="情绪评分">
             <ScoreGauge :score="currentRecord.sentimentScore || currentRecord.sentiment_score || 0" :size="80" />
           </el-descriptions-item>
@@ -81,11 +75,16 @@
               {{ decisionLabel(currentRecord.decisionType || currentRecord.decision_type) }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="操作建议" :span="2">{{ currentRecord.operationAdvice || currentRecord.operation_advice }}</el-descriptions-item>
-          <el-descriptions-item label="分析摘要" :span="2">{{ currentRecord.analysisSummary || currentRecord.analysis_summary }}</el-descriptions-item>
-          <el-descriptions-item label="风险提示" :span="2">{{ currentRecord.riskWarning || currentRecord.risk_warning }}</el-descriptions-item>
-          <el-descriptions-item label="分析时间">{{ currentRecord.createTime || currentRecord.create_time }}</el-descriptions-item>
-          <el-descriptions-item label="报告类型">{{ currentRecord.reportType || currentRecord.report_type || 'full' }}</el-descriptions-item>
+          <el-descriptions-item label="操作建议" :span="2">{{ currentRecord.operationAdvice ||
+            currentRecord.operation_advice }}</el-descriptions-item>
+          <el-descriptions-item label="分析摘要" :span="2">{{ currentRecord.analysisSummary ||
+            currentRecord.analysis_summary }}</el-descriptions-item>
+          <el-descriptions-item label="风险提示" :span="2">{{ currentRecord.riskWarning || currentRecord.risk_warning
+            }}</el-descriptions-item>
+          <el-descriptions-item label="分析时间">{{ currentRecord.createTime || currentRecord.create_time
+            }}</el-descriptions-item>
+          <el-descriptions-item label="报告类型">{{ currentRecord.reportType || currentRecord.report_type || 'full'
+            }}</el-descriptions-item>
         </el-descriptions>
 
         <el-divider content-position="left">完整报告</el-divider>
@@ -217,6 +216,7 @@ onMounted(() => {
     cursor: pointer;
   }
 }
+
 .text-ellipsis {
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -224,6 +224,7 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .report-content {
   padding: 0 4px;
 }

@@ -302,7 +302,7 @@ onMounted(async () => {
 <style scoped lang="scss">
 .chat-page {
   display: flex;
-  height: calc(100vh - 96px);
+  height: calc(100vh - 100px);
   background: var(--el-bg-color);
   border-radius: 8px;
   overflow: hidden;
@@ -596,7 +596,7 @@ html.dark {
   }
 
   .chat-sidebar {
-    background: #1a1a1a;
+    background: var(--el-bg-color-page);
   }
 }
 </style>

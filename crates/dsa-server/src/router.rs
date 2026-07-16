@@ -22,6 +22,7 @@ async fn api_handler_inner(
 
     let res = match param.module.to_lowercase().as_str() {
         "stock" => crate::handler::stock::distribute(&param).await,
+        "stock_pool" => crate::handler::stock_pool::distribute(&param).await,
         "analysis" => crate::handler::analysis::distribute(&param).await,
         "market" => crate::handler::market::distribute(&param).await,
         "agent" => crate::handler::agent::distribute(&param).await,

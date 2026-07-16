@@ -1,28 +1,29 @@
 <template>
   <div class="portfolio-view">
-    <el-row :gutter="20" style="margin-bottom: 20px">
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <el-statistic title="总市值" :value="summary.totalValue || 0" :precision="2" prefix="¥" />
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <el-statistic title="总盈亏" :value="summary.total_pnl || 0" :precision="2" prefix="¥" />
-          <div :class="pnlClass(summary.total_pnl)">{{ pnlText(summary.total_pnl) }}</div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <el-statistic title="持仓数量" :value="summary.positionCount || 0" />
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card shadow="hover" class="stat-card">
-          <el-statistic title="总收益率" :value="pnlPercent" :precision="2" suffix="%" />
-        </el-card>
-      </el-col>
-    </el-row>
+    <el-card shadow="hover" class="summary-bar" style="margin-bottom: 20px">
+      <div class="summary-row">
+        <div class="summary-item">
+          <span class="summary-label">总市值</span>
+          <span class="summary-value">¥{{ formatNum(summary.totalValue, 2) }}</span>
+        </div>
+        <el-divider direction="vertical" />
+        <div class="summary-item">
+          <span class="summary-label">总盈亏</span>
+          <span :class="['summary-value', pnlClass(summary.total_pnl)]">{{ pnlText(summary.total_pnl) }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">收益率</span>
+          <span :class="['summary-value', pnlClass(summary.total_pnl)]">
+            {{ (Number(summary.total_pnl || 0) >= 0 ? '+' : '') }}{{ formatNum(pnlPercent, 2) }}%
+          </span>
+        </div>
+        <el-divider direction="vertical" />
+        <div class="summary-item">
+          <span class="summary-label">持仓数</span>
+          <span class="summary-value">{{ summary.positionCount || 0 }}</span>
+        </div>
+      </div>
+    </el-card>
 
     <el-row :gutter="20" style="margin-bottom: 20px">
       <el-col :span="24">
@@ -243,6 +244,11 @@ function pnlText(val: number | undefined) {
   return (v >= 0 ? '+' : '') + v.toFixed(2)
 }
 
+function formatNum(v: any, digits: number): string {
+  const n = Number(v)
+  return isNaN(n) ? '-' : n.toFixed(digits)
+}
+
 function positionPnlPercent(row: any) {
   const cost = Number(row.avgCost || 0)
   const price = Number(row.currentPrice || 0)
@@ -388,15 +394,36 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
-.stat-card {
-  text-align: center;
+.summary-bar {
+  :deep(.el-card__body) { padding: 0; }
+}
+.summary-row {
+  display: flex;
+  align-items: center;
+  padding: 14px 20px;
+}
+.summary-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.summary-label {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+.summary-value {
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .pnl-up {
   color: #f56c6c;
-  font-weight: 500;
 }
 .pnl-down {
   color: #67c23a;
-  font-weight: 500;
+}
+:deep(.el-divider--vertical) {
+  height: 28px;
+  margin: 0 20px;
 }
 </style>

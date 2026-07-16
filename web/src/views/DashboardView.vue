@@ -28,31 +28,64 @@
 
     <div class="stats-bar">
       <template v-if="statsLoading">
-        <div class="stats-item">
-          <span class="stats-label">日线数据股票数</span>
-          <el-skeleton :rows="0" animated style="width: 80px">
-            <template #template>
-              <el-skeleton-item variant="text" style="width: 80px; height: 24px" />
-            </template>
-          </el-skeleton>
-        </div>
-        <div class="stats-item">
-          <span class="stats-label">日线数据总条数</span>
-          <el-skeleton :rows="0" animated style="width: 100px">
-            <template #template>
-              <el-skeleton-item variant="text" style="width: 100px; height: 24px" />
-            </template>
-          </el-skeleton>
+        <div v-for="i in 6" :key="i" class="stats-item">
+          <span class="stats-label"><el-skeleton-item variant="text" style="width:60px;height:14px" /></span>
+          <span class="stats-value"><el-skeleton-item variant="text" style="width:50px;height:22px" /></span>
         </div>
       </template>
       <template v-else>
-        <div class="stats-item">
-          <span class="stats-label">日线数据股票数</span>
-          <span class="stats-value">{{ dailyStats.stockCount.toLocaleString() }}</span>
+        <div class="stats-item" title="股票池中的股票数量">
+          <span class="stats-label">股票池</span>
+          <span class="stats-value">{{ stats.pool.toLocaleString() }}</span>
         </div>
-        <div class="stats-item">
-          <span class="stats-label">日线数据总条数</span>
-          <span class="stats-value">{{ dailyStats.totalCount.toLocaleString() }}</span>
+        <div class="stats-item" title="已有日线数据的股票数">
+          <span class="stats-label">日线股票</span>
+          <span class="stats-value">{{ stats.dailyStocks.toLocaleString() }}</span>
+        </div>
+        <div class="stats-item" title="日线数据总条数">
+          <span class="stats-label">日线条数</span>
+          <span class="stats-value">{{ stats.dailyTotal.toLocaleString() }}</span>
+        </div>
+        <div class="stats-item stats-divider"></div>
+        <div class="stats-item" title="自选股数量">
+          <span class="stats-label">自选股</span>
+          <span class="stats-value">{{ stats.watchlist.toLocaleString() }}</span>
+        </div>
+        <div class="stats-item" title="持仓数量">
+          <span class="stats-label">持仓</span>
+          <span class="stats-value">{{ stats.positions.toLocaleString() }}</span>
+        </div>
+        <div class="stats-item" title="持仓总市值">
+          <span class="stats-label">市值</span>
+          <span :class="['stats-value', stats.pnl >= 0 ? 'up' : 'down']">{{ formatMoney(stats.totalValue) }}</span>
+        </div>
+        <div class="stats-item stats-divider"></div>
+        <div class="stats-item" title="决策信号: 看多/看空/总计">
+          <span class="stats-label">信号</span>
+          <span class="stats-value">
+            <span class="up">{{ stats.bullish }}</span>/<span class="down">{{ stats.bearish }}</span>/<span>{{ stats.decisions }}</span>
+          </span>
+        </div>
+        <div class="stats-item" title="AI分析报告数">
+          <span class="stats-label">分析</span>
+          <span class="stats-value">{{ stats.analysis.toLocaleString() }}</span>
+        </div>
+        <div class="stats-item" title="回测交易数/胜率">
+          <span class="stats-label">回测</span>
+          <span class="stats-value">{{ stats.backtests }}<span v-if="stats.backtests" class="stats-sub"> /{{ stats.winRate.toFixed(0) }}%</span></span>
+        </div>
+        <div class="stats-item stats-divider"></div>
+        <div class="stats-item" title="今日预警触发">
+          <span class="stats-label">预警</span>
+          <span class="stats-value">{{ stats.alerts.toLocaleString() }}</span>
+        </div>
+        <div class="stats-item" title="情报源/情报条目">
+          <span class="stats-label">情报</span>
+          <span class="stats-value">{{ stats.intelSources }}<span class="stats-sub"> /{{ stats.intelItems }}</span></span>
+        </div>
+        <div class="stats-item" title="今日LLM调用/总Token">
+          <span class="stats-label">LLM</span>
+          <span class="stats-value">{{ stats.llmToday }}<span class="stats-sub"> /{{ formatTokens(stats.llmTokens) }}</span></span>
         </div>
       </template>
     </div>
@@ -69,13 +102,49 @@
             <span class="stock-card-code">{{ row.stockCode || row.code }}</span>
           </div>
           <div class="stock-card-bottom">
-            <span class="stock-card-price">
+            <span :class="['stock-card-price', row.changePercent >= 0 ? 'up' : 'down']">
               <template v-if="row.close != null">{{ formatNum(row.close, 2) }}</template>
               <template v-else-if="row.price != null">{{ formatNum(row.price, 2) }}</template>
               <template v-else>-</template>
             </span>
             <span v-if="row.changePercent != null" :class="['stock-card-change', Number(row.changePercent) >= 0 ? 'up' : 'down']">
               {{ Number(row.changePercent) >= 0 ? '+' : '' }}{{ formatNum(row.changePercent, 2) }}%
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="watchlist-section" v-if="positions.length">
+      <div class="section-header">
+        <span class="section-title">持仓行情</span>
+        <el-button link type="primary" @click="$router.push('/portfolio')">管理投资组合 →</el-button>
+      </div>
+      <div class="position-grid">
+        <div v-for="row in positions" :key="row.stockCode || row.code" class="position-card" @click="analyzeFromWatchlist(row)">
+          <div class="position-card-header">
+            <span class="position-card-name">{{ row.stockName || row.name || '-' }}</span>
+            <span class="position-card-code">{{ row.stockCode || row.code }}</span>
+          </div>
+          <div class="position-card-row">
+            <span class="position-label">持仓</span>
+            <span class="position-val">{{ row.quantity }}股</span>
+            <span class="position-label">成本</span>
+            <span class="position-val">{{ formatNum(row.avgCost, 3) }}</span>
+          </div>
+          <div class="position-card-row">
+            <span class="position-label">现价</span>
+            <span :class="['position-val', (row.currentPrice || 0) >= (row.avgCost || 0) ? 'up' : 'down']">{{ formatNum(row.currentPrice, 2) }}</span>
+            <span class="position-label">市值</span>
+            <span class="position-val">{{ formatNum(row.marketValue, 0) }}</span>
+          </div>
+          <div class="position-card-footer">
+            <span class="position-label">盈亏</span>
+            <span :class="['position-pnl', (row.unrealizedPnl || 0) >= 0 ? 'up' : 'down']">
+              {{ (row.unrealizedPnl || 0) >= 0 ? '+' : '' }}{{ formatNum(row.unrealizedPnl, 2) }}
+              <template v-if="row.avgCost && row.quantity">
+                ({{ (row.unrealizedPnl >= 0 ? '+' : '') }}{{ formatNum((row.unrealizedPnl / (row.avgCost * row.quantity)) * 100, 2) }}%)
+              </template>
             </span>
           </div>
         </div>
@@ -163,6 +232,7 @@ import ScoreGauge from '@/components/common/ScoreGauge.vue'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import { marketApi } from '@/api/market'
 import { stockApi } from '@/api/stock'
+import { portfolioApi } from '@/api/portfolio'
 import { analysisApi } from '@/api/analysis'
 import { systemApi } from '@/api/system'
 import { useAnalysisStore } from '@/stores/analysis'
@@ -171,7 +241,17 @@ const analysisStore = useAnalysisStore()
 const marketOverview = ref<any[]>([])
 const marketLoading = ref(true)
 const watchlist = ref<any[]>([])
-const dailyStats = ref({ stockCount: 0, totalCount: 0 })
+const positions = ref<any[]>([])
+const stats = ref({
+  pool: 0, dailyStocks: 0, dailyTotal: 0, latestDate: '',
+  watchlist: 0, positions: 0, totalValue: 0, pnl: 0,
+  decisions: 0, bullish: 0, bearish: 0, avgScore: 0,
+  analysis: 0, backtests: 0, winRate: 0,
+  alerts: 0, alertRules: 0,
+  intelSources: 0, intelItems: 0,
+  llmToday: 0, llmTokens: 0,
+  newsCount: 0, syncRunning: false,
+})
 const statsLoading = ref(true)
 const selectedCode = ref('')
 const selectedName = ref('')
@@ -192,6 +272,7 @@ function updateTime() {
 const tradingTimer = useTradingInterval(() => {
   loadMarketOverview()
   loadWatchlist()
+  loadPositions()
 }, 10000)
 
 let clockTimer: ReturnType<typeof setInterval> | null = null
@@ -271,12 +352,55 @@ async function loadWatchlist() {
   } catch { /* ignore */ }
 }
 
-async function loadDailyStats() {
+async function loadPositions() {
   try {
-    const data: any = await systemApi.dailyDataStats()
-    dailyStats.value = { stockCount: data?.stockCount || 0, totalCount: data?.totalCount || 0 }
+    const data: any = await portfolioApi.positions()
+    positions.value = Array.isArray(data) ? data : []
+  } catch { /* ignore */ }
+}
+
+async function loadDashboardStats() {
+  try {
+    const d: any = await systemApi.dashboardStats()
+    stats.value = {
+      pool: d?.pool?.count || 0,
+      dailyStocks: d?.daily?.stockCount || 0,
+      dailyTotal: d?.daily?.totalCount || 0,
+      latestDate: d?.daily?.latestDate || '',
+      watchlist: d?.watchlist?.count || 0,
+      positions: d?.portfolio?.positionCount || 0,
+      totalValue: d?.portfolio?.totalValue || 0,
+      pnl: d?.portfolio?.totalPnl || 0,
+      decisions: d?.decision?.total || 0,
+      bullish: d?.decision?.bullish || 0,
+      bearish: d?.decision?.bearish || 0,
+      avgScore: d?.decision?.avgScore || 0,
+      analysis: d?.analysis?.count || 0,
+      backtests: d?.backtest?.count || 0,
+      winRate: d?.backtest?.winRate || 0,
+      alerts: d?.alert?.todayTriggered || 0,
+      alertRules: d?.alert?.ruleCount || 0,
+      intelSources: d?.intelligence?.sourceCount || 0,
+      intelItems: d?.intelligence?.itemCount || 0,
+      llmToday: d?.llm?.todayCalls || 0,
+      llmTokens: d?.llm?.totalTokens || 0,
+      newsCount: d?.news?.count || 0,
+      syncRunning: d?.sync?.running || false,
+    }
   } catch { /* ignore */ }
   statsLoading.value = false
+}
+
+function formatMoney(v: number): string {
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'
+  if (v >= 1e4) return (v / 1e4).toFixed(1) + '万'
+  return v.toFixed(2)
+}
+
+function formatTokens(v: number): string {
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M'
+  if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K'
+  return v.toLocaleString()
 }
 
 function analyzeFromWatchlist(row: any) {
@@ -289,7 +413,7 @@ onMounted(() => {
   tradingTimer.start()
   updateTime()
   clockTimer = setInterval(updateTime, 1000)
-  loadDailyStats()
+  loadDashboardStats()
 })
 
 onUnmounted(() => {
@@ -332,20 +456,31 @@ onUnmounted(() => {
 .stats-bar {
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: 16px;
   padding: 10px 20px;
   background: var(--el-bg-color);
   border-radius: 8px;
   margin-bottom: 20px;
   border: 1px solid var(--el-border-color-lighter);
+  flex-wrap: wrap;
 }
 .stats-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
-.stats-label { font-size: 13px; color: var(--el-text-color-secondary); }
-.stats-value { font-size: 18px; font-weight: 600; color: var(--el-color-primary); font-variant-numeric: tabular-nums; }
+.stats-label { font-size: 12px; color: var(--el-text-color-secondary); white-space: nowrap; }
+.stats-value { font-size: 16px; font-weight: 600; color: var(--el-color-primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stats-value .up { color: #f56c6c; }
+.stats-value .down { color: #67c23a; }
+.stats-sub { font-size: 12px; font-weight: 400; color: var(--el-text-color-secondary); }
+.stats-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--el-border-color-lighter);
+  padding: 0;
+  gap: 0;
+}
 
 .watchlist-section {
   background: var(--el-bg-color);
@@ -392,6 +527,70 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .stock-card-code { font-size: 12px; color: var(--el-text-color-secondary); }
+
+.position-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+}
+.position-card {
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--el-border-color-extra-light);
+  cursor: pointer;
+  transition: all 0.2s;
+  &:hover {
+    border-color: var(--el-color-primary-light-5);
+    background: var(--el-color-primary-light-9);
+  }
+}
+.position-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--el-border-color-extra-light);
+}
+.position-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.position-card-code { font-size: 12px; color: var(--el-text-color-secondary); }
+.position-card-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 4px;
+  font-size: 13px;
+}
+.position-card-footer {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--el-border-color-extra-light);
+  font-size: 13px;
+}
+.position-label {
+  color: var(--el-text-color-placeholder);
+  font-size: 12px;
+  min-width: 28px;
+}
+.position-val {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  margin-right: 8px;
+}
+.position-pnl {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
 .stock-card-bottom {
   display: flex;
   justify-content: space-between;

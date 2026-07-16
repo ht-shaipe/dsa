@@ -551,6 +551,21 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default = "default_cors_origins")]
     pub cors_origins: Vec<String>,
+    #[serde(default)]
+    pub auth_password: String,
+    #[serde(default)]
+    pub auth_password_env: String,
+}
+
+impl ServerConfig {
+    pub fn is_local_mode(&self) -> bool {
+        let pw = if !self.auth_password_env.is_empty() {
+            std::env::var(&self.auth_password_env).unwrap_or_default()
+        } else {
+            self.auth_password.clone()
+        };
+        pw.is_empty()
+    }
 }
 
 /// 股票监控配置
@@ -737,6 +752,8 @@ impl Default for AppConfig {
                 host: "0.0.0.0".to_string(),
                 port: 8000,
                 cors_origins: default_cors_origins(),
+                auth_password: String::new(),
+                auth_password_env: String::new(),
             },
             stock: StockConfig {
                 watchlist: vec![
@@ -840,6 +857,10 @@ impl AppConfig {
         Ok(config)
     }
 
+    pub fn server_is_local_mode() -> bool {
+        crate::get_global_config().server.is_local_mode()
+    }
+
     /// 从环境变量解析LLM API密钥
     pub fn resolve_api_key(&self) -> String {
         if !self.llm.api_key.is_empty() {
@@ -874,15 +895,31 @@ impl AppConfig {
         )
     }
 
-    /// 生成SQLite数据库文件路径
-    /// 如果 name 是绝对路径则直接使用，否则相对于当前目录下的 data/ 目录
-    /// 自动创建 data/ 目录（如果不存在）
+    /// 生成 SQLite 数据库文件路径
+    /// 如果 name 是绝对路径则直接使用，否则使用用户数据目录下的 dsa/ 子目录
+    /// 这样可以避免数据库文件在项目目录内被文件监听器检测到导致 dev 模式重启
     pub fn sqlite_path(&self) -> String {
         let name = &self.database.name;
         let path = if name.starts_with('/') || name.starts_with("./") || name.contains('/') {
             name.clone()
         } else {
-            format!("data/{}.db", name)
+            // 优先使用用户数据目录，避免数据库文件落在项目目录中
+            // 触发 Tauri dev / cargo-watch 的文件监听重启
+            let base = dirs::data_dir()
+                .or_else(dirs::data_local_dir)
+                .unwrap_or_else(|| std::path::PathBuf::from("data"));
+            let new_path = base.join("dsa").join(format!("{}.db", name));
+            let new_path = new_path.to_string_lossy().to_string();
+
+            // 迁移：如果新路径不存在但老的 data/{name}.db 存在，自动复制过去
+            let old_path = format!("data/{}.db", name);
+            if !std::path::Path::new(&new_path).exists() && std::path::Path::new(&old_path).exists() {
+                if std::fs::copy(&old_path, &new_path).is_ok() {
+                    log::info!("migrated sqlite db from {} to {}", old_path, new_path);
+                }
+            }
+
+            new_path
         };
         if let Some(parent) = std::path::Path::new(&path).parent() {
             let _ = std::fs::create_dir_all(parent);

@@ -26,6 +26,8 @@ pub mod screening;
 pub mod search;
 pub mod social_sentiment;
 pub mod stock;
+pub mod stock_pool;
 pub mod stream;
 pub mod system;
+pub mod task_progress;
 pub mod usage;

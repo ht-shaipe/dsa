@@ -8,4 +8,7 @@ export const screeningApi = {
   screen: (strategy?: string) => callApi('screening', 'screen', { strategy }),
   syncDaily: () => callApi('screening', 'sync_daily'),
   syncProgress: () => callApi('screening', 'sync_progress'),
+  pauseSync: () => callApi('screening', 'pause_sync'),
+  resumeSync: () => callApi('screening', 'resume_sync'),
+  stopSync: () => callApi('screening', 'stop_sync'),
 }

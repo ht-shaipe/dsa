@@ -36,6 +36,7 @@ pub mod screening;
 pub mod search;
 pub mod social_sentiment;
 pub mod stock;
+pub mod stock_pool;
 pub mod system;
 pub mod usage;
 
@@ -59,5 +60,6 @@ pub use screening::Screening;
 pub use search::Search;
 pub use social_sentiment::SocialSentiment;
 pub use stock::Stock;
+pub use stock_pool::StockPool;
 pub use system::System;
 pub use usage::Usage;

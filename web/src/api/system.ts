@@ -13,6 +13,10 @@ export const systemApi = {
   syncStatus: () => callApi('system', 'sync_status'),
   cleanDailyData: () => callApi('system', 'clean_daily_data'),
   dailyDataStats: () => callApi('system', 'daily_data_stats'),
+  dashboardStats: () => callApi('system', 'dashboard_stats'),
   exportDailyData: () => callApi('system', 'export_daily_data'),
   importDailyData: (data: any) => callApiWithTimeout('system', 'import_daily_data', { data }, 300000),
+  pauseSync: () => callApi('system', 'pause_sync'),
+  resumeSync: () => callApi('system', 'resume_sync'),
+  stopSync: () => callApi('system', 'stop_sync'),
 }

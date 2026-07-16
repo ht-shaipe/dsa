@@ -1,12 +1,14 @@
 :root {
   --dsa-primary: #409eff;
-  --dsa-bg: #f5f7fa;
+  --dsa-bg: var(--el-bg-color);
   --dsa-sidebar-width: 220px;
   --dsa-header-height: 56px;
+  --dsa-sidebar-bg: var(--el-fill-color-light);
 }
 
 html.dark {
-  --dsa-bg: #141414;
+  --dsa-bg: var(--el-bg-color);
+  --dsa-sidebar-bg: var(--el-bg-color-page);
 }
 
 body {

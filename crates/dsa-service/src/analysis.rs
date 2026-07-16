@@ -4,7 +4,6 @@
 //! 使用 deck DataTable/TableService 模式
 
 use deck::sqlite::{DataTable, SelectExecutor};
-use deck::QueryExecutor;
 use deck::TableService;
 use dsa_core::db::query_rows;
 use dsa_core::models::db::AnalysisHistory as AnalysisHistoryModel;

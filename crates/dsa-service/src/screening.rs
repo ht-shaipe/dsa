@@ -3,21 +3,54 @@ use dsa_core::db::{
 };
 use dsa_core::utils;
 use dsa_pipeline::technical::TechnicalAnalyzer;
+use log::{debug as log_debug, warn as log_warn, error as log_error};
 use qta_crawler::EastMoney;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
 lazy_static::lazy_static! {
-    static ref SYNC_STATUS: std::sync::Mutex<SyncStatus> = std::sync::Mutex::new(SyncStatus::default());
+    pub static ref SYNC_STATUS: std::sync::Mutex<SyncStatus> = std::sync::Mutex::new(SyncStatus::default());
 }
 
-#[derive(Default)]
-struct SyncStatus {
-    running: bool,
-    total: u32,
-    done: u32,
-    failed: u32,
-    phase: String,
+#[derive(Default, Clone)]
+pub struct SyncStatus {
+    pub running: bool,
+    pub paused: bool,
+    pub total: u32,
+    pub done: u32,
+    pub failed: u32,
+    pub phase: String,
+}
+
+impl SyncStatus {
+    pub fn to_value(&self) -> Value {
+        value!({
+            "task": "sync_daily",
+            "running": self.running,
+            "paused": self.paused,
+            "total": self.total,
+            "done": self.done,
+            "failed": self.failed,
+            "phase": self.phase.clone(),
+        })
+    }
+}
+
+fn broadcast_screening_status() {
+    let st = SYNC_STATUS.lock().unwrap();
+    let val = st.to_value();
+    let _ = crate::system::TASK_BROADCAST.send(val);
+}
+
+fn wait_if_screening_paused() -> bool {
+    loop {
+        {
+            let st = SYNC_STATUS.lock().unwrap();
+            if !st.running { return false; }
+            if !st.paused { return true; }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 pub struct Screening {
@@ -40,6 +73,9 @@ impl Screening {
             "screen" => self.screen().await,
             "sync_daily" => self.sync_daily().await,
             "sync_progress" => self.sync_progress().await,
+            "pause_sync" => self.pause_sync().await,
+            "resume_sync" => self.resume_sync().await,
+            "stop_sync" => self.stop_sync().await,
             _ => Err(error!("screening不支持方法: {}", method)),
         }
     }
@@ -104,67 +140,97 @@ impl Screening {
         {
             let mut st = SYNC_STATUS.lock().unwrap();
             st.running = true;
+            st.paused = false;
             st.total = total;
             st.done = 0;
             st.failed = 0;
             st.phase = "fetching".to_string();
         }
+        broadcast_screening_status();
 
         let codes_clone = codes.clone();
+        let conf = dsa_core::get_global_config();
+        let is_sqlite = conf.database.is_sqlite();
+        let retention_days = conf.data_sync.retention_days as i64;
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to build tokio runtime for sync_daily");
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to build tokio runtime for sync_daily");
 
-            rt.block_on(async {
-                let em = EastMoney::new();
+                rt.block_on(async {
+                    let kline_base_url = "https://push2his.eastmoney.com/api/qt/stock/kline/get";
+                    let retention_date = {
+                        let now = chrono::Local::now();
+                        let cutoff = now - chrono::Duration::days(retention_days);
+                        cutoff.format("%Y-%m-%d").to_string()
+                    };
 
-                for code in &codes_clone {
-                    if !SYNC_STATUS.lock().unwrap().running {
-                        break;
-                    }
+                    for code in &codes_clone {
+                        if !wait_if_screening_paused() {
+                            break;
+                        }
 
-                    match em.stock_zh_a_hist(code, Some("daily"), None, None, Some("qfq")).await {
-                        Ok(raw) => {
-                            let bars: Vec<dsa_core::models::KlineBar> = raw.iter().map(|item| {
-                                dsa_core::models::KlineBar {
-                                    date: item.get("日期").and_then(|v| v.as_str()).unwrap_or_default(),
-                                    open: item.get("开盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                    high: item.get("最高").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                    low: item.get("最低").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                    close: item.get("收盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                    volume: item.get("成交量").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64,
-                                    amount: item.get("成交额").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        let market_id = if code.starts_with('6') { 1 } else { 0 };
+                        let secid = format!("{}.{}", market_id, code);
+                        let params = format!(
+                            "fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=1&secid={}&beg=19700101&end=20500101",
+                            urlencoding::encode(&secid)
+                        );
+                        let full_url = format!("{}?{}", kline_base_url, params);
+
+                        let mut headers = std::collections::HashMap::new();
+                        headers.insert("User-Agent".to_string(), "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36".to_string());
+                        headers.insert("Referer".to_string(), "https://quote.eastmoney.com/".to_string());
+                        let resp = tube_net::AsyncClient::new("")
+                            .add_headers(headers)
+                            .timeout(15000)
+                            .get(&full_url)
+                            .await;
+
+                        match resp {
+                            Ok(response_text) => {
+                                match super::system::parse_kline_response(&response_text, is_sqlite, &retention_date) {
+                                    Ok(bars) => {
+                                        if bars.is_empty() {
+                                            log_debug!("股票 {} 无K线数据", code);
+                                        } else {
+                                            log_debug!("股票 {} 获取到{}条K线，写入DB", code, bars.len());
+                                            dsa_core::utils::save_all_kline_to_db(code, &bars);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log_warn!("解析日线数据失败 {}: {}", code, e);
+                                        SYNC_STATUS.lock().unwrap().failed += 1;
+                                    }
                                 }
-                            }).collect();
-
-                            if !bars.is_empty() {
-                                dsa_core::utils::save_all_kline_to_db(code, &bars);
+                            }
+                            Err(e) => {
+                                log_warn!("获取日线失败 {}: {}", code, e);
+                                SYNC_STATUS.lock().unwrap().failed += 1;
                             }
                         }
-                        Err(_) => {
-                            SYNC_STATUS.lock().unwrap().failed += 1;
+
+                        {
+                            let mut st = SYNC_STATUS.lock().unwrap();
+                            st.done += 1;
                         }
-                    }
+                        broadcast_screening_status();
 
-                    {
-                        let mut st = SYNC_STATUS.lock().unwrap();
-                        st.done += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                     }
-
-                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                }
 
                 {
                     let mut st = SYNC_STATUS.lock().unwrap();
                     st.phase = "calculating_indicators".to_string();
                 }
+                broadcast_screening_status();
 
                 let connector = match get_db_connector() {
                     Ok(c) => c,
                     Err(e) => {
-                        tracing::error!("指标计算DB连接失败: {}", e);
+                        log_error!("指标计算DB连接失败: {}", e);
                         let mut st = SYNC_STATUS.lock().unwrap();
                         st.running = false;
                         st.phase = "done".to_string();
@@ -176,7 +242,7 @@ impl Screening {
                 let rows = match query_rows(sql, vec![], &connector) {
                     Ok(r) => r,
                     Err(e) => {
-                        tracing::error!("查询股票列表失败: {}", e);
+                        log_error!("查询股票列表失败: {}", e);
                         let mut st = SYNC_STATUS.lock().unwrap();
                         st.running = false;
                         st.phase = "done".to_string();
@@ -239,9 +305,21 @@ impl Screening {
                 {
                     let mut st = SYNC_STATUS.lock().unwrap();
                     st.running = false;
+                    st.paused = false;
                     st.phase = "done".to_string();
                 }
+                broadcast_screening_status();
             });
+            }));
+
+            if let Err(_) = result {
+                log_error!("筛选日线同步线程 panic, 已自动恢复状态");
+                let mut st = SYNC_STATUS.lock().unwrap();
+                st.running = false;
+                st.paused = false;
+                st.phase = "error".to_string();
+                broadcast_screening_status();
+            }
         });
 
         Ok(value!({"message": "同步已启动", "total": total}))
@@ -251,11 +329,56 @@ impl Screening {
         let st = SYNC_STATUS.lock().unwrap();
         Ok(value!({
             "running": st.running,
+            "paused": st.paused,
             "total": st.total,
             "done": st.done,
             "failed": st.failed,
             "phase": st.phase.clone(),
+            "task": "sync_daily",
         }))
+    }
+
+    async fn pause_sync(&self) -> Result<Value> {
+        {
+            let mut st = SYNC_STATUS.lock().unwrap();
+            if !st.running {
+                return Ok(value!({"message": "没有正在运行的任务"}));
+            }
+            if st.paused {
+                return Ok(value!({"message": "任务已处于暂停状态"}));
+            }
+            st.paused = true;
+        }
+        broadcast_screening_status();
+        Ok(value!({"message": "任务已暂停"}))
+    }
+
+    async fn resume_sync(&self) -> Result<Value> {
+        {
+            let mut st = SYNC_STATUS.lock().unwrap();
+            if !st.running {
+                return Ok(value!({"message": "没有正在运行的任务"}));
+            }
+            if !st.paused {
+                return Ok(value!({"message": "任务未暂停"}));
+            }
+            st.paused = false;
+        }
+        broadcast_screening_status();
+        Ok(value!({"message": "任务已继续"}))
+    }
+
+    async fn stop_sync(&self) -> Result<Value> {
+        {
+            let mut st = SYNC_STATUS.lock().unwrap();
+            if !st.running {
+                return Ok(value!({"message": "没有正在运行的任务"}));
+            }
+            st.running = false;
+            st.paused = false;
+        }
+        broadcast_screening_status();
+        Ok(value!({"message": "任务已停止"}))
     }
 
     async fn strategies(&self) -> Result<Value> {

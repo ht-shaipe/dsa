@@ -24,6 +24,7 @@ uuid = { workspace = true }
 tokio = { workspace = true }
 async-trait = { workspace = true }
 tracing = { workspace = true }
+log = { workspace = true }
 lazy_static = { workspace = true }
 toml = { workspace = true }
 

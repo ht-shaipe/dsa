@@ -3,6 +3,7 @@
 use crate::models::KlineBar;
 use crate::DsaError;
 use deck_connector::Connector;
+use log::error as log_error;
 use qta_crawler::{EastMoney, History, Real, QQ};
 use tube::Value;
 
@@ -197,7 +198,7 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
         if !last_date.is_empty() && bar.date.as_str() <= last_date.as_str() {
             continue;
         }
-        let _ = crate::db::execute(
+        let result = crate::db::execute(
             &sql,
             vec![
                 ("code".to_string(), Value::from(code.to_string())),
@@ -212,6 +213,9 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
             ],
             &connector,
         );
+        if let Err(e) = result {
+            log_error!("写入日线数据失败 {} {}: {}", code, bar.date, e);
+        }
     }
 }
 
@@ -375,7 +379,7 @@ pub fn record_llm_usage_with_cache(
         ],
         &connector,
     ) {
-        tracing::error!("record_llm_usage 失败: {}", e);
+        log_error!("record_llm_usage 失败: {}", e);
     }
 }
 
@@ -445,7 +449,7 @@ pub fn record_conversation_message(
         ],
         &connector,
     ) {
-        tracing::error!("record_conversation_message 失败: {}", e);
+        log_error!("record_conversation_message 失败: {}", e);
     }
 }
 

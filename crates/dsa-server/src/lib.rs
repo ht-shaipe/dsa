@@ -6,6 +6,7 @@ extern crate tube;
 pub use tube::Error;
 
 pub mod handler;
+pub mod strip_auth;
 pub mod router;
 pub mod state;
 
@@ -39,6 +40,8 @@ pub async fn start_server(
 ) -> std::io::Result<()> {
     dsa_core::set_config_path(conf_path_str);
     dsa_core::set_global_config(conf.clone());
+
+    strip_auth::set_local_mode(conf.server.is_local_mode());
 
     let ip = format!("{}:{}", server_config.host, server_config.port);
     tube::log!("DSA server starting at {}", ip);
@@ -75,6 +78,7 @@ pub async fn start_server(
         };
         App::new()
             .app_data(static_dir_data.clone())
+            .wrap(strip_auth::StripAuth)
             .wrap(middleware::Logger::default())
             .wrap(cors)
             .service(web::resource("/health").route(web::get().to(router::health_check)))
@@ -109,6 +113,10 @@ pub async fn start_server(
                     .service(
                         web::resource("/analysis/stream")
                             .route(web::post().to(handler::analysis_stream::analysis_stream)),
+                    )
+                    .service(
+                        web::resource("/task/progress/stream")
+                            .route(web::get().to(handler::task_progress::task_progress_stream)),
                     )
                     .service(web::resource("/{cls}").route(web::to(router::api_handler)))
                     .service(web::resource("/{cls}/{tail:.*}").route(web::to(router::api_handler))),

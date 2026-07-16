@@ -1,66 +1,8 @@
 <template>
   <div class="screening-view">
-    <el-card shadow="hover" style="margin-bottom: 20px">
-      <template #header>
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <span>筛选引擎状态</span>
-          <el-tag :type="statusEnabled ? 'success' : 'info'">
-            {{ statusEnabled ? '已启用' : '未启用' }}
-          </el-tag>
-        </div>
-      </template>
-      <div v-if="statusEnabled">
-        <el-descriptions :column="3" border>
-          <el-descriptions-item label="状态">{{ statusData.status || '正常' }}</el-descriptions-item>
-          <el-descriptions-item label="策略数">{{ strategies.length }}</el-descriptions-item>
-          <el-descriptions-item label="热点数">{{ hotspots.length }}</el-descriptions-item>
-          <el-descriptions-item label="日线数据">
-            <template v-if="dailyDataReady">
-              <el-tag type="success" size="small">已就绪</el-tag>
-            </template>
-            <template v-else>
-              <el-tag type="warning" size="small">未同步</el-tag>
-              <el-button type="primary" size="small" :loading="syncing" @click="startSync" style="margin-left:8px">
-                同步日线数据
-              </el-button>
-            </template>
-          </el-descriptions-item>
-        </el-descriptions>
-        <div v-if="syncProgress.running" style="margin-top:12px">
-          <el-progress
-            :percentage="syncProgress.total > 0 ? Math.round(syncProgress.done / syncProgress.total * 100) : 0"
-            :status="syncProgress.phase === 'done' ? 'success' : undefined"
-            :format="() => `${syncProgress.done} / ${syncProgress.total} (失败: ${syncProgress.failed})`"
-          />
-          <div style="font-size:12px;color:var(--el-text-color-secondary);margin-top:4px">
-            {{ syncProgress.phase === 'fetching' ? '正在拉取日线数据...' : syncProgress.phase === 'calculating_indicators' ? '正在计算技术指标...' : syncProgress.phase === 'done' ? '同步完成' : syncProgress.phase }}
-          </div>
-        </div>
-      </div>
-      <el-empty v-else description="AlphaSift 筛选引擎未启用，请在设置中配置" />
-    </el-card>
+    
 
     <template v-if="statusEnabled">
-      <el-card shadow="hover" style="margin-bottom: 20px">
-        <template #header>筛选策略</template>
-        <el-tabs v-model="activeStrategy" @tab-change="onStrategyChange">
-          <el-tab-pane v-for="s in strategies" :key="s.id || s.name" :label="s.name || s.label" :name="s.id || s.name" />
-        </el-tabs>
-        <div style="margin-top: 16px">
-          <el-button type="primary" :loading="screening" @click="runScreen">
-            执行筛选
-          </el-button>
-          <el-alert
-            v-if="activeStrategy === 'macd_golden_cross' && !dailyDataReady"
-            type="warning"
-            :closable="false"
-            style="margin-top:8px"
-          >
-            MACD策略需要历史日线数据，请先点击上方「同步日线数据」按钮
-          </el-alert>
-        </div>
-      </el-card>
-
       <el-row :gutter="20" style="margin-bottom: 20px">
         <el-col :span="24">
           <el-card shadow="hover">
@@ -101,7 +43,26 @@
       </el-row>
 
       <el-card shadow="hover">
-        <template #header>筛选结果</template>
+        <template #header>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <el-tabs v-model="activeStrategy" @tab-change="onStrategyChange" style="margin-bottom:-10px">
+              <el-tab-pane v-for="s in strategies" :key="s.id || s.name" :label="s.name || s.label" :name="s.id || s.name" />
+            </el-tabs>
+            <el-button type="primary" :loading="screening" @click="runScreen">
+              <el-icon style="margin-right:4px"><CaretRight /></el-icon>执行筛选
+            </el-button>
+          </div>
+        </template>
+
+        <el-alert
+          v-if="activeStrategy === 'macd_golden_cross' && !dailyDataReady"
+          type="warning"
+          :closable="false"
+          style="margin-bottom:12px"
+        >
+          MACD策略需要历史日线数据，请先在上方同步日线数据
+        </el-alert>
+
         <el-table :data="screenResults" stripe style="width:100%" v-loading="screening">
           <el-table-column :prop="colKey" :label="colLabel" v-for="{key: colKey, label: colLabel} in resultColumns" :key="colKey" :width="colKey === '代码' || colKey === 'code' ? 100 : colKey === '名称' || colKey === 'name' ? 120 : undefined">
             <template #default="{ row }" v-if="colKey === '涨跌幅' || colKey === 'change_pct' || colKey === 'pct_chg'">
@@ -117,9 +78,50 @@
             <template #default>{{ activeStrategyLabel }}</template>
           </el-table-column>
         </el-table>
-        <el-empty v-if="!screenResults.length && !screening" description="点击「执行筛选」查看结果" />
+        <el-empty v-if="!screenResults.length && !screening" description="选择策略并点击「执行筛选」查看结果" />
       </el-card>
     </template>
+
+    <el-card shadow="hover" style="margin-top: 20px">
+      <template #header>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <span>筛选引擎状态</span>
+          <el-tag :type="statusEnabled ? 'success' : 'info'">
+            {{ statusEnabled ? '已启用' : '未启用' }}
+          </el-tag>
+        </div>
+      </template>
+      <div v-if="statusEnabled">
+        <el-descriptions :column="3" border>
+          <el-descriptions-item label="状态">{{ statusData.status || '正常' }}</el-descriptions-item>
+          <el-descriptions-item label="策略数">{{ strategies.length }}</el-descriptions-item>
+          <el-descriptions-item label="热点数">{{ hotspots.length }}</el-descriptions-item>
+          <el-descriptions-item label="日线数据">
+            <template v-if="dailyDataReady">
+              <el-tag type="success" size="small">已就绪</el-tag>
+            </template>
+            <template v-else>
+              <el-tag type="warning" size="small">未同步</el-tag>
+              <el-button type="primary" size="small" :loading="syncing" @click="startSync" style="margin-left:8px">
+                {{ syncing ? '同步中...' : '同步日线数据' }}
+              </el-button>
+            </template>
+          </el-descriptions-item>
+        </el-descriptions>
+        <div v-if="syncProgress.running" style="margin-top:12px">
+          <el-progress
+            :percentage="syncProgress.total > 0 ? Math.round(syncProgress.done / syncProgress.total * 100) : 0"
+            :status="syncProgress.phase === 'done' ? 'success' : syncProgress.paused ? 'warning' : undefined"
+            :format="() => `${syncProgress.done} / ${syncProgress.total} (失败: ${syncProgress.failed})`"
+          />
+          <div style="font-size:12px;color:var(--el-text-color-secondary);margin-top:4px">
+            {{ getPhaseLabel(syncProgress.phase) }}
+            <template v-if="syncProgress.paused">（已暂停）</template>
+          </div>
+        </div>
+      </div>
+      <el-empty v-else description="AlphaSift 筛选引擎未启用，请在设置中配置" />
+    </el-card>
 
     <el-dialog v-model="hotspotDialogVisible" :title="'热点详情 - ' + (currentHotspot.name || '')" width="600px">
       <template v-if="hotspotDetailLoading">
@@ -169,7 +171,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 
 const COLUMN_MAP: Record<string, string> = {
   '代码': '代码', 'code': '代码',
@@ -206,8 +208,11 @@ const activeStrategyLabel = computed(() => {
   return s?.name || activeStrategy.value
 })
 import { ElMessage } from 'element-plus'
+import { CaretRight } from '@element-plus/icons-vue'
 import { screeningApi } from '@/api/screening'
+import { useTaskStore, getPhaseLabel } from '@/stores/task'
 
+const taskStore = useTaskStore()
 const statusData = ref<Record<string, any>>({})
 const statusEnabled = ref(false)
 const dailyDataReady = ref(false)
@@ -217,40 +222,72 @@ const hotspotsLoading = ref(false)
 const screenResults = ref<any[]>([])
 const activeStrategy = ref('')
 const screening = ref(false)
-const syncing = ref(false)
-const syncProgress = ref<Record<string, any>>({ running: false, total: 0, done: 0, failed: 0, phase: '' })
+const syncing = computed(() => taskStore.tasks['sync_daily']?.running || false)
+const syncProgress = computed(() => taskStore.tasks['sync_daily'] || { running: false, paused: false, total: 0, done: 0, failed: 0, phase: '' })
 const hotspotDialogVisible = ref(false)
 const currentHotspot = ref<Record<string, any>>({})
 const hotspotDetail = ref<Record<string, any> | null>(null)
 const hotspotDetailLoading = ref(false)
-let progressTimer: ReturnType<typeof setInterval> | null = null
+
+let _cache: {
+  status?: { data: Record<string, any>; enabled: boolean; dailyReady: boolean; ts: number }
+  strategies?: { data: any[]; ts: number }
+  hotspots?: { data: any[]; ts: number }
+} = {}
+
+const CACHE_TTL = 5 * 60 * 1000
+
+function isCacheValid(entry?: { ts: number }): boolean {
+  return !!entry && Date.now() - entry.ts < CACHE_TTL
+}
 
 async function loadStatus() {
+  if (isCacheValid(_cache.status)) {
+    const c = _cache.status!
+    statusData.value = c.data
+    statusEnabled.value = c.enabled
+    dailyDataReady.value = c.dailyReady
+    return
+  }
   try {
     const res: any = await screeningApi.status()
     statusData.value = res || {}
     statusEnabled.value = !!(res?.enabled || res?.alphaSift?.enabled)
     dailyDataReady.value = !!(res?.dailyDataReady)
+    _cache.status = { data: statusData.value, enabled: statusEnabled.value, dailyReady: dailyDataReady.value, ts: Date.now() }
   } catch {
     statusEnabled.value = false
   }
 }
 
 async function loadStrategies() {
+  if (isCacheValid(_cache.strategies)) {
+    strategies.value = _cache.strategies!.data
+    if (strategies.value.length && !activeStrategy.value) {
+      activeStrategy.value = strategies.value[0].id || strategies.value[0].name || ''
+    }
+    return
+  }
   try {
     const res: any = await screeningApi.strategies()
     strategies.value = Array.isArray(res) ? res : []
     if (strategies.value.length && !activeStrategy.value) {
       activeStrategy.value = strategies.value[0].id || strategies.value[0].name || ''
     }
+    _cache.strategies = { data: strategies.value, ts: Date.now() }
   } catch { /* ignore */ }
 }
 
 async function loadHotspots() {
+  if (isCacheValid(_cache.hotspots)) {
+    hotspots.value = _cache.hotspots!.data
+    return
+  }
   hotspotsLoading.value = true
   try {
     const res: any = await screeningApi.hotspots()
     hotspots.value = Array.isArray(res) ? res : []
+    _cache.hotspots = { data: hotspots.value, ts: Date.now() }
   } catch { /* ignore */ }
   finally { hotspotsLoading.value = false }
 }
@@ -270,33 +307,12 @@ async function runScreen() {
 }
 
 async function startSync() {
-  syncing.value = true
   try {
     await screeningApi.syncDaily()
     ElMessage.success('日线数据同步已启动')
-    startProgressPolling()
   } catch(e: any) {
     ElMessage.error(e?.message || '同步启动失败')
-    syncing.value = false
   }
-}
-
-function startProgressPolling() {
-  if (progressTimer) clearInterval(progressTimer)
-  progressTimer = setInterval(async () => {
-    try {
-      const res: any = await screeningApi.syncProgress()
-      syncProgress.value = res || {}
-      if (!res?.running) {
-        if (progressTimer) { clearInterval(progressTimer); progressTimer = null }
-        syncing.value = false
-        dailyDataReady.value = true
-        if (res?.phase === 'done') {
-          ElMessage.success('日线数据同步完成')
-        }
-      }
-    } catch { /* ignore */ }
-  }, 3000)
 }
 
 function onStrategyChange() {
@@ -324,17 +340,7 @@ onMounted(async () => {
   if (statusEnabled.value) {
     loadStrategies()
     loadHotspots()
-    const res: any = await screeningApi.syncProgress().catch(() => ({} as any))
-    if (res?.running) {
-      syncing.value = true
-      syncProgress.value = res
-      startProgressPolling()
-    }
   }
-})
-
-onBeforeUnmount(() => {
-  if (progressTimer) { clearInterval(progressTimer); progressTimer = null }
 })
 </script>
 

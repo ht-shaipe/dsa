@@ -20,6 +20,7 @@ const router = createRouter({
         { path: 'chat', name: 'Chat', component: () => import('@/views/ChatView.vue') },
         { path: 'analysis-history', name: 'AnalysisHistory', component: () => import('@/views/AnalysisHistoryView.vue') },
         { path: 'screening', name: 'Screening', component: () => import('@/views/ScreeningView.vue') },
+        { path: 'stock-pool', name: 'StockPool', component: () => import('@/views/StockPoolView.vue') },
         { path: 'portfolio', name: 'Portfolio', component: () => import('@/views/PortfolioView.vue') },
         { path: 'decision-signals', name: 'DecisionSignals', component: () => import('@/views/DecisionSignalsView.vue') },
         { path: 'backtest', name: 'Backtest', component: () => import('@/views/BacktestView.vue') },

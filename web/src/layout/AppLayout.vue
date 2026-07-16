@@ -12,22 +12,29 @@
           <router-view />
         </el-scrollbar>
       </el-main>
+      <BottomStatusBar />
     </el-container>
+    
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import SidebarNav from './SidebarNav.vue'
 import AppHeader from './AppHeader.vue'
+import BottomStatusBar from '@/components/common/BottomStatusBar.vue'
 import { useAppStore } from '@/stores/app'
+import { useTaskStore } from '@/stores/task'
 import { useUpdater } from '@/composables/useUpdater'
 import { ElNotification } from 'element-plus'
 
 const appStore = useAppStore()
+const taskStore = useTaskStore()
 
 onMounted(() => {
   appStore.initTheme()
+  taskStore.connect()
+  taskStore.refreshAllStatus()
 
   const autoCheck = localStorage.getItem('dsa_auto_update_check')
   if (autoCheck !== 'false' && typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
@@ -49,6 +56,10 @@ onMounted(() => {
     }, 5000)
   }
 })
+
+onUnmounted(() => {
+  taskStore.disconnect()
+})
 </script>
 
 <style scoped lang="scss">
@@ -57,7 +68,7 @@ onMounted(() => {
   overflow: hidden;
 }
 .app-aside {
-  background: var(--dsa-bg);
+  background: var(--dsa-sidebar-bg);
   border-right: 1px solid var(--el-border-color-light);
   transition: width 0.3s;
   overflow: visible;
@@ -75,6 +86,7 @@ onMounted(() => {
   position: relative;
   z-index: 10;
   -webkit-app-region: drag;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
 }
 .app-main {
   background: var(--dsa-bg);
@@ -84,6 +96,15 @@ onMounted(() => {
 
 .app-scroll {
     padding: 16px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>
 

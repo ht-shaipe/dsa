@@ -285,6 +285,7 @@ fn collect_models() -> Vec<(&'static str, Class)> {
         ("alert_notifications", AlertNotification::class()),
         ("alert_cooldowns", AlertCooldown::class()),
         ("watchlist_stocks", WatchlistStock::class()),
+        ("stock_pool", StockPool::class()),
         ("conversation_messages", ConversationMessage::class()),
         ("conversation_summaries", ConversationSummary::class()),
         ("agent_provider_turns", AgentProviderTurn::class()),
@@ -715,6 +716,7 @@ fn collect_alter_migrations_sqlite() -> Vec<(&'static str, &'static str)> {
         ("v3_stock_daily_unique_index", "CREATE UNIQUE INDEX IF NOT EXISTS \"idx_stock_daily_code_date\" ON \"stock_daily\" (\"stock_code\", \"trade_date\")"),
         ("v3_stock_daily_date_index", "CREATE INDEX IF NOT EXISTS \"idx_stock_daily_date\" ON \"stock_daily\" (\"trade_date\")"),
         ("v3_stock_daily_status_index", "CREATE INDEX IF NOT EXISTS \"idx_stock_daily_code_status\" ON \"stock_daily\" (\"stock_code\", \"status\")"),
+        ("v4_stock_pool_unique_code", "CREATE UNIQUE INDEX IF NOT EXISTS \"idx_stock_pool_code\" ON \"stock_pool\" (\"stock_code\")"),
     ]
 }
 

@@ -110,80 +110,6 @@
         </el-table>
       </el-tab-pane>
 
-      <!-- 数据同步 -->
-      <el-tab-pane label="数据同步" name="data_sync">
-        <el-form :model="dataSyncForm" label-width="130px" style="max-width:650px">
-          <el-divider content-position="left">同步范围</el-divider>
-          <el-form-item label="市场板块">
-            <el-checkbox-group v-model="dataSyncForm.boards">
-              <el-checkbox label="沪市主板" value="sh_main" />
-              <el-checkbox label="深市主板" value="sz_main" />
-              <el-checkbox label="创业板" value="sz_gem" />
-              <el-checkbox label="科创板" value="sh_kj" />
-              <el-checkbox label="北交所" value="bj_main" />
-            </el-checkbox-group>
-          </el-form-item>
-          <el-divider content-position="left">风险过滤</el-divider>
-          <el-form-item label="排除ST股票">
-            <el-switch v-model="dataSyncForm.excludeSt" />
-            <span style="margin-left:8px;color:var(--el-text-color-secondary)">过滤名称含ST/*ST的股票</span>
-          </el-form-item>
-          <el-form-item label="排除退市风险">
-            <el-switch v-model="dataSyncForm.excludeDelistingRisk" />
-            <span style="margin-left:8px;color:var(--el-text-color-secondary)">过滤名称含退市/退的股票</span>
-          </el-form-item>
-          <el-form-item label="排除次新股">
-            <el-switch v-model="dataSyncForm.excludeNewStock" />
-            <span style="margin-left:8px;color:var(--el-text-color-secondary)">上市不足60天的股票波动大、数据少</span>
-          </el-form-item>
-          <el-divider content-position="left">数据管理</el-divider>
-          <el-form-item label="保留天数">
-            <el-input-number v-model="dataSyncForm.retentionDays" :min="60" :max="1000" :step="30" style="width:180px" />
-            <span style="margin-left:8px;color:var(--el-text-color-secondary)">超过此天数的日线数据将被清理</span>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="saveDataSyncConfig" :loading="saving">保存配置</el-button>
-          </el-form-item>
-        </el-form>
-
-        <el-divider content-position="left">操作</el-divider>
-        <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
-          <el-button type="primary" @click="initDailyData" :loading="syncRunning" :disabled="syncRunning">
-            {{ syncRunning ? '同步进行中...' : '初始化日线数据' }}
-          </el-button>
-          <el-button type="danger" @click="cleanDailyData" :loading="cleaning" :disabled="syncRunning">清理过期数据</el-button>
-          <el-button @click="loadSyncStatus">刷新状态</el-button>
-          <el-button type="success" @click="exportDailyData" :loading="dailyExporting" :disabled="syncRunning">导出日线数据</el-button>
-          <el-button type="warning" @click="triggerImportDailyData" :loading="dailyImporting" :disabled="syncRunning">导入日线数据</el-button>
-          <input ref="importFileInput" type="file" accept=".dsa-daily.json" style="display:none" @change="handleImportFile" />
-        </div>
-
-        <el-card v-if="syncStatus.running || syncStatus.total > 0" shadow="never" style="max-width:650px">
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
-            <el-tag :type="syncStatus.running ? 'warning' : 'success'">
-              {{ syncStatus.running ? '同步中' : (syncStatus.phase === 'done' ? '已完成' : '未开始') }}
-            </el-tag>
-            <span v-if="syncStatus.running && syncStatus.phase" style="color:var(--el-text-color-secondary)">
-              {{ syncPhaseLabel }}
-            </span>
-          </div>
-          <el-progress
-            v-if="syncStatus.total > 0"
-            :percentage="Math.round((syncStatus.done / syncStatus.total) * 100)"
-            :status="syncStatus.running ? '' : 'success'"
-            :stroke-width="18"
-            :format="() => `${syncStatus.done} / ${syncStatus.total}`"
-          />
-          <div style="margin-top:6px;font-size:12px;color:var(--el-text-color-secondary)">
-            <span v-if="syncStatus.running">已完成 {{ Math.round((syncStatus.done / syncStatus.total) * 100) }}%，约需 {{ estimatedTime }}</span>
-            <span v-else-if="syncStatus.phase === 'done'">全部 {{ syncStatus.total }} 只股票日线数据已同步完成</span>
-          </div>
-          <div v-if="syncStatus.failed > 0" style="margin-top:4px;color:var(--el-color-danger)">
-            失败: {{ syncStatus.failed }}
-          </div>
-        </el-card>
-      </el-tab-pane>
-
       <!-- 情报源配置 -->
       <el-tab-pane label="情报源配置" name="intelligence">
         <div style="display:flex;gap:12px;margin-bottom:16px">
@@ -381,22 +307,6 @@ const schedulerStatus = ref<Record<string, any>>({})
 const schedulerJobs = ref<any[]>([])
 const schedulerActionLoading = ref(false)
 
-// Data sync
-const dataSyncForm = ref({
-  boards: ['sh_main', 'sz_main', 'sz_gem'] as string[],
-  excludeSt: true,
-  excludeNewStock: true,
-  excludeDelistingRisk: true,
-  retentionDays: 120,
-})
-const syncStatus = ref<Record<string, any>>({})
-const syncRunning = ref(false)
-const cleaning = ref(false)
-const dailyExporting = ref(false)
-const dailyImporting = ref(false)
-const importFileInput = ref<HTMLInputElement | null>(null)
-let syncPollTimer: ReturnType<typeof setInterval> | null = null
-
 // Intelligence
 const sources = ref<any[]>([])
 const sourceDialogVisible = ref(false)
@@ -442,26 +352,6 @@ const downloadPercent = computed(() => {
   const { downloaded, total } = updater.progress.value
   if (!total || total === 0) return 0
   return Math.min(Math.round((downloaded / total) * 100), 100)
-})
-
-const syncPhaseLabel = computed(() => {
-  const phase = syncStatus.value.phase || ''
-  if (phase === 'fetching') return '正在获取日线数据...'
-  if (phase.startsWith('calculating_indicators')) return '正在计算技术指标...'
-  if (phase === 'calculating_indicators') return '正在计算技术指标...'
-  if (phase === 'done') return '同步完成'
-  return phase
-})
-
-const estimatedTime = computed(() => {
-  const s = syncStatus.value
-  if (!s.running || !s.total || s.done < 1) return '计算中...'
-  const remaining = s.total - s.done
-  const secsPerItem = s.phase === 'fetching' ? 0.35 : 0.01
-  const totalSecs = Math.round(remaining * secsPerItem)
-  if (totalSecs < 60) return `${totalSecs} 秒`
-  if (totalSecs < 3600) return `${Math.round(totalSecs / 60)} 分钟`
-  return `${(totalSecs / 3600).toFixed(1)} 小时`
 })
 
 const downloadedMB = computed(() => (updater.progress.value.downloaded / 1048576).toFixed(1) + ' MB')
@@ -511,15 +401,6 @@ async function loadConfig() {
       enabled: !!sched.enabled,
       times: sched.times || ['09:30'],
     }
-    // Load data sync
-    const ds = config.data_sync || config.dataSync || {}
-    dataSyncForm.value = {
-      boards: ds.boards || ['sh_main', 'sz_main', 'sz_gem'],
-      excludeSt: ds.excludeSt ?? ds.exclude_st ?? true,
-      excludeNewStock: ds.excludeNewStock ?? ds.exclude_new_stock ?? true,
-      excludeDelistingRisk: ds.excludeDelistingRisk ?? ds.exclude_delisting_risk ?? true,
-      retentionDays: ds.retentionDays ?? ds.retention_days ?? 120,
-    }
   } catch { /* ignore */ }
 }
 
@@ -560,13 +441,6 @@ async function saveConfig() {
         return n
       })(),
       scheduler: schedulerForm.value,
-      data_sync: {
-        boards: dataSyncForm.value.boards,
-        exclude_st: dataSyncForm.value.excludeSt,
-        exclude_new_stock: dataSyncForm.value.excludeNewStock,
-        exclude_delisting_risk: dataSyncForm.value.excludeDelistingRisk,
-        retention_days: dataSyncForm.value.retentionDays,
-      },
     })
     ElMessage.success('配置已保存')
     loadConfig()
@@ -654,177 +528,6 @@ async function stopScheduler() {
     ElMessage.error('停止失败')
   } finally {
     schedulerActionLoading.value = false
-  }
-}
-
-async function loadSyncStatus() {
-  try {
-    const res: any = await systemApi.syncStatus()
-    syncStatus.value = res || {}
-    syncRunning.value = !!res?.running
-    if (res?.config) {
-      dataSyncForm.value = {
-        boards: res.config.boards || ['sh_main', 'sz_main', 'sz_gem'],
-        excludeSt: res.config.excludeSt ?? true,
-        excludeNewStock: res.config.excludeNewStock ?? true,
-        excludeDelistingRisk: res.config.excludeDelistingRisk ?? true,
-        retentionDays: res.config.retentionDays ?? 120,
-      }
-    }
-  } catch { /* ignore */ }
-}
-
-async function initDailyData() {
-  try {
-    const res: any = await systemApi.initDailyData()
-    ElMessage.success(res?.message || '同步已启动')
-    syncRunning.value = true
-    startSyncPolling()
-  } catch {
-    // error already shown by api interceptor
-  }
-}
-
-async function cleanDailyData() {
-  cleaning.value = true
-  try {
-    const res: any = await systemApi.cleanDailyData()
-    ElMessage.success(`已清理 ${res?.deleted ?? 0} 条过期数据`)
-  } catch {
-    // error already shown by api interceptor
-  } finally {
-    cleaning.value = false
-  }
-}
-
-async function saveDataSyncConfig() {
-  saving.value = true
-  try {
-    await systemApi.save({
-      data_sync: dataSyncForm.value,
-    })
-    ElMessage.success('数据同步配置已保存')
-  } catch {
-    // error already shown by api interceptor
-  } finally {
-    saving.value = false
-  }
-}
-
-function startSyncPolling() {
-  if (syncPollTimer) clearInterval(syncPollTimer)
-  syncPollTimer = setInterval(() => {
-    loadSyncStatus()
-    if (!syncRunning.value && syncPollTimer) {
-      clearInterval(syncPollTimer)
-      syncPollTimer = null
-    }
-  }, 3000)
-}
-
-function isTauri(): boolean {
-  return typeof window !== 'undefined' && !!((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)
-}
-
-async function exportDailyData() {
-  dailyExporting.value = true
-  try {
-    const res: any = await systemApi.exportDailyData()
-    const jsonStr = JSON.stringify(res)
-    const defaultName = `dsa-daily-${new Date().toISOString().slice(0, 10)}.dsa-daily.json`
-
-    if (isTauri()) {
-      const { save } = await import('@tauri-apps/plugin-dialog')
-      const { writeFile } = await import('@tauri-apps/plugin-fs')
-      const filePath = await save({
-        defaultPath: defaultName,
-        filters: [{ name: 'DSA日线数据', extensions: ['dsa-daily.json'] }],
-      })
-      if (!filePath) {
-        dailyExporting.value = false
-        return
-      }
-      const encoder = new TextEncoder()
-      await writeFile(filePath, encoder.encode(jsonStr))
-      ElMessage.success(`导出成功: ${res?.stockCount ?? 0} 只股票, ${res?.recordCount ?? 0} 条记录`)
-    } else {
-      const blob = new Blob([jsonStr], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = defaultName
-      a.click()
-      URL.revokeObjectURL(url)
-      ElMessage.success(`导出成功: ${res?.stockCount ?? 0} 只股票, ${res?.recordCount ?? 0} 条记录`)
-    }
-  } catch (e: any) {
-    if (e?.message !== 'User cancelled') {
-      ElMessage.error('导出失败')
-    }
-  } finally {
-    dailyExporting.value = false
-  }
-}
-
-async function triggerImportDailyData() {
-  if (isTauri()) {
-    try {
-      const { open } = await import('@tauri-apps/plugin-dialog')
-      const { readFile } = await import('@tauri-apps/api/fs')
-      const selected = await open({
-        multiple: false,
-        filters: [{ name: 'DSA日线数据', extensions: ['dsa-daily.json'] }],
-      })
-      if (!selected) return
-      const filePath = typeof selected === 'string' ? selected : (selected as any).path
-      if (!filePath) return
-
-      dailyImporting.value = true
-      const bytes = await readFile(filePath)
-      const text = typeof bytes === 'string' ? bytes : new TextDecoder().decode(bytes as Uint8Array)
-      await doImportDailyData(text)
-    } catch (e: any) {
-      if (e?.message !== 'User cancelled') {
-        ElMessage.error('导入失败')
-      }
-    } finally {
-      dailyImporting.value = false
-    }
-  } else {
-    importFileInput.value?.click()
-  }
-}
-
-async function doImportDailyData(text: string) {
-  let data: any
-  try {
-    data = JSON.parse(text)
-  } catch {
-    ElMessage.error('文件格式错误，请选择有效的 .dsa-daily.json 文件')
-    return
-  }
-  if (!data?.records || !Array.isArray(data.records)) {
-    ElMessage.error('文件内容无效，缺少 records 数据')
-    return
-  }
-  const res: any = await systemApi.importDailyData(data)
-  ElMessage.success(`导入完成: 成功 ${res?.imported ?? 0} 条, 跳过 ${res?.skipped ?? 0} 条`)
-}
-
-async function handleImportFile(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  input.value = ''
-
-  dailyImporting.value = true
-  try {
-    const text = await file.text()
-    await doImportDailyData(text)
-  } catch {
-    ElMessage.error('导入失败')
-  } finally {
-    dailyImporting.value = false
   }
 }
 
@@ -989,7 +692,6 @@ onMounted(async () => {
   loadSchedulerStatus()
   loadSchedulerJobs()
   loadSources()
-  loadSyncStatus()
   try {
     const { getVersion } = await import('@tauri-apps/api/app')
     appVersion.value = await getVersion()

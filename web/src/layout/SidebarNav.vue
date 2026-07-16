@@ -22,7 +22,7 @@
       </el-menu-item>
       <el-menu-item index="/chat">
         <el-icon><ChatDotRound /></el-icon>
-        <template #title>Agent 问股</template>
+        <template #title>AI 问股</template>
       </el-menu-item>
       <el-menu-item index="/analysis-history">
         <el-icon><Document /></el-icon>
@@ -47,6 +47,10 @@
       <el-menu-item index="/alerts">
         <el-icon><Bell /></el-icon>
         <template #title>预警中心</template>
+      </el-menu-item>
+      <el-menu-item index="/stock-pool">
+        <el-icon><List /></el-icon>
+        <template #title>股票池</template>
       </el-menu-item>
       <el-menu-item index="/usage">
         <el-icon><Odometer /></el-icon>
@@ -107,8 +111,8 @@ const appStore = useAppStore()
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-bottom: 1px solid var(--el-border-color-light);
-  padding-top: 20px;
+  // border-bottom: 1px solid var(--el-border-color-light);
+  padding-top: 30px;
   width: 100%;
   padding-left: 0;
   padding-right: 0;

@@ -1,18 +1,104 @@
 use ai_llm_kit::{LlmFactory, LlmProvider, LlmService};
+use log::{debug as log_debug, warn as log_warn, error as log_error, info as log_info};
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
 lazy_static::lazy_static! {
-    static ref DATA_SYNC_STATUS: std::sync::Mutex<DataSyncStatus> = std::sync::Mutex::new(DataSyncStatus::default());
+    pub static ref DATA_SYNC_STATUS: std::sync::Mutex<DataSyncStatus> = std::sync::Mutex::new(DataSyncStatus::default());
+    pub static ref TASK_BROADCAST: tokio::sync::broadcast::Sender<Value> = {
+        let (tx, _) = tokio::sync::broadcast::channel(256);
+        tx
+    };
 }
 
-#[derive(Default)]
-struct DataSyncStatus {
-    running: bool,
-    total: u32,
-    done: u32,
-    failed: u32,
-    phase: String,
+#[derive(Default, Clone)]
+pub struct DataSyncStatus {
+    pub running: bool,
+    pub paused: bool,
+    pub total: u32,
+    pub done: u32,
+    pub failed: u32,
+    pub phase: String,
+    pub task_name: String,
+    pub current_code: String,
+    pub current_name: String,
+}
+
+impl DataSyncStatus {
+    pub fn to_value(&self) -> Value {
+        value!({
+            "task": if self.task_name.is_empty() { "init_daily_data" } else { self.task_name.as_str() },
+            "running": self.running,
+            "paused": self.paused,
+            "total": self.total,
+            "done": self.done,
+            "failed": self.failed,
+            "phase": self.phase.clone(),
+            "current_code": self.current_code.clone(),
+            "current_name": self.current_name.clone(),
+        })
+    }
+}
+
+pub fn broadcast_task_status() {
+    let st = DATA_SYNC_STATUS.lock().unwrap();
+    let val = st.to_value();
+    let _ = TASK_BROADCAST.send(val);
+}
+
+pub fn parse_kline_response(
+    text: &str,
+    is_sqlite: bool,
+    retention_date: &str,
+) -> Result<Vec<dsa_core::models::KlineBar>> {
+    let data_json: Value = tube::Value::from_str(text)
+        .map_err(|e| tube::Error::from(format!("解析JSON失败: {}", e)))?;
+
+    let data_obj = data_json
+        .get("data")
+        .ok_or_else(|| tube::Error::from("响应中缺少data字段"))?;
+
+    let klines = data_obj
+        .get("klines")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| tube::Error::from("响应中缺少klines字段"))?;
+
+    let bars: Vec<dsa_core::models::KlineBar> = klines
+        .iter()
+        .filter_map(|v| v.as_str())
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.split(',').collect();
+            if parts.len() < 7 {
+                return None;
+            }
+            let date = parts[0];
+            if is_sqlite && date < retention_date {
+                return None;
+            }
+            Some(dsa_core::models::KlineBar {
+                date: date.to_string(),
+                open: parts[1].parse::<f64>().unwrap_or(0.0),
+                high: parts[3].parse::<f64>().unwrap_or(0.0),
+                low: parts[4].parse::<f64>().unwrap_or(0.0),
+                close: parts[2].parse::<f64>().unwrap_or(0.0),
+                volume: parts[5].parse::<f64>().unwrap_or(0.0) as i64,
+                amount: parts[6].parse::<f64>().unwrap_or(0.0),
+            })
+        })
+        .collect();
+
+    Ok(bars)
+}
+
+pub fn wait_if_paused() -> bool {
+    loop {
+        {
+            let st = DATA_SYNC_STATUS.lock().unwrap();
+            if !st.running { return false; }
+            if !st.paused { return true; }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
 }
 
 pub struct System {
@@ -43,8 +129,12 @@ impl System {
             "sync_status" => self.sync_status().await,
             "clean_daily_data" => self.clean_daily_data().await,
             "daily_data_stats" => self.daily_data_stats().await,
+            "dashboard_stats" => self.dashboard_stats().await,
             "export_daily_data" => self.export_daily_data().await,
             "import_daily_data" => self.import_daily_data().await,
+            "pause_sync" => self.pause_sync().await,
+            "resume_sync" => self.resume_sync().await,
+            "stop_sync" => self.stop_sync().await,
             _ => Err(tube::Error::from(format!("system不支持方法: {}", method))),
         }
     }
@@ -325,59 +415,142 @@ impl System {
             }
         }
 
+        {
+            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+            st.running = true;
+            st.paused = false;
+            st.total = 0;
+            st.done = 0;
+            st.failed = 0;
+            st.phase = "preparing".to_string();
+            st.task_name = "init_daily_data".to_string();
+        }
+        broadcast_task_status();
+
         let conf = dsa_core::get_global_config();
         let sync_conf = &conf.data_sync;
         let retention_days = sync_conf.retention_days as i64;
 
-        let em = qta_crawler::EastMoney::new();
-        let spot = em
-            .stock_zh_a_spot()
-            .await
-            .map_err(|e| tube::Error::from(format!("获取行情失败: {}", e)))?;
-
-        let codes: Vec<(String, String)> = spot
-            .iter()
-            .filter_map(|s| {
-                let code: String = s
-                    .get("代码")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                let name: String = s
-                    .get("名称")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string();
-                if code.is_empty() {
-                    return None;
-                }
-                if sync_conf.should_include_code(&code, &name) {
-                    Some((code, name))
+        let codes: Vec<(String, String, i8)> = {
+            let connector = dsa_core::db::get_db_connector().ok();
+            let pool_loaded = if let Some(ref conn) = connector {
+                let sql = "SELECT stock_code, stock_name, market_id FROM stock_pool WHERE status = 1 ORDER BY market_id DESC, stock_code ASC";
+                if let Ok(rows) = dsa_core::db::query_rows(sql, vec![], conn) {
+                    let pool: Vec<(String, String, i8)> = rows
+                        .iter()
+                        .filter_map(|r| {
+                            let code = dsa_core::db::row_get_string(r, "stockCode");
+                            let name = dsa_core::db::row_get_string(r, "stockName");
+                            let market_id = dsa_core::db::row_get_i64(r, "marketId") as i8;
+                            if code.is_empty() { return None; }
+                            Some((code, name, market_id))
+                        })
+                        .collect();
+                    if !pool.is_empty() {
+                        Some(pool)
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
-            })
-            .collect();
+            } else {
+                None
+            };
+
+            match pool_loaded {
+                Some(pool) => pool,
+                None => {
+                    let em = qta_crawler::EastMoney::new();
+                    let spot = em
+                        .stock_zh_a_spot()
+                        .await
+                        .map_err(|e| {
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.running = false;
+                            st.phase = "done".to_string();
+                            broadcast_task_status();
+                            tube::Error::from(format!("获取行情失败: {}", e))
+                        })?;
+
+                    let api_codes: Vec<(String, String, i8)> = spot
+                        .iter()
+                        .filter_map(|s| {
+                            let code: String = s
+                                .get("代码")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            let name: String = s
+                                .get("名称")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            if code.is_empty() {
+                                return None;
+                            }
+                            let market_id = if code.starts_with('6') { 1 } else { 0 };
+                            if sync_conf.should_include_code(&code, &name) {
+                                Some((code, name, market_id))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    if let Some(ref conn) = connector {
+                        let is_sqlite = conf.database.is_sqlite();
+                        for (code, name, market_id) in &api_codes {
+                            if is_sqlite {
+                                let sql = "INSERT OR IGNORE INTO stock_pool (stock_code, stock_name, market, market_id, industry, status) \
+                                           VALUES (:code, :name, 'cn', :market_id, '', 1)";
+                                let params = vec![
+                                    ("code".to_string(), Value::from(code.clone())),
+                                    ("name".to_string(), Value::from(name.clone())),
+                                    ("market_id".to_string(), Value::from(*market_id as i64)),
+                                ];
+                                let _ = dsa_core::db::execute(sql, params, conn);
+                            } else {
+                                let sql = "INSERT INTO stock_pool (stock_code, stock_name, market, market_id, industry, status) \
+                                           VALUES (:code, :name, 'cn', :market_id, '', 1) \
+                                           ON DUPLICATE KEY UPDATE stock_name = VALUES(stock_name), market_id = VALUES(market_id), status = 1";
+                                let params = vec![
+                                    ("code".to_string(), Value::from(code.clone())),
+                                    ("name".to_string(), Value::from(name.clone())),
+                                    ("market_id".to_string(), Value::from(*market_id as i64)),
+                                ];
+                                let _ = dsa_core::db::execute(sql, params, conn);
+                            }
+                        }
+                    }
+
+                    api_codes
+                }
+            }
+        };
 
         let total = codes.len() as u32;
         {
             let mut st = DATA_SYNC_STATUS.lock().unwrap();
             st.running = true;
+            st.paused = false;
             st.total = total;
             st.done = 0;
             st.failed = 0;
             st.phase = "fetching".to_string();
+            st.task_name = "init_daily_data".to_string();
         }
+        broadcast_task_status();
 
         let codes_clone = codes.clone();
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("Failed to build tokio runtime for init_daily_data");
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to build tokio runtime for init_daily_data");
 
-            rt.block_on(async {
-                let em = qta_crawler::EastMoney::new();
+                rt.block_on(async {
                 let conf = dsa_core::get_global_config();
                 let is_sqlite = conf.database.is_sqlite();
                 let retention_date = {
@@ -386,42 +559,53 @@ impl System {
                     cutoff.format("%Y-%m-%d").to_string()
                 };
 
-                for (code, _name) in &codes_clone {
-                    if !DATA_SYNC_STATUS.lock().unwrap().running { break; }
+                let kline_base_url = "https://push2his.eastmoney.com/api/qt/stock/kline/get";
 
-                    let _start_date = if is_sqlite {
-                        format!(" AND trade_date >= '{}'", retention_date)
-                    } else {
-                        String::new()
-                    };
+                for (code, name, market_id) in &codes_clone {
+                    if !wait_if_paused() { break; }
 
-                    match em.stock_zh_a_hist(code, Some("daily"), None, None, Some("qfq")).await {
-                        Ok(raw) => {
-                            let bars: Vec<dsa_core::models::KlineBar> = raw.iter()
-                                .filter_map(|item| {
-                                    let date = item.get("日期").and_then(|v| v.as_str()).unwrap_or_default();
-                                    let keep = !is_sqlite || date.as_str() >= retention_date.as_str();
-                                    if keep {
-                                        Some(dsa_core::models::KlineBar {
-                                            date: date.to_string(),
-                                            open: item.get("开盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                            high: item.get("最高").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                            low: item.get("最低").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                            close: item.get("收盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                            volume: item.get("成交量").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64,
-                                            amount: item.get("成交额").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                                        })
+                    {
+                        let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                        st.current_code = code.clone();
+                        st.current_name = name.clone();
+                    }
+                    broadcast_task_status();
+
+                    let secid = format!("{}.{}", market_id, code);
+                    let params = format!(
+                        "fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=1&secid={}&beg=19700101&end=20500101",
+                        urlencoding::encode(&secid)
+                    );
+                    let full_url = format!("{}?{}", kline_base_url, params);
+
+                    let mut headers = std::collections::HashMap::new();
+                    headers.insert("User-Agent".to_string(), "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36".to_string());
+                    headers.insert("Referer".to_string(), "https://quote.eastmoney.com/".to_string());
+                    let resp = tube_net::AsyncClient::new("")
+                        .add_headers(headers)
+                        .timeout(15000)
+                        .get(&full_url)
+                        .await;
+
+                    match resp {
+                        Ok(response_text) => {
+                            match parse_kline_response(&response_text, is_sqlite, &retention_date) {
+                                Ok(bars) => {
+                                    if bars.is_empty() {
+                                            log_debug!("股票 {} {} 无K线数据", code, name);
                                     } else {
-                                        None
+                                        log_debug!("股票 {} {} 获取到{}条K线，写入DB", code, name, bars.len());
+                                        dsa_core::utils::save_all_kline_to_db(code, &bars);
                                     }
-                                })
-                                .collect();
-
-                            if !bars.is_empty() {
-                                dsa_core::utils::save_all_kline_to_db(code, &bars);
+                                }
+                                Err(e) => {
+                                    log_warn!("解析日线数据失败 {} {}: {}", code, name, e);
+                                    DATA_SYNC_STATUS.lock().unwrap().failed += 1;
+                                }
                             }
                         }
-                        Err(_) => {
+                        Err(e) => {
+                            log_warn!("获取日线失败 {} {}: {}", code, name, e);
                             DATA_SYNC_STATUS.lock().unwrap().failed += 1;
                         }
                     }
@@ -430,6 +614,7 @@ impl System {
                         let mut st = DATA_SYNC_STATUS.lock().unwrap();
                         st.done += 1;
                     }
+                    broadcast_task_status();
 
                     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
                 }
@@ -438,11 +623,12 @@ impl System {
                     let mut st = DATA_SYNC_STATUS.lock().unwrap();
                     st.phase = "calculating_indicators".to_string();
                 }
+                broadcast_task_status();
 
                 let connector = match dsa_core::db::get_db_connector() {
                     Ok(c) => c,
                     Err(e) => {
-                        tracing::error!("指标计算DB连接失败: {}", e);
+                        log_error!("指标计算DB连接失败: {}", e);
                         let mut st = DATA_SYNC_STATUS.lock().unwrap();
                         st.running = false;
                         st.phase = "done".to_string();
@@ -454,7 +640,7 @@ impl System {
                 let rows = match dsa_core::db::query_rows(sql, vec![], &connector) {
                     Ok(r) => r,
                     Err(e) => {
-                        tracing::error!("查询股票列表失败: {}", e);
+                        log_error!("查询股票列表失败: {}", e);
                         let mut st = DATA_SYNC_STATUS.lock().unwrap();
                         st.running = false;
                         st.phase = "done".to_string();
@@ -467,7 +653,7 @@ impl System {
                 let indicator_total = rows.len() as u32;
 
                 for row in &rows {
-                    if !DATA_SYNC_STATUS.lock().unwrap().running { break; }
+                    if !wait_if_paused() { break; }
 
                     let code = dsa_core::db::row_get_string(row, "stockCode");
                     if code.is_empty() { continue; }
@@ -521,18 +707,31 @@ impl System {
                     if indicator_done % 50 == 0 {
                         let mut st = DATA_SYNC_STATUS.lock().unwrap();
                         st.phase = format!("calculating_indicators ({}/{})", indicator_done, indicator_total);
+                broadcast_task_status();
+
+                log_info!("日线数据同步完成: 获取{}只, 失败{}, 指标计算{}", 
+                    total, DATA_SYNC_STATUS.lock().unwrap().failed, indicator_done);
                     }
                 }
 
                 {
                     let mut st = DATA_SYNC_STATUS.lock().unwrap();
                     st.running = false;
+                    st.paused = false;
                     st.phase = "done".to_string();
                 }
-
-                tracing::info!("日线数据同步完成: 获取{}只, 失败{}, 指标计算{}", 
-                    total, DATA_SYNC_STATUS.lock().unwrap().failed, indicator_done);
+                broadcast_task_status();
             });
+            }));
+
+            if let Err(_) = result {
+                log_error!("日线数据同步线程 panic, 已自动恢复状态");
+                let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                st.running = false;
+                st.paused = false;
+                st.phase = "error".to_string();
+                broadcast_task_status();
+            }
         });
 
         Ok(value!({
@@ -552,10 +751,12 @@ impl System {
         let conf = dsa_core::get_global_config();
         Ok(value!({
             "running": st.running,
+            "paused": st.paused,
             "total": st.total,
             "done": st.done,
             "failed": st.failed,
             "phase": st.phase.clone(),
+            "task": st.task_name.clone(),
             "config": {
                 "boards": conf.data_sync.boards.clone(),
                 "excludeSt": conf.data_sync.exclude_st,
@@ -643,6 +844,154 @@ impl System {
         Ok(value!({
             "stockCount": stock_count,
             "totalCount": total_count,
+        }))
+    }
+
+    async fn dashboard_stats(&self) -> Result<Value> {
+        let connector = dsa_core::db::get_db_connector()
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+
+        let daily_stock_count = dsa_core::db::query_rows(
+            "SELECT COUNT(DISTINCT stock_code) AS cnt FROM stock_daily WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let daily_total_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM stock_daily WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let daily_latest = dsa_core::db::query_rows(
+            "SELECT MAX(trade_date) AS val FROM stock_daily WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_string(row, "val"))).unwrap_or_default();
+
+        let pool_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM stock_pool WHERE status = 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let watchlist_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM watchlist_stocks WHERE enabled = 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let position_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM portfolio_positions WHERE status >= 1 AND quantity > 0", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let alert_rule_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM alert_rules WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let alert_triggered = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM alert_triggers WHERE DATE(create_time) = DATE('now')", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let decision_total = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM decision_signals WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let decision_bullish = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM decision_signals WHERE status >= 1 AND action IN ('buy','add','strong_buy')", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let decision_bearish = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM decision_signals WHERE status >= 1 AND action IN ('sell','reduce','avoid','strong_sell')", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let decision_avg_score = dsa_core::db::query_rows(
+            "SELECT AVG(sentiment_score) AS val FROM decision_signals WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_f64(row, "val"))).unwrap_or(0.0);
+
+        let analysis_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM analysis_history WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let backtest_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM backtest_results WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let backtest_win_rate = dsa_core::db::query_rows(
+            "SELECT CASE WHEN COUNT(*) > 0 THEN CAST(SUM(CASE WHEN outcome='win' THEN 1 ELSE 0 END) AS REAL) / COUNT(*) * 100 ELSE 0 END AS val FROM backtest_results WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_f64(row, "val"))).unwrap_or(0.0);
+
+        let intel_source_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM intelligence_sources WHERE enabled = 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let intel_item_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM intelligence_items WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let llm_today_calls = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM llm_usage WHERE DATE(create_time) = DATE('now')", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let llm_total_tokens = dsa_core::db::query_rows(
+            "SELECT COALESCE(SUM(total_tokens), 0) AS val FROM llm_usage", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "val"))).unwrap_or(0);
+
+        let news_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM news_intel WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let portfolio_total_value = dsa_core::db::query_rows(
+            "SELECT COALESCE(SUM(quantity * current_price), 0) AS val FROM portfolio_positions WHERE status >= 1 AND quantity > 0", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_f64(row, "val"))).unwrap_or(0.0);
+
+        let portfolio_total_pnl = dsa_core::db::query_rows(
+            "SELECT COALESCE(SUM(unrealized_pnl), 0) AS val FROM portfolio_positions WHERE status >= 1 AND quantity > 0", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_f64(row, "val"))).unwrap_or(0.0);
+
+        let sync_running = {
+            let st = DATA_SYNC_STATUS.lock().unwrap();
+            st.running
+        };
+
+        Ok(value!({
+            "daily": {
+                "stockCount": daily_stock_count,
+                "totalCount": daily_total_count,
+                "latestDate": daily_latest,
+            },
+            "pool": {
+                "count": pool_count,
+            },
+            "watchlist": {
+                "count": watchlist_count,
+            },
+            "portfolio": {
+                "positionCount": position_count,
+                "totalValue": portfolio_total_value,
+                "totalPnl": portfolio_total_pnl,
+            },
+            "alert": {
+                "ruleCount": alert_rule_count,
+                "todayTriggered": alert_triggered,
+            },
+            "decision": {
+                "total": decision_total,
+                "bullish": decision_bullish,
+                "bearish": decision_bearish,
+                "avgScore": decision_avg_score,
+            },
+            "analysis": {
+                "count": analysis_count,
+            },
+            "backtest": {
+                "count": backtest_count,
+                "winRate": backtest_win_rate,
+            },
+            "intelligence": {
+                "sourceCount": intel_source_count,
+                "itemCount": intel_item_count,
+            },
+            "llm": {
+                "todayCalls": llm_today_calls,
+                "totalTokens": llm_total_tokens,
+            },
+            "news": {
+                "count": news_count,
+            },
+            "sync": {
+                "running": sync_running,
+            },
         }))
     }
 
@@ -867,6 +1216,48 @@ impl System {
             "imported": imported as i64,
             "skipped": skipped as i64,
         }))
+    }
+    async fn pause_sync(&self) -> Result<Value> {
+        {
+            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+            if !st.running {
+                return Ok(value!({"message": "没有正在运行的任务"}));
+            }
+            if st.paused {
+                return Ok(value!({"message": "任务已处于暂停状态"}));
+            }
+            st.paused = true;
+        }
+        broadcast_task_status();
+        Ok(value!({"message": "任务已暂停"}))
+    }
+
+    async fn resume_sync(&self) -> Result<Value> {
+        {
+            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+            if !st.running {
+                return Ok(value!({"message": "没有正在运行的任务"}));
+            }
+            if !st.paused {
+                return Ok(value!({"message": "任务未暂停"}));
+            }
+            st.paused = false;
+        }
+        broadcast_task_status();
+        Ok(value!({"message": "任务已继续"}))
+    }
+
+    async fn stop_sync(&self) -> Result<Value> {
+        {
+            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+            if !st.running {
+                return Ok(value!({"message": "没有正在运行的任务"}));
+            }
+            st.running = false;
+            st.paused = false;
+        }
+        broadcast_task_status();
+        Ok(value!({"message": "任务已停止"}))
     }
 }
 

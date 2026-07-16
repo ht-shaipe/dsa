@@ -25,14 +25,14 @@
         <el-table-column label="名称" width="120">
           <template #default="{ row }">{{ row.stockName || row.name || '-' }}</template>
         </el-table-column>
-        <el-table-column label="现价" width="100">
+        <el-table-column label="现价" >
           <template #default="{ row }">
-            <span v-if="row.close != null">{{ Number(row.close).toFixed(2) }}</span>
-            <span v-else-if="row.price != null">{{ Number(row.price).toFixed(2) }}</span>
+            <span v-if="row.close != null" :class="Number(row.changePercent) >= 0 ? 'pnl-up' : 'pnl-down'">{{ Number(row.close).toFixed(2) }}</span>
+            <span v-else-if="row.price != null" :class="Number(row.changePercent) >= 0 ? 'pnl-up' : 'pnl-down'">{{ Number(row.price).toFixed(2) }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="涨跌幅" width="100">
+        <el-table-column label="涨跌幅" >
           <template #default="{ row }">
             <span v-if="row.changePercent != null" :class="Number(row.changePercent) >= 0 ? 'pnl-up' : 'pnl-down'">
               {{ Number(row.changePercent) >= 0 ? '+' : '' }}{{ Number(row.changePercent).toFixed(2) }}%
@@ -45,14 +45,8 @@
             <el-tag size="small" type="info">{{ row.groupName || 'default' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="排序" width="80">
-          <template #default="{ row }">{{ row.sortOrder ?? '-' }}</template>
-        </el-table-column>
-        <el-table-column label="备注" min-width="120">
-          <template #default="{ row }">{{ row.remark || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="添加时间" width="160">
-          <template #default="{ row }">{{ row.createTime || '-' }}</template>
+        <el-table-column label="添加时间" width="168">
+          <template #default="{ row }">{{ formatDateTime(row.createTime) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
@@ -113,6 +107,14 @@ const editVisible = ref(false)
 const editForm = ref<Record<string, any> | null>(null)
 const searchText = ref('')
 
+function formatDateTime(dt: any): string {
+  if (!dt) return '-'
+  const d = new Date(dt)
+  if (isNaN(d.getTime())) return String(dt)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
 const quoteTimer = useTradingInterval(refreshQuotes, 10000)
 
 async function loadList() {
@@ -143,10 +145,11 @@ async function refreshQuotes() {
     const list = Array.isArray(res) ? res : []
     const map = new Map<string, any>()
     for (const q of list) {
-      map.set(q.code || q.symbol, q)
+      const qCode = (q.code || q.symbol || '').replace(/^(sh|sz|bj)/, '')
+      map.set(qCode, q)
     }
     stocks.value = stocks.value.map(s => {
-      const code = s.stockCode || s.code
+      const code = (s.stockCode || s.code || '').replace(/^(sh|sz|bj)/, '')
       const q = map.get(code)
       if (!q) return s
       return {
