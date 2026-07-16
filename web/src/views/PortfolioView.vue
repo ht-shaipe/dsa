@@ -9,12 +9,12 @@
         <el-divider direction="vertical" />
         <div class="summary-item">
           <span class="summary-label">总盈亏</span>
-          <span :class="['summary-value', pnlClass(summary.total_pnl)]">{{ pnlText(summary.total_pnl) }}</span>
+          <span :class="['summary-value', pnlClass(summary.totalPnl)]">{{ pnlText(summary.totalPnl) }}</span>
         </div>
         <div class="summary-item">
           <span class="summary-label">收益率</span>
-          <span :class="['summary-value', pnlClass(summary.total_pnl)]">
-            {{ (Number(summary.total_pnl || 0) >= 0 ? '+' : '') }}{{ formatNum(pnlPercent, 2) }}%
+          <span :class="['summary-value', pnlClass(summary.totalPnl)]">
+            {{ (Number(summary.totalPnl || 0) >= 0 ? '+' : '') }}{{ formatNum(summary.totalPnlPct || pnlPercent, 2) }}%
           </span>
         </div>
         <el-divider direction="vertical" />
@@ -38,35 +38,12 @@
               </div>
             </div>
           </template>
-          <el-table :data="positions" stripe style="width:100%">
-            <el-table-column prop="stockCode" label="代码" width="100" />
-            <el-table-column prop="stockName" label="名称" width="120" />
-            <el-table-column prop="quantity" label="数量" width="100" />
-            <el-table-column prop="avgCost" label="成本价" width="100">
-              <template #default="{ row }">{{ Number(row.avgCost || 0).toFixed(3) }}</template>
-            </el-table-column>
-            <el-table-column prop="currentPrice" label="现价" width="100">
-              <template #default="{ row }">{{ Number(row.currentPrice || 0).toFixed(2) }}</template>
-            </el-table-column>
-            <el-table-column label="浮动盈亏" width="140">
-              <template #default="{ row }">
-                <span :class="pnlClass(row.unrealizedPnl)">
-                  {{ pnlText(row.unrealizedPnl) }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column label="盈亏比例" width="120">
-              <template #default="{ row }">
-                <span :class="pnlClass(row.unrealizedPnl)">
-                  {{ positionPnlPercent(row) }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="marketValue" label="市值" width="120">
-              <template #default="{ row }">{{ Number(row.marketValue || 0).toFixed(2) }}</template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-if="!positions.length" description="暂无持仓" />
+          <PositionCardList
+            :positions="positions"
+            :columns="4"
+            empty-text="暂无持仓，点击「买入」添加"
+            @click="onPositionClick"
+          />
         </el-card>
       </el-col>
     </el-row>
@@ -78,7 +55,7 @@
         <el-table-column prop="stockName" label="名称" width="120" />
         <el-table-column label="方向" width="80">
           <template #default="{ row }">
-            <el-tag :type="(row.side || row.direction) === 'buy' ? 'success' : 'danger'" size="small">
+            <el-tag :type="(row.side || row.direction) === 'buy' ? 'success' : 'danger'" >
               {{ (row.side || row.direction) === 'buy' ? '买入' : '卖出' }}
             </el-tag>
           </template>
@@ -130,7 +107,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="batchDialogVisible" title="批量录入交易" width="720px" @close="resetBatchForm">
+    <el-dialog v-model="batchDialogVisible" title="批量录入交易" width="820px" @close="resetBatchForm">
       <el-form label-width="90px" style="margin-bottom:12px">
         <el-form-item label="股票代码">
           <StockAutocomplete v-model="batchForm.code" @select="onBatchStockSelect" style="width:220px" />
@@ -140,44 +117,44 @@
         </el-form-item>
       </el-form>
 
-      <el-table :data="batchForm.rows" border size="small" style="width:100%">
-        <el-table-column label="方向" width="90">
+      <el-table :data="batchForm.rows" border  style="width:100%">
+        <el-table-column label="方向" width="100">
           <template #default="{ row }">
-            <el-select v-model="row.direction" size="small">
+            <el-select v-model="row.direction" >
               <el-option label="买入" value="buy" />
               <el-option label="卖出" value="sell" />
             </el-select>
           </template>
         </el-table-column>
-        <el-table-column label="日期" width="150">
+        <el-table-column label="日期" width="158">
           <template #default="{ row }">
-            <el-date-picker v-model="row.tradeDate" type="date" size="small" style="width:100%" value-format="YYYY-MM-DD" placeholder="交易日期" />
+            <el-date-picker v-model="row.tradeDate" type="date"  style="width:100%" value-format="YYYY-MM-DD" placeholder="交易日期" />
           </template>
         </el-table-column>
-        <el-table-column label="价格" width="130">
+        <el-table-column label="价格" width="150">
           <template #default="{ row }">
-            <el-input-number v-model="row.price" :precision="2" :min="0" size="small" style="width:100%" />
+            <el-input-number v-model="row.price" :precision="3" :min="0"  style="width:100%" />
           </template>
         </el-table-column>
-        <el-table-column label="数量" width="130">
+        <el-table-column label="数量" width="170">
           <template #default="{ row }">
-            <el-input-number v-model="row.quantity" :min="1" :step="100" size="small" style="width:100%" />
+            <el-input-number v-model="row.quantity" :min="1" :step="100"  style="width:100%" />
           </template>
         </el-table-column>
-        <el-table-column label="佣金" width="120">
+        <el-table-column label="佣金" width="150">
           <template #default="{ row }">
-            <el-input-number v-model="row.commission" :precision="2" :min="0" size="small" style="width:100%" />
+            <el-input-number v-model="row.commission" :precision="3" :min="0"  style="width:100%" />
           </template>
         </el-table-column>
         <el-table-column label="操作" width="60" fixed="right">
           <template #default="{ $index }">
-            <el-button link type="danger" size="small" @click="removeBatchRow($index)">删</el-button>
+            <el-button link type="danger"  @click="removeBatchRow($index)">删</el-button>
           </template>
         </el-table-column>
       </el-table>
       <div style="margin-top:8px;display:flex;gap:8px">
-        <el-button size="small" @click="addBatchRow('buy')">+ 买入行</el-button>
-        <el-button size="small" @click="addBatchRow('sell')">+ 卖出行</el-button>
+        <el-button  @click="addBatchRow('buy')">+ 买入行</el-button>
+        <el-button  @click="addBatchRow('sell')">+ 卖出行</el-button>
       </div>
 
       <template #footer>
@@ -196,6 +173,8 @@ import { ElMessage } from 'element-plus'
 import { portfolioApi } from '@/api/portfolio'
 import { useTradingInterval } from '@/composables/useTradingInterval'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
+import PositionCardList from '@/components/common/PositionCardList.vue'
+import { formatNum, pnlText, pnlClass } from '@/utils/format'
 
 const summary = ref<Record<string, any>>({})
 const positions = ref<any[]>([])
@@ -229,32 +208,16 @@ const tradingTimer = useTradingInterval(() => {
 
 const pnlPercent = computed(() => {
   const tv = summary.value.totalValue || 0
-  const tp = summary.value.total_pnl || 0
+  const tp = summary.value.totalPnl || 0
+  const tc = summary.value.totalCost || 0
+  if (tc > 0) return (tp / tc) * 100
   if (!tv) return 0
   return (tp / (tv - tp)) * 100
 })
 
-function pnlClass(val: number | undefined) {
-  const v = Number(val || 0)
-  return v > 0 ? 'pnl-up' : v < 0 ? 'pnl-down' : ''
-}
-
-function pnlText(val: number | undefined) {
-  const v = Number(val || 0)
-  return (v >= 0 ? '+' : '') + v.toFixed(2)
-}
-
-function formatNum(v: any, digits: number): string {
-  const n = Number(v)
-  return isNaN(n) ? '-' : n.toFixed(digits)
-}
-
-function positionPnlPercent(row: any) {
-  const cost = Number(row.avgCost || 0)
-  const price = Number(row.currentPrice || 0)
-  if (!cost) return '0.00%'
-  const pct = ((price - cost) / cost) * 100
-  return (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'
+function onPositionClick(row: any) {
+  tradeForm.value.code = row.stockCode || row.code || ''
+  tradeForm.value.name = row.stockName || row.name || ''
 }
 
 function openTradeDialog(dir: 'buy' | 'sell') {
@@ -406,6 +369,7 @@ onUnmounted(() => {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  margin-left: 6px;
 }
 .summary-label {
   font-size: 13px;

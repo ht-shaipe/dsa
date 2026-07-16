@@ -234,8 +234,9 @@ async fn fetch_stock_context(
     let open = quote.get("open").and_then(|v| v.as_f64()).unwrap_or(0.0);
 
     parts.push(format!(
-        "【实时行情 {}】\n当前价: {:.2}, 涨跌幅: {:.2}%, 开盘: {:.2}, 最高: {:.2}, 最低: {:.2}\n换手率: {:.2}%, 成交量: {:.0}, 成交额: {:.0}",
-        display, price, change_pct, open, high, low, turnover, volume, amount
+        "【实时行情 {}】\n当前价: {:.2}, 涨跌幅: {:.2}%, 开盘: {:.2}, 最高: {:.2}, 最低: {:.2}\n换手率: {:.2}%, 成交量: {:.0}, 成交额: {:.0}\n数据获取时间: {}",
+        display, price, change_pct, open, high, low, turnover, volume, amount,
+        chrono::Local::now().format("%Y-%m-%d %H:%M")
     ));
 
     let s = serde_json::json!({"type": "data_loading", "content": "正在获取K线和技术指标..."});
@@ -293,12 +294,21 @@ async fn fetch_stock_context(
                         }
                     })
                     .collect();
+                let last_kline_date: String = last_n.iter().filter_map(|bar| {
+                    bar.get("日期").or_else(|| bar.get("date")).and_then(|d| d.as_str()).map(|s| s.to_string())
+                }).next().unwrap_or_default();
+                let freshness = if !last_kline_date.is_empty() {
+                    format!("\n{}", dsa_core::utils::data_freshness_warning(&last_kline_date, "K线"))
+                } else {
+                    String::new()
+                };
                 parts.push(format!(
-                    "【技术分析】\n趋势: {} (强度{:.1}), 量能信号: {}\n近5日K线:\n{}",
+                    "【技术分析】\n趋势: {} (强度{:.1}), 量能信号: {}\n近5日K线:\n{}{}",
                     trend_dir,
                     trend_str,
                     vol_sig,
-                    kline_summary.join("\n")
+                    kline_summary.join("\n"),
+                    freshness
                 ));
             }
         }
@@ -448,10 +458,11 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
 
         // ===== 意图识别 + 工具调用 =====
         let intent = parse_intent(&message).await;
+        let time_ctx = dsa_core::utils::current_time_context();
         let (system_prompt, data_context, detected_code) = match &intent {
             ChatIntent::StockQuery { code, name } => {
                 let sp = if skill_name.is_empty() {
-                    "你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。如果提供了实时数据，请基于数据进行分析。".to_string()
+                    format!("你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。如果提供了实时数据，请基于数据进行分析。\n\n{}\n重要: 所有分析和建议必须针对当下时间，不得基于过时数据做出判断。", time_ctx)
                 } else {
                     let sd = match skill_name.as_str() {
                         "bull_trend" => "多头趋势策略。重点分析趋势方向、均线支撑，给出顺势操作建议。",
@@ -460,18 +471,18 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
                         "no_chase" => "不追高策略。重点评估当前位置风险，给出合理买入区间和止损建议。",
                         _ => &format!("当前用户选择了{}策略，请在分析中侧重该策略视角。", skill_name),
                     };
-                    format!("你是一位资深证券分析师助手，当前分析视角为：{}。请用中文回答，结合实时数据和该策略给出针对性建议。", sd)
+                    format!("你是一位资深证券分析师助手，当前分析视角为：{}。请用中文回答，结合实时数据和该策略给出针对性建议。\n\n{}\n重要: 所有分析和建议必须针对当下时间，不得基于过时数据做出判断。", sd, time_ctx)
                 };
                 let ctx = fetch_stock_context(code, name, &mut sender).await;
                 (sp, ctx, code.clone())
             }
             ChatIntent::MarketOverview => {
-                let sp = "你是一位资深证券分析师助手，擅长分析大盘走势和市场情绪。请用中文回答，基于提供的指数数据给出市场研判。".to_string();
+                let sp = format!("你是一位资深证券分析师助手，擅长分析大盘走势和市场情绪。请用中文回答，基于提供的指数数据给出市场研判。\n\n{}\n重要: 所有分析必须针对当下市场环境，不得套用历史结论。", time_ctx);
                 let ctx = fetch_market_context(&mut sender).await;
                 (sp, ctx, String::new())
             }
             ChatIntent::SectorQuery { keyword } => {
-                let sp = format!("你是一位资深证券分析师助手，用户关注\"{}\"相关板块。请用中文回答，分析该板块的投资机会和风险。", keyword);
+                let sp = format!("你是一位资深证券分析师助手，用户关注\"{}\"相关板块。请用中文回答，分析该板块当下的投资机会和风险。\n\n{}\n重要: 分析必须基于当前市场环境，不得套用过时结论。", keyword, time_ctx);
                 let s = serde_json::json!({"type": "data_loading", "content": format!("正在获取{}板块数据...", keyword)});
                 let _ = sender.send_data(&serde_json::to_string(&s).unwrap_or_default()).await;
                 let search = dsa_agent::tools::search_tools::SearchTools::new();
@@ -486,7 +497,7 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
                 (sp, ctx, String::new())
             }
             ChatIntent::General => {
-                ("你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。".to_string(), None, String::new())
+                (format!("你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。\n\n{}\n如果涉及具体股票或市场分析，请基于当下时间判断，不得使用过时数据。", time_ctx), None, String::new())
             }
         };
 

@@ -101,9 +101,9 @@ impl Analysis {
                 "INSERT INTO analysis_history \
                  (stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
                   analysis_summary, risk_warning, report_json, report_type, status, \
-                  llm_provider, llm_model, create_time, modify_time) \
+                  llm_provider, llm_model, data_as_of, create_time, modify_time) \
                  VALUES (:code, :name, :score, :dtype, :advice, :summary, :risk, :rjson, :rtype, 1, \
-                  :provider, :model, {}, {})",
+                  :provider, :model, :data_as_of, {}, {})",
                 now_expr, now_expr
             )
         } else {
@@ -111,9 +111,9 @@ impl Analysis {
                 "INSERT INTO analysis_history \
                  (stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
                   analysis_summary, risk_warning, report_json, report_type, status, \
-                  llm_provider, llm_model, create_time, modify_time) \
+                  llm_provider, llm_model, data_as_of, create_time, modify_time) \
                  VALUES (:code, :name, :score, :dtype, :advice, :summary, :risk, :rjson, :rtype, 1, \
-                  :provider, :model, {}, {})",
+                  :provider, :model, :data_as_of, {}, {})",
                 now_expr, now_expr
             )
         };
@@ -141,6 +141,7 @@ impl Analysis {
                     Value::from(conf.llm.provider.clone()),
                 ),
                 ("model".to_string(), Value::from(conf.llm.model.clone())),
+                ("data_as_of".to_string(), Value::from(report.data_as_of.as_deref().unwrap_or(""))),
             ],
             &connector,
         ) {
@@ -333,7 +334,7 @@ impl Analysis {
             name
         };
 
-        let report = pipeline
+        let mut report = pipeline
             .analyze_stock(
                 &code,
                 &stock_name,
@@ -343,6 +344,16 @@ impl Analysis {
             )
             .await
             .map_err(|e| tube::Error::from(format!("{}", e)))?;
+
+        let analysis_time = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+        let last_kline_date = kline_data.last().map(|b| b.date.as_str()).unwrap_or("未知");
+        let realtime_ok = realtime.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0) > 0.0;
+        let freshness = if realtime_ok {
+            dsa_core::utils::data_freshness_warning(last_kline_date, "K线")
+        } else {
+            format!("{}. 实时行情缺失", dsa_core::utils::data_freshness_warning(last_kline_date, "K线"))
+        };
+        report.data_as_of = Some(format!("{} (分析时间: {}) | {}", last_kline_date, analysis_time, freshness));
 
         let renderer = ReportRenderer::new();
         let markdown = renderer.render_markdown(&report);
@@ -450,7 +461,7 @@ impl Analysis {
             .and_then(|v| v.as_str())
             .unwrap_or_else(|| code.to_string());
 
-        pipeline
+        let mut report = pipeline
             .analyze_stock(
                 code,
                 &name,
@@ -459,7 +470,19 @@ impl Analysis {
                 market_ctx.as_deref(),
             )
             .await
-            .map_err(|e| tube::Error::from(format!("{}", e)))
+            .map_err(|e| tube::Error::from(format!("{}", e)))?;
+
+        let analysis_time = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+        let last_kline_date = kline_data.last().map(|b| b.date.as_str()).unwrap_or("未知");
+        let realtime_ok = realtime.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0) > 0.0;
+        let freshness = if realtime_ok {
+            dsa_core::utils::data_freshness_warning(last_kline_date, "K线")
+        } else {
+            format!("{}. 实时行情缺失", dsa_core::utils::data_freshness_warning(last_kline_date, "K线"))
+        };
+        report.data_as_of = Some(format!("{} (分析时间: {}) | {}", last_kline_date, analysis_time, freshness));
+
+        Ok(report)
     }
 
     async fn get_report(&self) -> Result<Value> {

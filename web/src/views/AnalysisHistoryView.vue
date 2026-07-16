@@ -45,6 +45,11 @@
             <span class="text-ellipsis">{{ row.riskWarning || row.risk_warning }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="数据基准" width="180">
+          <template #default="{ row }">
+            <span style="font-size:12px;color:var(--el-text-color-secondary)">{{ row.dataAsOf || row.data_as_of || '-' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="分析时间" width="170">
           <template #default="{ row }">{{ row.createTime || row.create_time }}</template>
         </el-table-column>
@@ -62,36 +67,41 @@
     <el-drawer v-model="drawerVisible" :title="'分析详情 - ' + (currentRecord.stockName || currentRecord.stock_name || '')"
       size="80%">
       <template v-if="currentRecord && currentRecord.id">
-        <el-descriptions :column="2" border style="margin-bottom:16px" label-width="100px">
-          <el-descriptions-item label="股票代码">{{ currentRecord.stockCode || currentRecord.stock_code
-            }}</el-descriptions-item>
-          <el-descriptions-item label="股票名称">{{ currentRecord.stockName || currentRecord.stock_name
-            }}</el-descriptions-item>
-          <el-descriptions-item label="情绪评分">
-            <ScoreGauge :score="currentRecord.sentimentScore || currentRecord.sentiment_score || 0" :size="80" />
-          </el-descriptions-item>
-          <el-descriptions-item label="决策类型">
-            <el-tag :type="decisionTagType(currentRecord.decisionType || currentRecord.decision_type)">
-              {{ decisionLabel(currentRecord.decisionType || currentRecord.decision_type) }}
-            </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="操作建议" :span="2">{{ currentRecord.operationAdvice ||
-            currentRecord.operation_advice }}</el-descriptions-item>
-          <el-descriptions-item label="分析摘要" :span="2">{{ currentRecord.analysisSummary ||
-            currentRecord.analysis_summary }}</el-descriptions-item>
-          <el-descriptions-item label="风险提示" :span="2">{{ currentRecord.riskWarning || currentRecord.risk_warning
-            }}</el-descriptions-item>
-          <el-descriptions-item label="分析时间">{{ currentRecord.createTime || currentRecord.create_time
-            }}</el-descriptions-item>
-          <el-descriptions-item label="报告类型">{{ currentRecord.reportType || currentRecord.report_type || 'full'
-            }}</el-descriptions-item>
-        </el-descriptions>
+        <el-scrollbar class="drawer-scroll">
+          <el-descriptions :column="2" border style="margin-bottom:16px" label-width="100px">
+            <el-descriptions-item label="股票代码">{{ currentRecord.stockCode || currentRecord.stock_code
+              }}</el-descriptions-item>
+            <el-descriptions-item label="股票名称">{{ currentRecord.stockName || currentRecord.stock_name
+              }}</el-descriptions-item>
+            <el-descriptions-item label="情绪评分">
+              <ScoreGauge :score="currentRecord.sentimentScore || currentRecord.sentiment_score || 0" :size="80" />
+            </el-descriptions-item>
+            <el-descriptions-item label="决策类型">
+              <el-tag :type="decisionTagType(currentRecord.decisionType || currentRecord.decision_type)">
+                {{ decisionLabel(currentRecord.decisionType || currentRecord.decision_type) }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="操作建议" :span="2">{{ currentRecord.operationAdvice ||
+              currentRecord.operation_advice }}</el-descriptions-item>
+            <el-descriptions-item label="分析摘要" :span="2">{{ currentRecord.analysisSummary ||
+              currentRecord.analysis_summary }}</el-descriptions-item>
+            <el-descriptions-item label="风险提示" :span="2">{{ currentRecord.riskWarning || currentRecord.risk_warning
+              }}</el-descriptions-item>
+            <el-descriptions-item label="分析时间">{{ currentRecord.createTime || currentRecord.create_time
+              }}</el-descriptions-item>
+            <el-descriptions-item label="报告类型">{{ currentRecord.reportType || currentRecord.report_type || 'full'
+              }}</el-descriptions-item>
+            <el-descriptions-item label="数据基准" :span="2">
+              <span style="color:var(--el-text-color-secondary);font-size:13px">{{ currentRecord.dataAsOf || currentRecord.data_as_of || '-' }}</span>
+            </el-descriptions-item>
+          </el-descriptions>
 
-        <el-divider content-position="left">完整报告</el-divider>
-        <el-scrollbar v-if="reportMarkdown" class="report-content" max-height="calc(100vh - 20px)">
-          <MarkdownRenderer :content="reportMarkdown" />
+          <el-divider content-position="left">完整报告</el-divider>
+          <div v-if="reportMarkdown" class="report-content">
+            <MarkdownRenderer :content="reportMarkdown" />
+          </div>
+          <el-empty v-else description="暂无完整报告内容" />
         </el-scrollbar>
-        <el-empty v-else description="暂无完整报告内容" />
       </template>
     </el-drawer>
   </div>
@@ -223,6 +233,10 @@ onMounted(() => {
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.drawer-scroll {
+  height: calc(100vh - 100px);
 }
 
 .report-content {

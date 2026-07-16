@@ -286,6 +286,7 @@ fn collect_models() -> Vec<(&'static str, Class)> {
         ("alert_cooldowns", AlertCooldown::class()),
         ("watchlist_stocks", WatchlistStock::class()),
         ("stock_pool", StockPool::class()),
+        ("stock_quote", StockQuote::class()),
         ("conversation_messages", ConversationMessage::class()),
         ("conversation_summaries", ConversationSummary::class()),
         ("agent_provider_turns", AgentProviderTurn::class()),
@@ -620,6 +621,7 @@ fn collect_alter_migrations_mysql() -> Vec<(&'static str, &'static str)> {
         ("v3_stock_daily_unique_index", "ALTER TABLE stock_daily ADD UNIQUE INDEX `idx_stock_daily_code_date` (`stock_code`, `trade_date`)"),
         ("v3_stock_daily_date_index", "ALTER TABLE stock_daily ADD INDEX `idx_stock_daily_date` (`trade_date`)"),
         ("v3_stock_daily_status_index", "ALTER TABLE stock_daily ADD INDEX `idx_stock_daily_code_status` (`stock_code`, `status`)"),
+        ("v6_analysis_history_data_as_of", "ALTER TABLE analysis_history ADD COLUMN IF NOT EXISTS `data_as_of` VARCHAR(255) DEFAULT '' COMMENT '数据基准时间'"),
     ]
 }
 
@@ -717,6 +719,38 @@ fn collect_alter_migrations_sqlite() -> Vec<(&'static str, &'static str)> {
         ("v3_stock_daily_date_index", "CREATE INDEX IF NOT EXISTS \"idx_stock_daily_date\" ON \"stock_daily\" (\"trade_date\")"),
         ("v3_stock_daily_status_index", "CREATE INDEX IF NOT EXISTS \"idx_stock_daily_code_status\" ON \"stock_daily\" (\"stock_code\", \"status\")"),
         ("v4_stock_pool_unique_code", "CREATE UNIQUE INDEX IF NOT EXISTS \"idx_stock_pool_code\" ON \"stock_pool\" (\"stock_code\")"),
+        // v5: stock_pool 扩展字段
+        ("v5_stock_pool_symbol", "ALTER TABLE \"stock_pool\" ADD COLUMN \"symbol\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_en_name", "ALTER TABLE \"stock_pool\" ADD COLUMN \"en_name\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_company_name", "ALTER TABLE \"stock_pool\" ADD COLUMN \"company_name\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_address", "ALTER TABLE \"stock_pool\" ADD COLUMN \"address\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_a_code", "ALTER TABLE \"stock_pool\" ADD COLUMN \"a_code\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_a_name", "ALTER TABLE \"stock_pool\" ADD COLUMN \"a_name\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_a_cost", "ALTER TABLE \"stock_pool\" ADD COLUMN \"a_cost\" REAL"),
+        ("v5_stock_pool_province", "ALTER TABLE \"stock_pool\" ADD COLUMN \"province\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_city", "ALTER TABLE \"stock_pool\" ADD COLUMN \"city\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_area", "ALTER TABLE \"stock_pool\" ADD COLUMN \"area\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_market_time", "ALTER TABLE \"stock_pool\" ADD COLUMN \"market_time\" TEXT"),
+        ("v5_stock_pool_website", "ALTER TABLE \"stock_pool\" ADD COLUMN \"website\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_pe", "ALTER TABLE \"stock_pool\" ADD COLUMN \"pe\" REAL"),
+        ("v5_stock_pool_outstanding", "ALTER TABLE \"stock_pool\" ADD COLUMN \"outstanding\" REAL"),
+        ("v5_stock_pool_total", "ALTER TABLE \"stock_pool\" ADD COLUMN \"total\" REAL"),
+        ("v5_stock_pool_total_assets", "ALTER TABLE \"stock_pool\" ADD COLUMN \"total_assets\" REAL"),
+        ("v5_stock_pool_flow_assets", "ALTER TABLE \"stock_pool\" ADD COLUMN \"flow_assets\" REAL"),
+        ("v5_stock_pool_fixed_assets", "ALTER TABLE \"stock_pool\" ADD COLUMN \"fixed_assets\" REAL"),
+        ("v5_stock_pool_esp", "ALTER TABLE \"stock_pool\" ADD COLUMN \"esp\" REAL"),
+        ("v5_stock_pool_per_assets", "ALTER TABLE \"stock_pool\" ADD COLUMN \"per_assets\" REAL"),
+        ("v5_stock_pool_pb", "ALTER TABLE \"stock_pool\" ADD COLUMN \"pb\" REAL"),
+        ("v5_stock_pool_unassigned_profit", "ALTER TABLE \"stock_pool\" ADD COLUMN \"unassigned_profit\" REAL DEFAULT 0"),
+        ("v5_stock_pool_per_unassigned", "ALTER TABLE \"stock_pool\" ADD COLUMN \"per_unassigned\" REAL"),
+        ("v5_stock_pool_rev", "ALTER TABLE \"stock_pool\" ADD COLUMN \"rev\" REAL"),
+        ("v5_stock_pool_profit", "ALTER TABLE \"stock_pool\" ADD COLUMN \"profit\" REAL"),
+        ("v5_stock_pool_gpr", "ALTER TABLE \"stock_pool\" ADD COLUMN \"gpr\" REAL"),
+        ("v5_stock_pool_npr", "ALTER TABLE \"stock_pool\" ADD COLUMN \"npr\" TEXT DEFAULT ''"),
+        ("v5_stock_pool_holders", "ALTER TABLE \"stock_pool\" ADD COLUMN \"holders\" INTEGER"),
+        // v5: stock_quote 唯一索引
+        ("v5_stock_quote_unique", "CREATE UNIQUE INDEX IF NOT EXISTS \"idx_stock_quote_code_date\" ON \"stock_quote\" (\"stock_code\", \"trade_date\")"),
+        ("v6_analysis_history_data_as_of", "ALTER TABLE \"analysis_history\" ADD COLUMN \"data_as_of\" TEXT DEFAULT ''"),
     ]
 }
 

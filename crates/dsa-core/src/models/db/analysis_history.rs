@@ -107,4 +107,11 @@ pub struct AnalysisHistory {
         comment = "上下文快照"
     )]
     pub context_snapshot: String,
+
+    #[field(
+        rename = "data_as_of",
+        default_value = "''",
+        comment = "数据基准时间(K线截至日期+分析时间+数据新鲜度)"
+    )]
+    pub data_as_of: String,
 }

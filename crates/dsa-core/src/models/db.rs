@@ -29,6 +29,7 @@ pub mod portfolio_trade;
 pub mod schema_migration;
 pub mod stock_daily;
 pub mod stock_pool;
+pub mod stock_quote;
 pub mod watchlist_stock;
 
 pub use agent_provider_turn::AgentProviderTurn;
@@ -60,4 +61,5 @@ pub use portfolio_trade::PortfolioTrade;
 pub use schema_migration::SchemaMigration;
 pub use stock_daily::StockDaily;
 pub use stock_pool::StockPool;
+pub use stock_quote::StockQuote;
 pub use watchlist_stock::WatchlistStock;

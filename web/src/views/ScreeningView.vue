@@ -8,34 +8,25 @@
           <el-card shadow="hover">
             <template #header>市场热点</template>
             <template v-if="hotspotsLoading">
-              <el-row :gutter="16">
-                <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="i in 8" :key="i">
-                  <el-card shadow="hover" class="hotspot-card">
-                    <el-skeleton :rows="3" animated />
-                  </el-card>
-                </el-col>
-              </el-row>
+              <div class="hotspot-grid">
+                <el-skeleton v-for="i in 12" :key="i" :rows="1" animated style="width: 120px" />
+              </div>
             </template>
             <template v-else>
-              <el-row :gutter="16">
-                <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="h in hotspots" :key="h.code || h.name">
-                  <el-card shadow="hover" class="hotspot-card" @click="showHotspotDetail(h)">
-                    <div class="hotspot-topic">{{ h.name }}</div>
-                    <div class="hotspot-code" v-if="h.code">{{ h.code }}</div>
-                    <div class="hotspot-stats">
-                      <span :class="Number(h.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'">
-                        {{ Number(h.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(h.changePercent || 0).toFixed(2) }}%
-                      </span>
-                      <span v-if="h.upCount != null && h.downCount != null" class="hotspot-counts">
-                        {{ h.upCount }}涨 / {{ h.downCount }}跌
-                      </span>
-                    </div>
-                    <el-tag v-if="h.sectorType" :type="h.sectorType === 'concept' ? 'warning' : 'primary'" size="small" style="margin-top:6px">
-                      {{ h.sectorType === 'concept' ? '概念' : '行业' }}
-                    </el-tag>
-                  </el-card>
-                </el-col>
-              </el-row>
+              <div class="hotspot-grid">
+                <div
+                  v-for="h in hotspots"
+                  :key="h.code || h.name"
+                  class="hotspot-item"
+                  :class="Number(h.changePercent || 0) >= 0 ? 'pnl-up' : 'pnl-down'"
+                  @click="showHotspotDetail(h)"
+                >
+                  <span class="hotspot-item-name">{{ h.name }}</span>
+                  <span class="hotspot-item-pct">
+                    {{ Number(h.changePercent || 0) >= 0 ? '+' : '' }}{{ Number(h.changePercent || 0).toFixed(2) }}%
+                  </span>
+                </div>
+              </div>
               <el-empty v-if="!hotspots.length" description="暂无热点数据" />
             </template>
           </el-card>
@@ -345,37 +336,35 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.hotspot-card {
-  margin-bottom: 16px;
+.hotspot-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hotspot-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 14px;
+  background: var(--el-fill-color-light);
   cursor: pointer;
-  transition: transform 0.2s;
+  transition: all 0.15s;
+  white-space: nowrap;
+
   &:hover {
-    transform: translateY(-2px);
+    background: var(--el-fill-color);
+    transform: translateY(-1px);
   }
 }
-.hotspot-topic {
-  font-size: 16px;
+.hotspot-item-name {
+  font-size: 13px;
   font-weight: 500;
-  margin-bottom: 4px;
 }
-.hotspot-code {
+.hotspot-item-pct {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 8px;
-}
-.hotspot-heat {
-  font-size: 14px;
-  color: var(--el-color-primary);
-}
-.hotspot-stats {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 14px;
-}
-.hotspot-counts {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 .pnl-up { color: #f56c6c; font-weight: 500; }
 .pnl-down { color: #67c23a; font-weight: 500; }

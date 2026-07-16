@@ -97,6 +97,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import { stockApi } from '@/api/stock'
 import { useTradingInterval } from '@/composables/useTradingInterval'
+import { formatDateTime } from '@/utils/format'
 
 const router = useRouter()
 const stocks = ref<any[]>([])
@@ -106,14 +107,6 @@ const refreshing = ref(false)
 const editVisible = ref(false)
 const editForm = ref<Record<string, any> | null>(null)
 const searchText = ref('')
-
-function formatDateTime(dt: any): string {
-  if (!dt) return '-'
-  const d = new Date(dt)
-  if (isNaN(d.getTime())) return String(dt)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 
 const quoteTimer = useTradingInterval(refreshQuotes, 10000)
 

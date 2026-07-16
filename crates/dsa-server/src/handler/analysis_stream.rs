@@ -202,7 +202,17 @@ pub async fn analysis_stream(req: HttpRequest, payload: web::Payload) -> HttpRes
 
                 let report = pipeline.parse_report_from_content(&content_str);
                 match report {
-                    Ok(report) => {
+                    Ok(mut report) => {
+                        let analysis_time = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+                        let last_kline_date = kline_data.last().map(|b| b.date.as_str()).unwrap_or("未知");
+                        let realtime_ok = realtime.get("price").and_then(|v| v.as_f64()).unwrap_or(0.0) > 0.0;
+                        let freshness = if realtime_ok {
+                            dsa_core::utils::data_freshness_warning(last_kline_date, "K线")
+                        } else {
+                            format!("{}. 实时行情缺失", dsa_core::utils::data_freshness_warning(last_kline_date, "K线"))
+                        };
+                        report.data_as_of = Some(format!("{} (分析时间: {}) | {}", last_kline_date, analysis_time, freshness));
+
                         let renderer = ReportRenderer::new();
                         let markdown = renderer.render_markdown(&report);
                         let text = renderer.render_text(&report);
@@ -308,10 +318,10 @@ fn save_report_to_db(
     let sql = format!(
         "INSERT INTO analysis_history (stock_code, stock_name, sentiment_score, decision_type, \
          operation_advice, analysis_summary, risk_warning, report_json, report_type, status, \
-         llm_provider, llm_model, create_time, modify_time) \
+         llm_provider, llm_model, data_as_of, create_time, modify_time) \
          VALUES (:stock_code, :stock_name, :sentiment_score, :decision_type, \
          :operation_advice, :analysis_summary, :risk_warning, :report_json, 'full', 1, \
-         :llm_provider, :llm_model, {}, {})",
+         :llm_provider, :llm_model, :data_as_of, {}, {})",
         now_expr, now_expr
     );
 
@@ -346,6 +356,10 @@ fn save_report_to_db(
         (
             "llm_model".to_string(),
             tube::Value::from(conf.llm.model.as_str()),
+        ),
+        (
+            "data_as_of".to_string(),
+            tube::Value::from(report.data_as_of.as_deref().unwrap_or("")),
         ),
     ];
 

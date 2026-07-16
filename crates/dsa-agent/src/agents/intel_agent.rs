@@ -65,7 +65,10 @@ impl BaseAgent for IntelAgent {
             format!("近期新闻: {}", headlines.join("; "))
         };
 
-        let system_prompt = "你是一位资深市场情报分析专家，擅长从新闻资讯、行业动态、政策变化中提炼对股价有影响的关键信息。请基于提供的情报数据给出专业的分析判断。用中文回答。";
+        let system_prompt = format!(
+            "你是一位资深市场情报分析专家，擅长从新闻资讯、行业动态、政策变化中提炼对股价有影响的关键信息。请基于提供的情报数据给出专业的分析判断。用中文回答。\n\n{}\n重要: 所有分析必须基于当前时间点，评估新闻的时效性，不得将旧闻当作最新消息处理。",
+            dsa_core::utils::current_time_context()
+        );
 
         let user_prompt = format!(
             "请对股票{}进行情报面分析：\n\

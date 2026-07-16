@@ -169,9 +169,12 @@ impl ReactExecutor {
              ... (重复 Thought/Action/Observation 直到得出结论)\n\
              Thought: 我现在知道最终答案了\n\
              Final Answer: 你的最终分析和建议\n\n\
-             上下文信息: {}",
+             上下文信息: {}\n\n\
+             {}\n\
+             重要: 所有分析必须基于当前时间点，基于最新数据判断，不得使用过时结论。",
             tools_json,
             serde_json::to_string(context).unwrap_or_else(|_| "{}".to_string()),
+            dsa_core::utils::current_time_context(),
         );
 
         let mut messages: Vec<Value> = vec![

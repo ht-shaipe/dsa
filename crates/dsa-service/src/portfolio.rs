@@ -16,6 +16,22 @@ use qta_crawler::Real;
 use tube::{Result, Value};
 use tube_web::RequestParameter;
 
+/// 从 JSON Value 中提取 f64，兼容数字和字符串类型
+fn json_f64(v: &Value) -> Option<f64> {
+    v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+}
+
+/// 从 get_price 返回的行情数据中提取当前价格
+fn extract_price(v: &Value, fallback: f64) -> f64 {
+    let p = v
+        .get("close")
+        .or_else(|| v.get("current_price"))
+        .or_else(|| v.get("price"))
+        .and_then(|val| json_f64(val))
+        .unwrap_or(fallback);
+    if p > 0.0 { p } else { fallback }
+}
+
 struct TradeTable {
     request: RequestParameter,
 }
@@ -47,7 +63,7 @@ impl TradeTable {
                 "SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
               trade_date, commission, trade_currency, dedup_hash, remark, status, create_time \
               FROM portfolio_trades WHERE account_id = :aid AND status = 1 \
-              ORDER BY create_time DESC LIMIT :limit"
+              ORDER BY trade_date DESC, create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![
                     ("aid".to_string(), Value::from(account_id)),
@@ -59,7 +75,7 @@ impl TradeTable {
                 "SELECT id, account_id, stock_code, stock_name, direction, price, quantity, \
               trade_date, commission, trade_currency, dedup_hash, remark, status, create_time \
               FROM portfolio_trades WHERE status = 1 \
-              ORDER BY create_time DESC LIMIT :limit"
+              ORDER BY trade_date DESC, create_time DESC LIMIT :limit"
                     .to_string(),
                 vec![("limit".to_string(), Value::from(limit))],
             )
@@ -896,19 +912,7 @@ impl Portfolio {
             let db_current_price: f64 = row_get_f64(row, "currentPrice");
 
             let current_price = match real.get_price(&full_code).await {
-                Ok(v) => {
-                    let p = v
-                        .get("close")
-                        .or_else(|| v.get("current_price"))
-                        .or_else(|| v.get("price"))
-                        .and_then(|val| val.as_f64())
-                        .unwrap_or(db_current_price);
-                    if p > 0.0 {
-                        p
-                    } else {
-                        db_current_price
-                    }
-                }
+                Ok(v) => extract_price(&v, db_current_price),
                 Err(e) => {
                     log!("portfolio summary get_price({}) error: {}", full_code, e);
                     db_current_price
@@ -1007,19 +1011,7 @@ impl Portfolio {
             let full_code = format!("{}{}", prefix, padded);
 
             let current_price = match real.get_price(&full_code).await {
-                Ok(v) => {
-                    let p = v
-                        .get("close")
-                        .or_else(|| v.get("current_price"))
-                        .or_else(|| v.get("price"))
-                        .and_then(|val| val.as_f64())
-                        .unwrap_or(db_current_price);
-                    if p > 0.0 {
-                        p
-                    } else {
-                        db_current_price
-                    }
-                }
+                Ok(v) => extract_price(&v, db_current_price),
                 Err(e) => {
                     log!("portfolio positions get_price({}) error: {}", full_code, e);
                     db_current_price

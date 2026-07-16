@@ -56,7 +56,7 @@
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="llmProvider" label="供应商" width="100" />
         <el-table-column prop="llmModel" label="模型" width="150" />
-        <el-table-column prop="operationType" label="操作" width="120" />
+        <el-table-column prop="operationType" label="操作" width="140" />
         <el-table-column prop="stockCode" label="股票" width="90">
           <template #default="{ row }">{{ row.stockCode || '-' }}</template>
         </el-table-column>

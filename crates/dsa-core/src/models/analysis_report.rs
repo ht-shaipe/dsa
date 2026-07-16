@@ -168,6 +168,9 @@ pub struct AnalysisReport {
 
     pub search_performed: Option<bool>,
     pub data_sources: Option<String>,
+
+    #[serde(rename = "dataAsOf")]
+    pub data_as_of: Option<String>,
 }
 
 impl AnalysisReport {

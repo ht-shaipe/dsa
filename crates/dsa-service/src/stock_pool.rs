@@ -29,6 +29,30 @@ impl TableService<StockPoolModel> for StockPool {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct StockSpot {
+    symbol: String,      // 如 "sh600000"
+    code: String,        // 如 "600000"
+    name: String,        // 如 "浦发银行"
+    market_id: i8,       // 1=沪 0=深
+    // 行情
+    open: f64,
+    high: f64,
+    low: f64,
+    close: f64,          // 最新价(trade)
+    previous_close: f64, // 昨收(settlement)
+    change_price: f64,   // 涨跌额(pricechange)
+    change_percent: f64, // 涨跌幅(changepercent)
+    volume: f64,
+    amount: f64,
+    // 估值
+    pe: f64,             // 市盈率(per)
+    pb: f64,             // 市净率(pb)
+    total_market_cap: f64, // 总市值(亿)，mktcap/10000
+    liquid_market_cap: f64, // 流通市值(亿)，nmc/10000
+    turnover_ratio: f64, // 换手率(turnoverratio)
+}
+
 impl StockPool {
     pub fn new(param: &RequestParameter) -> Self {
         StockPool {
@@ -84,8 +108,17 @@ impl StockPool {
 
         let offset = (page - 1) * page_size;
         let list_sql = format!(
-            "SELECT * FROM stock_pool WHERE {} ORDER BY market_id DESC, stock_code ASC LIMIT :limit OFFSET :offset",
-            where_sql
+            "SELECT sp.*, \
+             sq.close AS latest_price, sq.previous_close, sq.change_percent, sq.change_price, \
+             sq.open AS quote_open, sq.high AS quote_high, sq.low AS quote_low, \
+             sq.volume, sq.amount, sq.turnover_ratio, \
+             sq.total_market_cap, sq.liquid_market_cap, sq.pe AS quote_pe, sq.pb AS quote_pb, \
+             sq.trade_date AS quote_date \
+             FROM stock_pool sp \
+             LEFT JOIN stock_quote sq ON sp.stock_code = sq.stock_code \
+             AND sq.id = (SELECT MAX(id) FROM stock_quote WHERE stock_code = sp.stock_code) \
+             WHERE {} ORDER BY sp.market_id DESC, sp.stock_code ASC LIMIT :limit OFFSET :offset",
+            where_sql.replace("stock_pool", "sp")
         );
         sql_params.push(("limit".to_string(), Value::from(page_size as i64)));
         sql_params.push(("offset".to_string(), Value::from(offset as i64)));
@@ -219,7 +252,7 @@ impl StockPool {
                 rt.block_on(async {
                     log::info!("股票池初始化: 开始获取A股列表");
 
-                    let mut spot_codes: Vec<(String, String, i8)> = Vec::new();
+                    let mut spot_codes: Vec<StockSpot> = Vec::new();
 
                     // 主数据源：新浪财经（分页拉取全量 A 股）
                     match Self::fetch_stock_list_simple().await {
@@ -250,7 +283,14 @@ impl StockPool {
                                     let name: String = s.get("名称").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                                     if code.is_empty() { return None; }
                                     let market_id: i8 = if code.starts_with('6') { 1 } else { 0 };
-                                    Some((code, name, market_id))
+                                    let prefix = if market_id == 1 { "sh" } else { "sz" };
+                                    Some(StockSpot {
+                                        symbol: format!("{}{}", prefix, code),
+                                        code: code.clone(),
+                                        name,
+                                        market_id,
+                                        ..Default::default()
+                                    })
                                 }).collect();
                             }
                             Ok(Ok(_)) => {
@@ -282,9 +322,9 @@ impl StockPool {
                         return;
                     }
 
-                    let filtered: Vec<(String, String, i8)> = spot_codes
+                    let filtered: Vec<StockSpot> = spot_codes
                         .iter()
-                        .filter(|(code, name, _)| Self::should_include(code, name, &boards, exclude_st, exclude_delisting, exclude_new))
+                        .filter(|s| Self::should_include(&s.code, &s.name, &boards, exclude_st, exclude_delisting, exclude_new))
                         .cloned()
                         .collect();
 
@@ -315,48 +355,100 @@ impl StockPool {
                     let mut updated: u64 = 0;
                     let batch_size = 100;
                     let mut batch_idx = 0;
+                    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
 
                     for chunk in filtered.chunks(batch_size) {
                         if !wait_if_paused() { break; }
 
                         batch_idx += 1;
-                        for (code, name, market_id) in chunk {
+                        for spot in chunk {
                             {
                                 let mut st = DATA_SYNC_STATUS.lock().unwrap();
-                                st.current_code = code.clone();
-                                st.current_name = name.clone();
+                                st.current_code = spot.code.clone();
+                                st.current_name = spot.name.clone();
                             }
 
+                            let outstanding = if spot.close > 0.0 { spot.liquid_market_cap / spot.close } else { 0.0 };
+                            let total_shares = if spot.close > 0.0 { spot.total_market_cap / spot.close } else { 0.0 };
+
                             if is_sqlite {
-                                let sql = "INSERT OR IGNORE INTO stock_pool (stock_code, stock_name, market, market_id, industry, status) \
-                                           VALUES (:code, :name, 'cn', :market_id, '', 1)";
+                                // stock_pool: INSERT OR IGNORE with extended fields
+                                let sql = "INSERT OR IGNORE INTO stock_pool \
+                                   (stock_code, stock_name, symbol, market, market_id, industry, pe, pb, outstanding, total, status) \
+                                   VALUES (:code, :name, :symbol, 'cn', :market_id, '', :pe, :pb, :outstanding, :total, 1)";
                                 let sql_params = vec![
-                                    ("code".to_string(), Value::from(code.clone())),
-                                    ("name".to_string(), Value::from(name.clone())),
-                                    ("market_id".to_string(), Value::from(*market_id as i64)),
+                                    ("code".to_string(), Value::from(spot.code.clone())),
+                                    ("name".to_string(), Value::from(spot.name.clone())),
+                                    ("symbol".to_string(), Value::from(spot.symbol.clone())),
+                                    ("market_id".to_string(), Value::from(spot.market_id as i64)),
+                                    ("pe".to_string(), Value::from(spot.pe)),
+                                    ("pb".to_string(), Value::from(spot.pb)),
+                                    ("outstanding".to_string(), Value::from(outstanding)),
+                                    ("total".to_string(), Value::from(total_shares)),
                                 ];
                                 let affected = dsa_core::db::execute(sql, sql_params, &connector).unwrap_or(0);
                                 if affected > 0 {
                                     inserted += affected;
                                 } else {
-                                    let upd = "UPDATE stock_pool SET stock_name = :name, market_id = :market_id, status = 1 \
-                                               WHERE stock_code = :code AND (stock_name != :name OR status != 1)";
+                                    let upd = "UPDATE stock_pool SET stock_name=:name, symbol=:symbol, market_id=:market_id, \
+                                               pe=:pe, pb=:pb, outstanding=:outstanding, total=:total, status=1 \
+                                               WHERE stock_code=:code AND (stock_name != :name OR status != 1)";
                                     let upd_params = vec![
-                                        ("code".to_string(), Value::from(code.clone())),
-                                        ("name".to_string(), Value::from(name.clone())),
-                                        ("market_id".to_string(), Value::from(*market_id as i64)),
+                                        ("code".to_string(), Value::from(spot.code.clone())),
+                                        ("name".to_string(), Value::from(spot.name.clone())),
+                                        ("symbol".to_string(), Value::from(spot.symbol.clone())),
+                                        ("market_id".to_string(), Value::from(spot.market_id as i64)),
+                                        ("pe".to_string(), Value::from(spot.pe)),
+                                        ("pb".to_string(), Value::from(spot.pb)),
+                                        ("outstanding".to_string(), Value::from(outstanding)),
+                                        ("total".to_string(), Value::from(total_shares)),
                                     ];
                                     let upd_affected = dsa_core::db::execute(upd, upd_params, &connector).unwrap_or(0);
                                     updated += upd_affected;
                                 }
+
+                                // stock_quote: INSERT OR REPLACE
+                                let q_sql = "INSERT OR REPLACE INTO stock_quote \
+                                    (stock_code, trade_date, open, high, low, close, previous_close, change_price, change_percent, \
+                                    volume, amount, turnover_ratio, total_market_cap, liquid_market_cap, pe, pb) \
+                                    VALUES (:code, :today, :open, :high, :low, :close, :prev_close, :change_price, :change_percent, \
+                                    :volume, :amount, :turnover_ratio, :total_mcap, :liquid_mcap, :pe, :pb)";
+                                let q_params = vec![
+                                    ("code".to_string(), Value::from(spot.code.clone())),
+                                    ("today".to_string(), Value::from(today.clone())),
+                                    ("open".to_string(), Value::from(spot.open)),
+                                    ("high".to_string(), Value::from(spot.high)),
+                                    ("low".to_string(), Value::from(spot.low)),
+                                    ("close".to_string(), Value::from(spot.close)),
+                                    ("prev_close".to_string(), Value::from(spot.previous_close)),
+                                    ("change_price".to_string(), Value::from(spot.change_price)),
+                                    ("change_percent".to_string(), Value::from(spot.change_percent)),
+                                    ("volume".to_string(), Value::from(spot.volume)),
+                                    ("amount".to_string(), Value::from(spot.amount)),
+                                    ("turnover_ratio".to_string(), Value::from(spot.turnover_ratio)),
+                                    ("total_mcap".to_string(), Value::from(spot.total_market_cap)),
+                                    ("liquid_mcap".to_string(), Value::from(spot.liquid_market_cap)),
+                                    ("pe".to_string(), Value::from(spot.pe)),
+                                    ("pb".to_string(), Value::from(spot.pb)),
+                                ];
+                                let _ = dsa_core::db::execute(q_sql, q_params, &connector);
                             } else {
-                                let sql = "INSERT INTO stock_pool (stock_code, stock_name, market, market_id, industry, status) \
-                                           VALUES (:code, :name, 'cn', :market_id, '', 1) \
-                                           ON DUPLICATE KEY UPDATE stock_name = VALUES(stock_name), market_id = VALUES(market_id), status = 1";
+                                // MySQL: stock_pool
+                                let sql = "INSERT INTO stock_pool \
+                                   (stock_code, stock_name, symbol, market, market_id, industry, pe, pb, outstanding, total, status) \
+                                   VALUES (:code, :name, :symbol, 'cn', :market_id, '', :pe, :pb, :outstanding, :total, 1) \
+                                   ON DUPLICATE KEY UPDATE stock_name=VALUES(stock_name), symbol=VALUES(symbol), \
+                                   market_id=VALUES(market_id), pe=VALUES(pe), pb=VALUES(pb), \
+                                   outstanding=VALUES(outstanding), total=VALUES(total), status=1";
                                 let sql_params = vec![
-                                    ("code".to_string(), Value::from(code.clone())),
-                                    ("name".to_string(), Value::from(name.clone())),
-                                    ("market_id".to_string(), Value::from(*market_id as i64)),
+                                    ("code".to_string(), Value::from(spot.code.clone())),
+                                    ("name".to_string(), Value::from(spot.name.clone())),
+                                    ("symbol".to_string(), Value::from(spot.symbol.clone())),
+                                    ("market_id".to_string(), Value::from(spot.market_id as i64)),
+                                    ("pe".to_string(), Value::from(spot.pe)),
+                                    ("pb".to_string(), Value::from(spot.pb)),
+                                    ("outstanding".to_string(), Value::from(outstanding)),
+                                    ("total".to_string(), Value::from(total_shares)),
                                 ];
                                 let affected = dsa_core::db::execute(sql, sql_params, &connector).unwrap_or(0);
                                 if affected > 1 {
@@ -364,6 +456,38 @@ impl StockPool {
                                 } else if affected == 1 {
                                     inserted += 1;
                                 }
+
+                                // MySQL: stock_quote
+                                let q_sql = "INSERT INTO stock_quote \
+                                    (stock_code, trade_date, open, high, low, close, previous_close, change_price, change_percent, \
+                                    volume, amount, turnover_ratio, total_market_cap, liquid_market_cap, pe, pb) \
+                                    VALUES (:code, :today, :open, :high, :low, :close, :prev_close, :change_price, :change_percent, \
+                                    :volume, :amount, :turnover_ratio, :total_mcap, :liquid_mcap, :pe, :pb) \
+                                    ON DUPLICATE KEY UPDATE \
+                                    close=VALUES(close), high=VALUES(high), low=VALUES(low), \
+                                    open=VALUES(open), previous_close=VALUES(previous_close), change_price=VALUES(change_price), \
+                                    change_percent=VALUES(change_percent), volume=VALUES(volume), amount=VALUES(amount), \
+                                    turnover_ratio=VALUES(turnover_ratio), total_market_cap=VALUES(total_market_cap), \
+                                    liquid_market_cap=VALUES(liquid_market_cap), pe=VALUES(pe), pb=VALUES(pb)";
+                                let q_params = vec![
+                                    ("code".to_string(), Value::from(spot.code.clone())),
+                                    ("today".to_string(), Value::from(today.clone())),
+                                    ("open".to_string(), Value::from(spot.open)),
+                                    ("high".to_string(), Value::from(spot.high)),
+                                    ("low".to_string(), Value::from(spot.low)),
+                                    ("close".to_string(), Value::from(spot.close)),
+                                    ("prev_close".to_string(), Value::from(spot.previous_close)),
+                                    ("change_price".to_string(), Value::from(spot.change_price)),
+                                    ("change_percent".to_string(), Value::from(spot.change_percent)),
+                                    ("volume".to_string(), Value::from(spot.volume)),
+                                    ("amount".to_string(), Value::from(spot.amount)),
+                                    ("turnover_ratio".to_string(), Value::from(spot.turnover_ratio)),
+                                    ("total_mcap".to_string(), Value::from(spot.total_market_cap)),
+                                    ("liquid_mcap".to_string(), Value::from(spot.liquid_market_cap)),
+                                    ("pe".to_string(), Value::from(spot.pe)),
+                                    ("pb".to_string(), Value::from(spot.pb)),
+                                ];
+                                let _ = dsa_core::db::execute(q_sql, q_params, &connector);
                             }
 
                             {
@@ -494,7 +618,7 @@ impl StockPool {
 
     /// 从新浪财经获取 A 股全部股票列表（分页）
     /// 新浪每页最多 100 条，需分页拉取
-    async fn fetch_stock_list_simple() -> Result<Vec<(String, String, i8)>> {
+    async fn fetch_stock_list_simple() -> Result<Vec<StockSpot>> {
         let mut headers = std::collections::HashMap::new();
         headers.insert("User-Agent".to_string(), "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36".to_string());
         headers.insert("Referer".to_string(), "https://finance.sina.com.cn/".to_string());
@@ -542,11 +666,43 @@ impl StockPool {
                 let name = item.get("name").and_then(|v| v.as_str()).unwrap_or_default().to_string();
                 if code.is_empty() { continue; }
                 let market_id: i8 = if code.starts_with('6') { 1 } else { 0 };
-                all_items.push((code, name, market_id));
+                let prefix = if market_id == 1 { "sh" } else if code.starts_with('8') || code.starts_with('4') || code.starts_with("920") { "bj" } else { "sz" };
+                let symbol = format!("{}{}", prefix, code);
+
+                let spot = StockSpot {
+                    symbol,
+                    code: code.clone(),
+                    name: name.clone(),
+                    market_id,
+                    open: parse_f64(&item, "open"),
+                    high: parse_f64(&item, "high"),
+                    low: parse_f64(&item, "low"),
+                    close: parse_f64(&item, "trade"),
+                    previous_close: parse_f64(&item, "settlement"),
+                    change_price: parse_f64(&item, "pricechange"),
+                    change_percent: parse_f64(&item, "changepercent"),
+                    volume: parse_f64(&item, "volume"),
+                    amount: parse_f64(&item, "amount"),
+                    pe: parse_f64(&item, "per"),
+                    pb: parse_f64(&item, "pb"),
+                    total_market_cap: parse_f64(&item, "mktcap") / 10000.0,
+                    liquid_market_cap: parse_f64(&item, "nmc") / 10000.0,
+                    turnover_ratio: parse_f64(&item, "turnoverratio"),
+                };
+                all_items.push(spot);
             }
         }
 
         log::info!("新浪API共获取到 {} 条股票记录 (期望 {})", all_items.len(), total);
         Ok(all_items)
     }
+}
+
+fn parse_f64(item: &Value, key: &str) -> f64 {
+    item.get(key)
+        .and_then(|v| {
+            if let Some(f) = v.as_f64() { return Some(f); }
+            v.as_str().and_then(|s| s.parse::<f64>().ok())
+        })
+        .unwrap_or(0.0)
 }

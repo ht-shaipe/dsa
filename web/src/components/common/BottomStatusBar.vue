@@ -1,10 +1,6 @@
 <template>
   <div class="bottom-status-bar">
     <div class="status-left">
-      <span class="status-item sse-status" :class="sseClass" :title="sseTitle">
-        <span class="status-dot"></span>
-        <span class="status-label">{{ sseLabel }}</span>
-      </span>
       <template v-if="taskStore.hasRunningTasks">
         <el-divider direction="vertical" />
         <el-popover
@@ -97,14 +93,6 @@ const isTauri = typeof window !== 'undefined' &&
 
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0'
 
-const sseClass = computed(() => taskStore.sseConnected ? 'connected' : 'disconnected')
-const sseLabel = computed(() => taskStore.sseConnected ? '已连接' : '未连接')
-const sseTitle = computed(() =>
-  taskStore.sseConnected
-    ? 'SSE 任务通道已连接'
-    : 'SSE 任务通道未连接，任务进度可能无法实时更新'
-)
-
 const anyPaused = computed(() => taskStore.runningTasks.some(t => t.paused))
 
 async function pauseTask(task: string) { await taskStore.pauseTask(task) }
@@ -144,24 +132,6 @@ async function stopTask(task: string) { popoverVisible.value = false; await task
   align-items: center;
   gap: 5px;
   white-space: nowrap;
-}
-
-.sse-status {
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  &.connected .status-dot {
-    background: var(--el-color-success);
-    box-shadow: 0 0 4px var(--el-color-success-light-3);
-  }
-  &.disconnected .status-dot {
-    background: var(--el-color-danger-light-3);
-  }
-  &.connected .status-label { color: var(--el-color-success); }
-  &.disconnected .status-label { color: var(--el-text-color-placeholder); }
 }
 
 .task-inline {

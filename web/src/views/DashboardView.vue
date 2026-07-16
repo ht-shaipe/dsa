@@ -90,6 +90,19 @@
       </template>
     </div>
 
+    <div class="watchlist-section" v-if="positions.length">
+      <div class="section-header">
+        <span class="section-title">持仓行情</span>
+        <el-button link type="primary" @click="$router.push('/portfolio')">管理投资组合 →</el-button>
+      </div>
+      <PositionCardList
+        :positions="positions"
+        :columns="4"
+        empty-text="暂无持仓"
+        @click="analyzeFromWatchlist"
+      />
+    </div>
+
     <div class="watchlist-section" v-if="watchlist.length">
       <div class="section-header">
         <span class="section-title">自选股行情</span>
@@ -115,41 +128,6 @@
       </div>
     </div>
 
-    <div class="watchlist-section" v-if="positions.length">
-      <div class="section-header">
-        <span class="section-title">持仓行情</span>
-        <el-button link type="primary" @click="$router.push('/portfolio')">管理投资组合 →</el-button>
-      </div>
-      <div class="position-grid">
-        <div v-for="row in positions" :key="row.stockCode || row.code" class="position-card" @click="analyzeFromWatchlist(row)">
-          <div class="position-card-header">
-            <span class="position-card-name">{{ row.stockName || row.name || '-' }}</span>
-            <span class="position-card-code">{{ row.stockCode || row.code }}</span>
-          </div>
-          <div class="position-card-row">
-            <span class="position-label">持仓</span>
-            <span class="position-val">{{ row.quantity }}股</span>
-            <span class="position-label">成本</span>
-            <span class="position-val">{{ formatNum(row.avgCost, 3) }}</span>
-          </div>
-          <div class="position-card-row">
-            <span class="position-label">现价</span>
-            <span :class="['position-val', (row.currentPrice || 0) >= (row.avgCost || 0) ? 'up' : 'down']">{{ formatNum(row.currentPrice, 2) }}</span>
-            <span class="position-label">市值</span>
-            <span class="position-val">{{ formatNum(row.marketValue, 0) }}</span>
-          </div>
-          <div class="position-card-footer">
-            <span class="position-label">盈亏</span>
-            <span :class="['position-pnl', (row.unrealizedPnl || 0) >= 0 ? 'up' : 'down']">
-              {{ (row.unrealizedPnl || 0) >= 0 ? '+' : '' }}{{ formatNum(row.unrealizedPnl, 2) }}
-              <template v-if="row.avgCost && row.quantity">
-                ({{ (row.unrealizedPnl >= 0 ? '+' : '') }}{{ formatNum((row.unrealizedPnl / (row.avgCost * row.quantity)) * 100, 2) }}%)
-              </template>
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
 
     <div class="analysis-section">
       <div class="analysis-header">
@@ -198,6 +176,10 @@
             </div>
             <div class="summary-info">
               <el-tag :type="actionType" size="large" round>{{ actionLabel }}</el-tag>
+              <div v-if="analysisStore.currentReport.dataAsOf" class="meta-item">
+                <span class="meta-label">数据基准</span>
+                <span class="meta-value" style="font-size:12px;color:var(--el-text-color-secondary)">{{ analysisStore.currentReport.dataAsOf }}</span>
+              </div>
               <div v-if="analysisStore.currentReport.targetPrice" class="meta-item">
                 <span class="meta-label">目标价</span>
                 <span class="meta-value">{{ analysisStore.currentReport.targetPrice }}</span>
@@ -230,12 +212,14 @@ import { Loading } from '@element-plus/icons-vue'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import ScoreGauge from '@/components/common/ScoreGauge.vue'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
+import PositionCardList from '@/components/common/PositionCardList.vue'
 import { marketApi } from '@/api/market'
 import { stockApi } from '@/api/stock'
 import { portfolioApi } from '@/api/portfolio'
 import { analysisApi } from '@/api/analysis'
 import { systemApi } from '@/api/system'
 import { useAnalysisStore } from '@/stores/analysis'
+import { formatNum, formatMoney, formatTokens } from '@/utils/format'
 
 const analysisStore = useAnalysisStore()
 const marketOverview = ref<any[]>([])
@@ -258,11 +242,6 @@ const selectedName = ref('')
 const searchText = ref('')
 const currentTime = ref('')
 let streamAbort: AbortController | null = null
-
-function formatNum(v: any, digits: number): string {
-  const n = Number(v)
-  return isNaN(n) ? '-' : n.toFixed(digits)
-}
 
 function updateTime() {
   const now = new Date()
@@ -391,17 +370,7 @@ async function loadDashboardStats() {
   statsLoading.value = false
 }
 
-function formatMoney(v: number): string {
-  if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'
-  if (v >= 1e4) return (v / 1e4).toFixed(1) + '万'
-  return v.toFixed(2)
-}
 
-function formatTokens(v: number): string {
-  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M'
-  if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K'
-  return v.toLocaleString()
-}
 
 function analyzeFromWatchlist(row: any) {
   selectedCode.value = row.stockCode || row.code || ''
@@ -439,7 +408,7 @@ onUnmounted(() => {
   padding: 12px 20px;
   background: var(--el-bg-color);
   border-radius: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
   border: 1px solid var(--el-border-color-lighter);
 }
 .market-item {
@@ -460,7 +429,7 @@ onUnmounted(() => {
   padding: 10px 20px;
   background: var(--el-bg-color);
   border-radius: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
   border: 1px solid var(--el-border-color-lighter);
   flex-wrap: wrap;
 }
@@ -528,69 +497,6 @@ onUnmounted(() => {
 }
 .stock-card-code { font-size: 12px; color: var(--el-text-color-secondary); }
 
-.position-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
-}
-.position-card {
-  padding: 12px;
-  border-radius: 6px;
-  border: 1px solid var(--el-border-color-extra-light);
-  cursor: pointer;
-  transition: all 0.2s;
-  &:hover {
-    border-color: var(--el-color-primary-light-5);
-    background: var(--el-color-primary-light-9);
-  }
-}
-.position-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 8px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--el-border-color-extra-light);
-}
-.position-card-name {
-  font-size: 14px;
-  font-weight: 600;
-  max-width: 90px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.position-card-code { font-size: 12px; color: var(--el-text-color-secondary); }
-.position-card-row {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  margin-bottom: 4px;
-  font-size: 13px;
-}
-.position-card-footer {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  margin-top: 4px;
-  padding-top: 6px;
-  border-top: 1px solid var(--el-border-color-extra-light);
-  font-size: 13px;
-}
-.position-label {
-  color: var(--el-text-color-placeholder);
-  font-size: 12px;
-  min-width: 28px;
-}
-.position-val {
-  font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  margin-right: 8px;
-}
-.position-pnl {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
 .stock-card-bottom {
   display: flex;
   justify-content: space-between;

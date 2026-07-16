@@ -5,7 +5,37 @@ use crate::DsaError;
 use deck_connector::Connector;
 use log::error as log_error;
 use qta_crawler::{EastMoney, History, Real, QQ};
+use chrono::Datelike;
 use tube::Value;
+
+pub fn current_time_context() -> String {
+    let now = chrono::Local::now();
+    let weekday = match now.weekday().num_days_from_monday() {
+        0 => "一", 1 => "二", 2 => "三", 3 => "四", 4 => "五", 5 => "六", _ => "日",
+    };
+    format!(
+        "当前时间: {} 星期{}\n重要提醒: 你的所有分析必须基于此时间点，不得使用过时数据或历史结论。如果提供的数据最后日期距今超过3个交易日，必须明确指出数据可能不完整。",
+        now.format("%Y-%m-%d %H:%M"),
+        weekday,
+    )
+}
+
+pub fn data_freshness_warning(last_date: &str, data_type: &str) -> String {
+    if let Ok(last) = chrono::NaiveDate::parse_from_str(last_date, "%Y-%m-%d") {
+        let today = chrono::Local::now().date_naive();
+        let gap = (today - last).num_days();
+        if gap > 3 {
+            format!(
+                "⚠️ {}数据截至{}，距今已{}天，数据可能不完整，近{}天数据缺失",
+                data_type, last_date, gap, gap
+            )
+        } else {
+            format!("✅ {}数据截至{}，数据较新", data_type, last_date)
+        }
+    } else {
+        format!("{}最新日期: {}", data_type, last_date)
+    }
+}
 
 /// 从参数中提取字符串值，不存在则返回空字符串
 pub fn param_string(params: &Value, key: &str) -> String {

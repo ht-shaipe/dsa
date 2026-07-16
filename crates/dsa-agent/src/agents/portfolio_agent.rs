@@ -80,7 +80,10 @@ impl BaseAgent for PortfolioAgent {
             format!("当前持仓: {}", summaries.join(", "))
         };
 
-        let system_prompt = "你是一位资深投资组合管理专家，擅长从组合配置的角度评估个股，考虑相关性、集中度、行业分布等维度。请基于提供的组合信息给出专业的组合建议。用中文回答。";
+        let system_prompt = format!(
+            "你是一位资深投资组合管理专家，擅长从组合配置的角度评估个股，考虑相关性、集中度、行业分布等维度。请基于提供的组合信息给出专业的组合建议。用中文回答。\n\n{}\n重要: 组合评估必须基于当前市场环境，不得套用过时结论。",
+            dsa_core::utils::current_time_context()
+        );
 
         let user_prompt = format!(
             "请从组合管理角度评估股票{}：\n\

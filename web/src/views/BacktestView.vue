@@ -269,6 +269,7 @@ import { backtestApi } from '@/api/backtest'
 import { decisionApi } from '@/api/decision'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import { QuestionFilled } from '@element-plus/icons-vue'
+import { pnlClass, pnlPercentText as formatPct, formatDate } from '@/utils/format'
 
 const route = useRoute()
 const signalId = ref(0)
@@ -329,21 +330,6 @@ function signalStatusType(status: number | string) {
 function signalStatusLabel(status: number | string) {
   const map: Record<string, string> = { '1': '待评估', '2': '已采纳', '3': '已拒绝', '4': '已回测' }
   return map[String(status)] || String(status || '-')
-}
-
-function pnlClass(val: number | undefined) {
-  const v = Number(val || 0)
-  return v > 0 ? 'pnl-up' : v < 0 ? 'pnl-down' : ''
-}
-
-function formatPct(val: number | undefined) {
-  const v = Number(val || 0)
-  return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'
-}
-
-function formatDate(val: string | undefined) {
-  if (!val) return '-'
-  return String(val).slice(0, 10)
 }
 
 function outcomeTag(outcome: string) {

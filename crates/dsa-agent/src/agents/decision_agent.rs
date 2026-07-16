@@ -61,7 +61,10 @@ impl BaseAgent for DecisionAgent {
             .and_then(|p| p.as_f64())
             .unwrap_or(0.0);
 
-        let system_prompt = "你是一位资深投资决策专家，擅长综合技术面、情报面和风险面分析，给出明确的投资决策建议。你的决策必须具体、可执行，包含明确的操作方向、仓位建议和价格目标。用中文回答。";
+        let system_prompt = format!(
+            "你是一位资深投资决策专家，擅长综合技术面、情报面和风险面分析，给出明确的投资决策建议。你的决策必须具体、可执行，包含明确的操作方向、仓位建议和价格目标。用中文回答。\n\n{}\n重要: 决策必须基于当前时间点的数据和判断，不得使用过时数据或结论。",
+            dsa_core::utils::current_time_context()
+        );
 
         let user_prompt = format!(
             "请对股票{}做出综合投资决策：\n\

@@ -65,7 +65,10 @@ impl BaseAgent for RiskAgent {
             .and_then(|t| t.as_str())
             .unwrap_or_default();
 
-        let system_prompt = "你是一位资深风险管理专家，擅长评估投资风险、制定仓位管理策略和止损止盈方案。请根据提供的数据给出专业的风险评估和管理建议。用中文回答。";
+        let system_prompt = format!(
+            "你是一位资深风险管理专家，擅长评估投资风险、制定仓位管理策略和止损止盈方案。请根据提供的数据给出专业的风险评估和管理建议。用中文回答。\n\n{}\n重要: 风险评估必须基于当前市场环境，不得套用过时的市场结论。",
+            dsa_core::utils::current_time_context()
+        );
 
         let user_prompt = format!(
             "请对股票{}进行风险评估：\n\

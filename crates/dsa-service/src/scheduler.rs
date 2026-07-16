@@ -208,10 +208,15 @@ impl Scheduler {
 
         let market_ctx: Option<&str> = None;
 
-        let report = pipeline
+        let mut report = pipeline
             .analyze_stock(code, &name, &bars, realtime.as_ref(), market_ctx)
             .await
             .map_err(|e| tube::Error::msg(e.to_string()))?;
+
+        let analysis_time = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+        let last_kline_date = bars.last().map(|b| b.date.as_str()).unwrap_or("未知");
+        let freshness = dsa_core::utils::data_freshness_warning(last_kline_date, "K线");
+        report.data_as_of = Some(format!("{} (分析时间: {}) | {}", last_kline_date, analysis_time, freshness));
 
         let text = renderer.render_text(&report);
         Ok((text, report))
@@ -242,9 +247,9 @@ impl Scheduler {
         let sql = &format!("INSERT INTO analysis_history \
              (stock_code, stock_name, sentiment_score, decision_type, operation_advice, \
               analysis_summary, risk_warning, report_json, report_type, status, \
-              llm_provider, llm_model, create_time, modify_time) \
+              llm_provider, llm_model, data_as_of, create_time, modify_time) \
              VALUES (:code, :name, :score, :dtype, :advice, :summary, :risk, :json, 'scheduled', 1, \
-              :provider, :model, {}, {})", now_expr, now_expr);
+              :provider, :model, :data_as_of, {}, {})", now_expr, now_expr);
 
         if let Err(e) = dsa_core::db::execute(
             sql,
@@ -268,6 +273,7 @@ impl Scheduler {
                     Value::from(conf.llm.provider.clone()),
                 ),
                 ("model".to_string(), Value::from(conf.llm.model.clone())),
+                ("data_as_of".to_string(), Value::from(report.data_as_of.as_deref().unwrap_or(""))),
             ],
             &connector,
         ) {

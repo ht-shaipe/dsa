@@ -16,13 +16,13 @@
         <el-icon><DataAnalysis /></el-icon>
         <template #title>工作台</template>
       </el-menu-item>
-      <el-menu-item index="/watchlist">
-        <el-icon><Star /></el-icon>
-        <template #title>自选股</template>
-      </el-menu-item>
       <el-menu-item index="/chat">
         <el-icon><ChatDotRound /></el-icon>
         <template #title>AI 问股</template>
+      </el-menu-item>
+      <el-menu-item index="/watchlist">
+        <el-icon><Star /></el-icon>
+        <template #title>自选股</template>
       </el-menu-item>
       <el-menu-item index="/analysis-history">
         <el-icon><Document /></el-icon>

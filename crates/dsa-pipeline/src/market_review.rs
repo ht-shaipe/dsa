@@ -79,9 +79,12 @@ impl MarketReviewGenerator {
             .map_err(|e| DsaError::LlmAnalysis(format!("不支持的provider: {}", e)))?;
         let llm: Box<dyn LlmService> = LlmFactory::create(llm_provider, &api_key);
 
-        let system_prompt = "你是一位资深市场分析师，请根据提供的指数数据，生成简洁的市场综述报告。\
+        let system_prompt = format!(
+            "你是一位资深市场分析师，请根据提供的指数数据，生成简洁的市场综述报告。\
              包含：1)市场概况 2)板块表现 3)后市展望。输出JSON格式：\
-             {\"title\":\"标题\",\"summary\":\"摘要\",\"outlook\":\"展望\",\"sentiment\":\"偏多/偏空/中性\"}";
+             {{\"title\":\"标题\",\"summary\":\"摘要\",\"outlook\":\"展望\",\"sentiment\":\"偏多/偏空/中性\"}}\n\n{}\n重要: 综述必须基于当前市场环境，不得套用过时结论。",
+            dsa_core::utils::current_time_context()
+        );
 
         let user_prompt = format!("今日A股市场数据：{}\n\n请生成市场综述。", market_context);
 

@@ -12,9 +12,12 @@ impl ReportRenderer {
     pub fn render_markdown(&self, report: &AnalysisReport) -> String {
         let mut md = String::new();
 
-        // 标题
         if let Some(ref name) = report.stock_name {
             md.push_str(&format!("# {} 分析报告\n\n", name));
+        }
+
+        if let Some(ref data_as_of) = report.data_as_of {
+            md.push_str(&format!("> 📊 **数据基准时间**: {}\n\n", data_as_of));
         }
 
         // 核心决策
@@ -310,7 +313,10 @@ impl ReportRenderer {
     pub fn render_text(&self, report: &AnalysisReport) -> String {
         let mut text = String::new();
 
-        // 基本信息
+        if let Some(ref data_as_of) = report.data_as_of {
+            text.push_str(&format!("[数据基准: {}]", data_as_of));
+        }
+
         if let Some(ref name) = report.stock_name {
             text.push_str(&format!("【{}】", name));
         }
@@ -411,6 +417,7 @@ mod tests {
             hot_topics: None,
             search_performed: None,
             data_sources: None,
+            data_as_of: None,
         }
     }
 
@@ -466,6 +473,7 @@ mod tests {
             hot_topics: None,
             search_performed: None,
             data_sources: None,
+            data_as_of: None,
         };
         let renderer = ReportRenderer::new();
         let md = renderer.render_markdown(&report);

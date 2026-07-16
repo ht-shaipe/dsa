@@ -73,7 +73,10 @@ impl BaseAgent for TechnicalAgent {
             .unwrap_or(0.0);
 
         // 构建LLM提示
-        let system_prompt = "你是一位资深技术分析专家，擅长分析股票的MA趋势、MACD、RSI、成交量形态和筹码分布。请根据提供的技术指标数据进行专业分析，给出明确的趋势判断和操作建议。用中文回答。";
+        let system_prompt = format!(
+            "你是一位资深技术分析专家，擅长分析股票的MA趋势、MACD、RSI、成交量形态和筹码分布。请根据提供的技术指标数据进行专业分析，给出明确的趋势判断和操作建议。用中文回答。\n\n{}\n重要: 所有分析必须基于当前时间点，不得使用过时数据做出判断。",
+            dsa_core::utils::current_time_context()
+        );
 
         let user_prompt = format!(
             "请对股票{}进行技术面分析：\n\

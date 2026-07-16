@@ -78,12 +78,15 @@ impl Orchestrator {
         let llm = Self::create_llm()?;
         let conf = dsa_core::get_global_config();
 
-        let system_prompt = "你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。";
+        let system_prompt = format!(
+            "你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。\n\n{}\n重要: 如果涉及具体股票或市场分析，必须基于当下时间判断，不得使用过时数据。",
+            dsa_core::utils::current_time_context()
+        );
 
         let body = value!({
             "model": &conf.llm.model,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": &system_prompt},
                 {"role": "user", "content": &message}
             ],
             "temperature": 0.7,
@@ -168,12 +171,15 @@ impl Orchestrator {
         let llm = Self::create_llm()?;
         let conf = dsa_core::get_global_config();
 
-        let system_prompt = "你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。";
+        let system_prompt = format!(
+            "你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。\n\n{}\n重要: 如果涉及具体股票或市场分析，必须基于当下时间判断，不得使用过时数据。",
+            dsa_core::utils::current_time_context()
+        );
 
         let body = value!({
             "model": &conf.llm.model,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": &system_prompt},
                 {"role": "user", "content": message}
             ],
             "temperature": 0.7,
@@ -302,8 +308,9 @@ impl Orchestrator {
     ) -> DsaResult<Value> {
         let llm = Self::create_llm()?;
         let system_prompt = format!(
-            "你是一位资深证券分析师，请对股票{}进行全方位分析，包括技术面、基本面、情报面、风控和操作建议。以JSON格式输出。",
-            code
+            "你是一位资深证券分析师，请对股票{}进行全方位分析，包括技术面、基本面、情报面、风控和操作建议。以JSON格式输出。\n\n{}\n重要: 所有分析必须基于当前时间点，基于最新数据判断，不得使用过时结论。",
+            code,
+            dsa_core::utils::current_time_context()
         );
 
         let quote_result = DataTools::get_realtime_quote(&format!("sz{}", code)).await;
