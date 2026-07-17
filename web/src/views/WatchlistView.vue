@@ -16,14 +16,16 @@
         </div>
       </template>
 
-      <el-table :data="stocks" stripe style="width:100%" v-loading="loading">
+      <el-table :data="stocks" stripe style="width:100%" v-loading="loading" @row-dblclick="openKline">
         <el-table-column label="代码" width="100">
           <template #default="{ row }">
             <span style="font-weight:500">{{ row.stockCode || row.code }}</span>
           </template>
         </el-table-column>
         <el-table-column label="名称" width="120">
-          <template #default="{ row }">{{ row.stockName || row.name || '-' }}</template>
+          <template #default="{ row }">
+            <span>{{ row.stockName || row.name || '-' }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="现价" >
           <template #default="{ row }">
@@ -48,10 +50,10 @@
         <el-table-column label="添加时间" width="168">
           <template #default="{ row }">{{ formatDateTime(row.createTime) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="editStock(row)">编辑</el-button>
-            <el-button link type="primary" @click="analyzeStock(row)">分析</el-button>
+            <el-button link type="primary" @click.stop="editStock(row)">编辑</el-button>
+            <el-button link type="primary" @click.stop="analyzeStock(row)">分析</el-button>
             <el-popconfirm title="确定移除?" @confirm="removeStock(row)">
               <template #reference>
                 <el-button link type="danger">移除</el-button>
@@ -109,6 +111,13 @@ const editForm = ref<Record<string, any> | null>(null)
 const searchText = ref('')
 
 const quoteTimer = useTradingInterval(refreshQuotes, 10000)
+
+function openKline(row: Record<string, any>) {
+  const code = row.stockCode || row.code || ''
+  const name = row.stockName || row.name || ''
+  if (!code) return
+  router.push({ path: '/kline', query: { code, name } })
+}
 
 async function loadList() {
   loading.value = true

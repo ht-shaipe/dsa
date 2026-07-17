@@ -3,8 +3,23 @@
     <el-card shadow="hover" class="summary-bar" style="margin-bottom: 20px">
       <div class="summary-row">
         <div class="summary-item">
+          <span class="summary-label">总资产</span>
+          <span class="summary-value">¥{{ formatNum(summary.totalEquity || summary.totalValue, 2) }}</span>
+        </div>
+        <el-divider direction="vertical" />
+        <div class="summary-item">
           <span class="summary-label">总市值</span>
           <span class="summary-value">¥{{ formatNum(summary.totalValue, 2) }}</span>
+        </div>
+        <el-divider direction="vertical" />
+        <div class="summary-item">
+          <span class="summary-label">现金</span>
+          <span class="summary-value">¥{{ formatNum(summary.cashBalance, 2) }}</span>
+        </div>
+        <el-divider direction="vertical" />
+        <div class="summary-item">
+          <span class="summary-label">已实现盈亏</span>
+          <span :class="['summary-value', pnlClass(summary.realizedPnl)]">{{ pnlText(summary.realizedPnl) }}</span>
         </div>
         <el-divider direction="vertical" />
         <div class="summary-item">
@@ -35,6 +50,8 @@
                 <el-button type="success" @click="openTradeDialog('buy')">买入</el-button>
                 <el-button type="danger" @click="openTradeDialog('sell')">卖出</el-button>
                 <el-button type="primary" @click="openBatchDialog">批量录入</el-button>
+                <el-button type="warning" @click="ocrDialogVisible = true">截图导入</el-button>
+                <el-button @click="rebuildPositions" :loading="rebuilding">重建持仓</el-button>
               </div>
             </div>
           </template>
@@ -70,10 +87,52 @@
         <el-table-column prop="tradeTime" label="时间" width="180">
           <template #default="{ row }">{{ row.tradeDate || row.tradeTime || row.createdAt || row.createdTime || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="150" show-overflow-tooltip />
+        <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button type="primary" link size="small" @click="openEditTradeDialog(row)">编辑</el-button>
+            <el-button type="danger" link size="small" @click="handleDeleteTrade(row)">删除</el-button>
+          </template>
+        </el-table-column>
       </el-table>
       <el-empty v-if="!trades.length" description="暂无交易记录" />
     </el-card>
+
+    <el-dialog v-model="editTradeDialogVisible" title="编辑交易" width="500px">
+      <el-form :model="editTradeForm" label-width="80px">
+        <el-form-item label="股票代码">
+          <el-input v-model="editTradeForm.code" />
+        </el-form-item>
+        <el-form-item label="股票名称">
+          <el-input v-model="editTradeForm.name" />
+        </el-form-item>
+        <el-form-item label="方向">
+          <el-select v-model="editTradeForm.direction" style="width:100%">
+            <el-option label="买入" value="buy" />
+            <el-option label="卖出" value="sell" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="交易时间">
+          <el-date-picker v-model="editTradeForm.tradeDate" type="datetime" placeholder="交易时间" style="width:100%" value-format="YYYY-MM-DD HH:mm:ss" />
+        </el-form-item>
+        <el-form-item label="价格">
+          <el-input-number v-model="editTradeForm.price" :precision="2" :min="0" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="数量">
+          <el-input-number v-model="editTradeForm.quantity" :min="1" :step="100" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="佣金">
+          <el-input-number v-model="editTradeForm.commission" :precision="2" :min="0" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="editTradeForm.remark" type="textarea" :rows="2" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editTradeDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editTradeSubmitting" @click="submitEditTrade">保存</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="tradeDialogVisible" :title="tradeDirection === 'buy' ? '买入股票' : '卖出股票'" width="500px">
       <el-form :model="tradeForm" label-width="80px">
@@ -164,12 +223,47 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="ocrDialogVisible" title="截图识别导入交易" width="600px" @close="resetOcrForm">
+      <div class="ocr-upload-area">
+        <div v-if="!ocrPreviewUrl" class="ocr-drop-zone" @click="triggerOcrFileInput" @paste="onOcrPaste" @dragover.prevent @drop.prevent="onOcrDrop">
+          <el-icon :size="40" style="color:var(--el-text-color-placeholder)"><UploadFilled /></el-icon>
+          <p>点击选择图片 / 拖拽到此处 / Ctrl+V 粘贴截图</p>
+          <p style="font-size:12px;color:var(--el-text-color-placeholder)">支持交易软件截图，自动识别股票代码、价格、数量等信息</p>
+        </div>
+        <div v-else class="ocr-preview">
+          <img :src="ocrPreviewUrl" style="max-width:100%;max-height:300px;border-radius:8px" />
+          <el-button link type="danger" @click="resetOcrForm" style="margin-top:8px">清除重选</el-button>
+        </div>
+        <input ref="ocrFileRef" type="file" accept="image/*" style="display:none" @change="onOcrFileChange" />
+      </div>
+      <div v-if="ocrResult" style="margin-top:12px">
+        <el-alert
+          :title="`识别完成：共 ${ocrResult.total} 笔，成功 ${ocrResult.success} 笔，失败 ${ocrResult.failed} 笔`"
+          :type="ocrResult.failed > 0 ? 'warning' : 'success'"
+          show-icon
+          :closable="false"
+        />
+        <div v-if="ocrResult.errors && ocrResult.errors.length" style="margin-top:8px">
+          <div v-for="(err, i) in ocrResult.errors" :key="i" style="color:var(--el-color-danger);font-size:12px">
+            第{{ err.index + 1 }}笔: {{ err.error }}
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="ocrDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :loading="ocrSubmitting" :disabled="!ocrBase64" @click="submitOcrImport">
+          识别并导入
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { UploadFilled } from '@element-plus/icons-vue'
 import { portfolioApi } from '@/api/portfolio'
 import { useTradingInterval } from '@/composables/useTradingInterval'
 import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
@@ -196,10 +290,31 @@ const tradeForm = ref({
 
 const batchDialogVisible = ref(false)
 const batchSubmitting = ref(false)
+const rebuilding = ref(false)
+const ocrDialogVisible = ref(false)
+const ocrSubmitting = ref(false)
+const ocrBase64 = ref('')
+const ocrPreviewUrl = ref('')
+const ocrResult = ref<any>(null)
+const ocrFileRef = ref<HTMLInputElement | null>(null)
 const batchForm = ref({
   code: '',
   name: '',
   rows: [] as { direction: string; tradeDate: string; price: number; quantity: number; commission: number }[],
+})
+
+const editTradeDialogVisible = ref(false)
+const editTradeSubmitting = ref(false)
+const editTradeForm = ref({
+  id: 0,
+  code: '',
+  name: '',
+  direction: 'buy' as 'buy' | 'sell',
+  tradeDate: '',
+  price: 0,
+  quantity: 100,
+  commission: 0,
+  remark: '',
 })
 
 const tradingTimer = useTradingInterval(() => {
@@ -283,6 +398,89 @@ function onBatchStockSelect(code: string, name: string) {
   batchForm.value.name = name
 }
 
+async function rebuildPositions() {
+  const accountId = accounts.value[0]?.id || 1
+  rebuilding.value = true
+  try {
+    const res: any = await portfolioApi.rebuild(accountId)
+    const count = res?.rebuiltPositions ?? 0
+    ElMessage.success(`持仓重建完成: ${count} 个持仓已从交易记录重新计算`)
+    loadData()
+  } catch {
+    ElMessage.error('重建持仓失败')
+  } finally {
+    rebuilding.value = false
+  }
+}
+
+function triggerOcrFileInput() {
+  ocrFileRef.value?.click()
+}
+
+function resetOcrForm() {
+  ocrBase64.value = ''
+  ocrPreviewUrl.value = ''
+  ocrResult.value = null
+}
+
+function onOcrFileChange(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  readOcrFile(file)
+}
+
+function onOcrDrop(e: DragEvent) {
+  const file = e.dataTransfer?.files?.[0]
+  if (!file || !file.type.startsWith('image/')) return
+  readOcrFile(file)
+}
+
+function onOcrPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items
+  if (!items) return
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) { readOcrFile(file); break }
+    }
+  }
+}
+
+function readOcrFile(file: File) {
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    const dataUrl = ev.target?.result as string
+    ocrPreviewUrl.value = dataUrl
+    ocrBase64.value = dataUrl.split(',')[1] || dataUrl
+  }
+  reader.readAsDataURL(file)
+}
+
+async function submitOcrImport() {
+  if (!ocrBase64.value) {
+    ElMessage.warning('请先选择或粘贴截图')
+    return
+  }
+  const accountId = accounts.value[0]?.id || 1
+  ocrSubmitting.value = true
+  ocrResult.value = null
+  try {
+    const res: any = await portfolioApi.ocrImport({ accountId, image: ocrBase64.value })
+    ocrResult.value = res
+    if (res.success > 0) {
+      ElMessage.success(`截图识别导入成功 ${res.success} 笔交易`)
+      loadData()
+    }
+    if (res.failed > 0) {
+      ElMessage.warning(`${res.failed} 笔交易识别/导入失败，请检查详情`)
+    }
+  } catch {
+    ElMessage.error('截图识别失败，请确认LLM视觉模型已配置')
+  } finally {
+    ocrSubmitting.value = false
+  }
+}
+
 async function submitBatch() {
   if (!batchForm.value.code) {
     ElMessage.warning('请选择股票')
@@ -329,6 +527,61 @@ async function submitBatch() {
     loadData()
   } finally {
     batchSubmitting.value = false
+  }
+}
+
+function openEditTradeDialog(row: any) {
+  editTradeForm.value = {
+    id: row.id,
+    code: row.stockCode || row.code || '',
+    name: row.stockName || row.name || '',
+    direction: (row.side || row.direction) === 'sell' ? 'sell' : 'buy',
+    tradeDate: row.tradeDate || row.tradeTime || '',
+    price: Number(row.price || 0),
+    quantity: Number(row.quantity || 0),
+    commission: Number(row.commission || 0),
+    remark: row.remark || '',
+  }
+  editTradeDialogVisible.value = true
+}
+
+async function submitEditTrade() {
+  if (!editTradeForm.value.code) {
+    ElMessage.warning('股票代码不能为空')
+    return
+  }
+  editTradeSubmitting.value = true
+  try {
+    const { id, code, name, direction, tradeDate, price, quantity, commission, remark } = editTradeForm.value
+    await portfolioApi.editTrade({ id, code, name, direction, price, quantity, commission, remark, tradeDate: tradeDate || undefined })
+    ElMessage.success('交易修改成功，持仓已重建')
+    editTradeDialogVisible.value = false
+    loadData()
+  } catch {
+    ElMessage.error('修改交易失败')
+  } finally {
+    editTradeSubmitting.value = false
+  }
+}
+
+async function handleDeleteTrade(row: any) {
+  const dir = (row.side || row.direction) === 'buy' ? '买入' : '卖出'
+  const code = row.stockCode || row.code || ''
+  try {
+    await ElMessageBox.confirm(
+      `确认删除 ${code} ${dir} ${row.quantity}股 @${Number(row.price || 0).toFixed(2)} 的交易记录？持仓将自动重建。`,
+      '删除交易',
+      { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await portfolioApi.deleteTrade(row.id)
+    ElMessage.success('交易已删除，持仓已重建')
+    loadData()
+  } catch {
+    ElMessage.error('删除交易失败')
   }
 }
 
@@ -389,5 +642,21 @@ onUnmounted(() => {
 :deep(.el-divider--vertical) {
   height: 28px;
   margin: 0 20px;
+}
+.ocr-upload-area {
+  margin-bottom: 12px;
+}
+.ocr-drop-zone {
+  border: 2px dashed var(--el-border-color);
+  border-radius: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  &:hover { border-color: var(--el-color-primary); }
+  p { margin: 8px 0 0; color: var(--el-text-color-regular); }
+}
+.ocr-preview {
+  text-align: center;
 }
 </style>

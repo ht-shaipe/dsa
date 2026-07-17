@@ -73,6 +73,7 @@ declare module 'vue' {
     KlineChart: typeof import('./components/common/KlineChart.vue')['default']
     MarkdownRenderer: typeof import('./components/common/MarkdownRenderer.vue')['default']
     PositionCardList: typeof import('./components/common/PositionCardList.vue')['default']
+    QuickStartCard: typeof import('./components/common/QuickStartCard.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ScoreGauge: typeof import('./components/common/ScoreGauge.vue')['default']

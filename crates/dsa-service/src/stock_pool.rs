@@ -30,27 +30,25 @@ impl TableService<StockPoolModel> for StockPool {
 }
 
 #[derive(Debug, Clone, Default)]
-struct StockSpot {
-    symbol: String,      // 如 "sh600000"
-    code: String,        // 如 "600000"
-    name: String,        // 如 "浦发银行"
-    market_id: i8,       // 1=沪 0=深
-    // 行情
-    open: f64,
-    high: f64,
-    low: f64,
-    close: f64,          // 最新价(trade)
-    previous_close: f64, // 昨收(settlement)
-    change_price: f64,   // 涨跌额(pricechange)
-    change_percent: f64, // 涨跌幅(changepercent)
-    volume: f64,
-    amount: f64,
-    // 估值
-    pe: f64,             // 市盈率(per)
-    pb: f64,             // 市净率(pb)
-    total_market_cap: f64, // 总市值(亿)，mktcap/10000
-    liquid_market_cap: f64, // 流通市值(亿)，nmc/10000
-    turnover_ratio: f64, // 换手率(turnoverratio)
+pub struct StockSpot {
+    pub symbol: String,
+    pub code: String,
+    pub name: String,
+    pub market_id: i8,
+    pub open: f64,
+    pub high: f64,
+    pub low: f64,
+    pub close: f64,
+    pub previous_close: f64,
+    pub change_price: f64,
+    pub change_percent: f64,
+    pub volume: f64,
+    pub amount: f64,
+    pub pe: f64,
+    pub pb: f64,
+    pub total_market_cap: f64,
+    pub liquid_market_cap: f64,
+    pub turnover_ratio: f64,
 }
 
 impl StockPool {
@@ -255,7 +253,7 @@ impl StockPool {
                     let mut spot_codes: Vec<StockSpot> = Vec::new();
 
                     // 主数据源：新浪财经（分页拉取全量 A 股）
-                    match Self::fetch_stock_list_simple().await {
+                    match Self::fetch_stock_list_simple_pub().await {
                         Ok(items) if !items.is_empty() => {
                             log::info!("新浪API获取到 {} 条A股", items.len());
                             spot_codes = items;
@@ -324,7 +322,7 @@ impl StockPool {
 
                     let filtered: Vec<StockSpot> = spot_codes
                         .iter()
-                        .filter(|s| Self::should_include(&s.code, &s.name, &boards, exclude_st, exclude_delisting, exclude_new))
+                        .filter(|s| Self::should_include_pub(&s.code, &s.name, &boards, exclude_st, exclude_delisting, exclude_new))
                         .cloned()
                         .collect();
 
@@ -575,7 +573,7 @@ impl StockPool {
         }
     }
 
-    fn should_include(
+    pub fn should_include_pub(
         code: &str,
         name: &str,
         boards: &[String],
@@ -618,7 +616,7 @@ impl StockPool {
 
     /// 从新浪财经获取 A 股全部股票列表（分页）
     /// 新浪每页最多 100 条，需分页拉取
-    async fn fetch_stock_list_simple() -> Result<Vec<StockSpot>> {
+    pub async fn fetch_stock_list_simple_pub() -> Result<Vec<StockSpot>> {
         let mut headers = std::collections::HashMap::new();
         headers.insert("User-Agent".to_string(), "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36".to_string());
         headers.insert("Referer".to_string(), "https://finance.sina.com.cn/".to_string());

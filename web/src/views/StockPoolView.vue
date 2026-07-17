@@ -44,7 +44,7 @@
         </div>
       </template>
 
-      <el-table :data="list" stripe style="width:100%" v-loading="loading" @selection-change="handleSelectionChange" :row-class-name="rowClassName">
+      <el-table :data="list" stripe style="width:100%" v-loading="loading" @selection-change="handleSelectionChange" :row-class-name="rowClassName" @row-dblclick="openKline">
         <el-table-column type="selection" width="40" />
 
         <!-- 代码 / 名称 -->
@@ -218,6 +218,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { Search, ArrowDown, Download, Delete, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { stockPoolApi } from '@/api/stockPool'
@@ -228,6 +229,7 @@ import { formatPrice as fmt, formatVolume as fmtVol, priceClass, peClass, isST }
 import { formatMoney as fmtAmount, formatDateTime } from '@/utils/format'
 
 const taskStore = useTaskStore()
+const router = useRouter()
 
 // ========== 股票池列表 ==========
 const loading = ref(false)
@@ -241,6 +243,13 @@ const showAddDialog = ref(false)
 const addLoading = ref(false)
 const addForm = ref({ code: '', name: '', industry: '' })
 const showInitPoolDialog = ref(false)
+
+function openKline(row: any) {
+  const code = row.stockCode || ''
+  const name = row.stockName || ''
+  if (!code) return
+  router.push({ path: '/kline', query: { code, name } })
+}
 
 function pctClass(pct: number | null | undefined): string {
   return priceClass(pct).replace('price-', 'pct-')

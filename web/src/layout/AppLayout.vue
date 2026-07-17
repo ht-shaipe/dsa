@@ -92,10 +92,13 @@ onUnmounted(() => {
   background: var(--dsa-bg);
   padding: 0 0 6px 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .app-scroll {
-    padding: 16px;
+  flex: 1;
+  padding: 16px;
 }
 
 .fade-enter-active,

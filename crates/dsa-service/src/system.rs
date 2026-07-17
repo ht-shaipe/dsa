@@ -126,6 +126,7 @@ impl System {
             "config_export" => self.config_export().await,
             "config_import" => self.config_import().await,
             "init_daily_data" => self.init_daily_data().await,
+            "quick_init" => self.quick_init().await,
             "sync_status" => self.sync_status().await,
             "clean_daily_data" => self.clean_daily_data().await,
             "daily_data_stats" => self.daily_data_stats().await,
@@ -284,34 +285,82 @@ impl System {
     }
 
     async fn discover_models(&self) -> Result<Value> {
+        let params = self.request.value.clone();
         let conf = dsa_core::get_global_config();
-        let provider = &conf.llm.provider;
 
-        let models = match provider.as_str() {
-            "deepseek" => vec![
-                value!({"id": "deepseek-chat", "name": "DeepSeek Chat"}),
-                value!({"id": "deepseek-reasoner", "name": "DeepSeek Reasoner"}),
-            ],
-            "openai" => vec![
-                value!({"id": "gpt-4o", "name": "GPT-4o"}),
-                value!({"id": "gpt-4o-mini", "name": "GPT-4o Mini"}),
-                value!({"id": "gpt-3.5-turbo", "name": "GPT-3.5 Turbo"}),
-            ],
-            "qwen" => vec![
-                value!({"id": "qwen-max", "name": "Qwen Max"}),
-                value!({"id": "qwen-plus", "name": "Qwen Plus"}),
-                value!({"id": "qwen-turbo", "name": "Qwen Turbo"}),
-            ],
-            _ => {
-                let model = conf.llm.model.clone();
-                vec![value!({"id": model.as_str(), "name": model.as_str()})]
-            }
+        let override_provider = dsa_core::utils::param_string(&params, "provider");
+        let override_api_key = dsa_core::utils::param_string(&params, "api_key");
+
+        let provider_name = if override_provider.is_empty() {
+            &conf.llm.provider
+        } else {
+            &override_provider
+        };
+        let api_key = if !override_api_key.is_empty() {
+            override_api_key
+        } else if provider_name == &conf.llm.provider || provider_name.is_empty() {
+            conf.resolve_api_key()
+        } else {
+            String::new()
         };
 
-        Ok(value!({
-            "provider": provider,
-            "models": models,
-        }))
+        if api_key.is_empty() {
+            return Ok(value!({
+                "provider": provider_name,
+                "models": [],
+                "error": "API Key 未配置，无法发现模型",
+            }));
+        }
+
+        let llm_provider = LlmProvider::instance(provider_name);
+        match llm_provider {
+            Ok(provider) => {
+                let llm: Box<dyn LlmService> = LlmFactory::create(provider, &api_key);
+                match llm.models().await {
+                    Ok(raw) => {
+                        let models = match raw.as_array() {
+                            Some(arr) => arr.clone(),
+                            None => {
+                                if let Some(data) = raw.get("data").and_then(|v| v.as_array()) {
+                                    data.clone()
+                                } else {
+                                    vec![]
+                                }
+                            }
+                        };
+                        let list: Vec<Value> = models.iter().filter_map(|m| {
+                            let id = m.get("id").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                            if id.is_empty() {
+                                return None;
+                            }
+                            Some(value!({
+                                "id": id.clone(),
+                                "name": id,
+                            }))
+                        }).collect();
+                        Ok(value!({
+                            "provider": provider_name,
+                            "models": list,
+                        }))
+                    }
+                    Err(e) => {
+                        log_warn!("发现模型API调用失败: {}", e);
+                        Ok(value!({
+                            "provider": provider_name,
+                            "models": [],
+                            "error": format!("调用模型列表API失败: {}", e),
+                        }))
+                    }
+                }
+            }
+            Err(e) => {
+                Ok(value!({
+                    "provider": provider_name,
+                    "models": [],
+                    "error": format!("不支持的供应商: {}", e),
+                }))
+            }
+        }
     }
 
     async fn llm_test(&self) -> Result<Value> {
@@ -744,6 +793,477 @@ impl System {
                 "retentionDays": sync_conf.retention_days,
             }
         }))
+    }
+
+    async fn quick_init(&self) -> Result<Value> {
+        {
+            let st = DATA_SYNC_STATUS.lock().unwrap();
+            if st.running {
+                return Ok(value!({"message": "已有任务在运行中，请等待完成后再试"}));
+            }
+        }
+
+        let pool_count: i64 = {
+            let connector = dsa_core::db::get_db_connector().ok();
+            connector
+                .and_then(|c| dsa_core::db::query_rows("SELECT COUNT(*) as cnt FROM stock_pool WHERE status = 1", vec![], &c).ok())
+                .and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt")))
+                .unwrap_or(0)
+        };
+
+        if pool_count > 0 {
+            return Ok(value!({"message": "股票池已有数据，如需重新初始化请先清空", "poolCount": pool_count}));
+        }
+
+        {
+            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+            st.running = true;
+            st.paused = false;
+            st.total = 0;
+            st.done = 0;
+            st.failed = 0;
+            st.phase = "init_pool".to_string();
+            st.task_name = "quick_init".to_string();
+            st.current_code = String::new();
+            st.current_name = String::new();
+        }
+        broadcast_task_status();
+
+        let conf = dsa_core::get_global_config();
+        let sync_conf = conf.data_sync.clone();
+        let retention_days = sync_conf.retention_days as i64;
+
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to build tokio runtime for quick_init");
+
+                rt.block_on(async {
+                    // ===== Phase 1: Init Stock Pool =====
+                    log::info!("快速初始化 [Phase 1]: 开始获取A股列表");
+
+                    let mut spot_codes: Vec<crate::stock_pool::StockSpot> = Vec::new();
+
+                    match crate::stock_pool::StockPool::fetch_stock_list_simple_pub().await {
+                        Ok(items) if !items.is_empty() => {
+                            log::info!("新浪API获取到 {} 条A股", items.len());
+                            spot_codes = items;
+                        }
+                        Ok(_) => { log::warn!("新浪API返回空列表"); }
+                        Err(e) => { log::warn!("新浪API失败: {}", e); }
+                    }
+
+                    if spot_codes.is_empty() {
+                        log::info!("尝试东方财富爬虫作为 fallback");
+                        let em = qta_crawler::EastMoney::new();
+                        match tokio::time::timeout(std::time::Duration::from_secs(180), em.stock_zh_a_spot()).await {
+                            Ok(Ok(full_list)) if !full_list.is_empty() => {
+                                spot_codes = full_list.iter().filter_map(|s| {
+                                    let code: String = s.get("代码").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                                    let name: String = s.get("名称").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                                    if code.is_empty() { return None; }
+                                    let market_id: i8 = if code.starts_with('6') { 1 } else { 0 };
+                                    let prefix = if market_id == 1 { "sh" } else if code.starts_with('8') || code.starts_with('4') || code.starts_with("920") { "bj" } else { "sz" };
+                                    Some(crate::stock_pool::StockSpot {
+                                        symbol: format!("{}{}", prefix, code),
+                                        code: code.clone(),
+                                        name,
+                                        market_id,
+                                        ..Default::default()
+                                    })
+                                }).collect();
+                            }
+                            _ => { log::error!("东方财富爬虫也失败"); }
+                        }
+                    }
+
+                    if spot_codes.is_empty() {
+                        log::error!("快速初始化: 无法获取股票列表，请检查网络");
+                        let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                        st.running = false;
+                        st.phase = "done".to_string();
+                        broadcast_task_status();
+                        return;
+                    }
+
+                    let boards = sync_conf.boards.clone();
+                    let exclude_st = sync_conf.exclude_st;
+                    let exclude_delisting = sync_conf.exclude_delisting_risk;
+                    let exclude_new = sync_conf.exclude_new_stock;
+
+                    let filtered: Vec<crate::stock_pool::StockSpot> = spot_codes
+                        .iter()
+                        .filter(|s| crate::stock_pool::StockPool::should_include_pub(&s.code, &s.name, &boards, exclude_st, exclude_delisting, exclude_new))
+                        .cloned()
+                        .collect();
+
+                    let pool_total = filtered.len() as u32;
+                    log::info!("快速初始化 [Phase 1]: 过滤后 {} 只股票，开始写入", pool_total);
+                    {
+                        let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                        st.total = pool_total;
+                        st.phase = "init_pool_writing".to_string();
+                    }
+                    broadcast_task_status();
+
+                    let is_sqlite = dsa_core::get_global_config().database.is_sqlite();
+                    let connector = match dsa_core::db::get_db_connector() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            log::error!("快速初始化DB连接失败: {}", e);
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.running = false;
+                            st.phase = "done".to_string();
+                            broadcast_task_status();
+                            return;
+                        }
+                    };
+
+                    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+                    let mut pool_done: u32 = 0;
+
+                    for spot in filtered.chunks(100) {
+                        if !wait_if_paused() { break; }
+                        for s in spot {
+                            {
+                                let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                                st.current_code = s.code.clone();
+                                st.current_name = s.name.clone();
+                            }
+
+                            let outstanding = if s.close > 0.0 { s.liquid_market_cap / s.close } else { 0.0 };
+                            let total_shares = if s.close > 0.0 { s.total_market_cap / s.close } else { 0.0 };
+
+                            if is_sqlite {
+                                let sql = "INSERT OR IGNORE INTO stock_pool \
+                                   (stock_code, stock_name, symbol, market, market_id, industry, pe, pb, outstanding, total, status) \
+                                   VALUES (:code, :name, :symbol, 'cn', :market_id, '', :pe, :pb, :outstanding, :total, 1)";
+                                let sql_params = vec![
+                                    ("code".to_string(), Value::from(s.code.clone())),
+                                    ("name".to_string(), Value::from(s.name.clone())),
+                                    ("symbol".to_string(), Value::from(s.symbol.clone())),
+                                    ("market_id".to_string(), Value::from(s.market_id as i64)),
+                                    ("pe".to_string(), Value::from(s.pe)),
+                                    ("pb".to_string(), Value::from(s.pb)),
+                                    ("outstanding".to_string(), Value::from(outstanding)),
+                                    ("total".to_string(), Value::from(total_shares)),
+                                ];
+                                let affected = dsa_core::db::execute(sql, sql_params, &connector).unwrap_or(0);
+                                if affected == 0 {
+                                    let upd = "UPDATE stock_pool SET stock_name=:name, symbol=:symbol, market_id=:market_id, \
+                                               pe=:pe, pb=:pb, outstanding=:outstanding, total=:total, status=1 \
+                                               WHERE stock_code=:code AND (stock_name != :name OR status != 1)";
+                                    let upd_params = vec![
+                                        ("code".to_string(), Value::from(s.code.clone())),
+                                        ("name".to_string(), Value::from(s.name.clone())),
+                                        ("symbol".to_string(), Value::from(s.symbol.clone())),
+                                        ("market_id".to_string(), Value::from(s.market_id as i64)),
+                                        ("pe".to_string(), Value::from(s.pe)),
+                                        ("pb".to_string(), Value::from(s.pb)),
+                                        ("outstanding".to_string(), Value::from(outstanding)),
+                                        ("total".to_string(), Value::from(total_shares)),
+                                    ];
+                                    let _ = dsa_core::db::execute(upd, upd_params, &connector);
+                                }
+                                let q_sql = "INSERT OR REPLACE INTO stock_quote \
+                                    (stock_code, trade_date, open, high, low, close, previous_close, change_price, change_percent, \
+                                    volume, amount, turnover_ratio, total_market_cap, liquid_market_cap, pe, pb) \
+                                    VALUES (:code, :today, :open, :high, :low, :close, :prev_close, :change_price, :change_percent, \
+                                    :volume, :amount, :turnover_ratio, :total_mcap, :liquid_mcap, :pe, :pb)";
+                                let q_params = vec![
+                                    ("code".to_string(), Value::from(s.code.clone())),
+                                    ("today".to_string(), Value::from(today.clone())),
+                                    ("open".to_string(), Value::from(s.open)),
+                                    ("high".to_string(), Value::from(s.high)),
+                                    ("low".to_string(), Value::from(s.low)),
+                                    ("close".to_string(), Value::from(s.close)),
+                                    ("prev_close".to_string(), Value::from(s.previous_close)),
+                                    ("change_price".to_string(), Value::from(s.change_price)),
+                                    ("change_percent".to_string(), Value::from(s.change_percent)),
+                                    ("volume".to_string(), Value::from(s.volume)),
+                                    ("amount".to_string(), Value::from(s.amount)),
+                                    ("turnover_ratio".to_string(), Value::from(s.turnover_ratio)),
+                                    ("total_mcap".to_string(), Value::from(s.total_market_cap)),
+                                    ("liquid_mcap".to_string(), Value::from(s.liquid_market_cap)),
+                                    ("pe".to_string(), Value::from(s.pe)),
+                                    ("pb".to_string(), Value::from(s.pb)),
+                                ];
+                                let _ = dsa_core::db::execute(q_sql, q_params, &connector);
+                            } else {
+                                let sql = "INSERT INTO stock_pool \
+                                   (stock_code, stock_name, symbol, market, market_id, industry, pe, pb, outstanding, total, status) \
+                                   VALUES (:code, :name, :symbol, 'cn', :market_id, '', :pe, :pb, :outstanding, :total, 1) \
+                                   ON DUPLICATE KEY UPDATE stock_name=VALUES(stock_name), symbol=VALUES(symbol), \
+                                   market_id=VALUES(market_id), pe=VALUES(pe), pb=VALUES(pb), \
+                                   outstanding=VALUES(outstanding), total=VALUES(total), status=1";
+                                let sql_params = vec![
+                                    ("code".to_string(), Value::from(s.code.clone())),
+                                    ("name".to_string(), Value::from(s.name.clone())),
+                                    ("symbol".to_string(), Value::from(s.symbol.clone())),
+                                    ("market_id".to_string(), Value::from(s.market_id as i64)),
+                                    ("pe".to_string(), Value::from(s.pe)),
+                                    ("pb".to_string(), Value::from(s.pb)),
+                                    ("outstanding".to_string(), Value::from(outstanding)),
+                                    ("total".to_string(), Value::from(total_shares)),
+                                ];
+                                let _ = dsa_core::db::execute(sql, sql_params, &connector);
+                                let q_sql = "INSERT INTO stock_quote \
+                                    (stock_code, trade_date, open, high, low, close, previous_close, change_price, change_percent, \
+                                    volume, amount, turnover_ratio, total_market_cap, liquid_market_cap, pe, pb) \
+                                    VALUES (:code, :today, :open, :high, :low, :close, :prev_close, :change_price, :change_percent, \
+                                    :volume, :amount, :turnover_ratio, :total_mcap, :liquid_mcap, :pe, :pb) \
+                                    ON DUPLICATE KEY UPDATE \
+                                    close=VALUES(close), high=VALUES(high), low=VALUES(low), \
+                                    open=VALUES(open), previous_close=VALUES(previous_close), change_price=VALUES(change_price), \
+                                    change_percent=VALUES(change_percent), volume=VALUES(volume), amount=VALUES(amount), \
+                                    turnover_ratio=VALUES(turnover_ratio), total_market_cap=VALUES(total_market_cap), \
+                                    liquid_market_cap=VALUES(liquid_market_cap), pe=VALUES(pe), pb=VALUES(pb)";
+                                let q_params = vec![
+                                    ("code".to_string(), Value::from(s.code.clone())),
+                                    ("today".to_string(), Value::from(today.clone())),
+                                    ("open".to_string(), Value::from(s.open)),
+                                    ("high".to_string(), Value::from(s.high)),
+                                    ("low".to_string(), Value::from(s.low)),
+                                    ("close".to_string(), Value::from(s.close)),
+                                    ("prev_close".to_string(), Value::from(s.previous_close)),
+                                    ("change_price".to_string(), Value::from(s.change_price)),
+                                    ("change_percent".to_string(), Value::from(s.change_percent)),
+                                    ("volume".to_string(), Value::from(s.volume)),
+                                    ("amount".to_string(), Value::from(s.amount)),
+                                    ("turnover_ratio".to_string(), Value::from(s.turnover_ratio)),
+                                    ("total_mcap".to_string(), Value::from(s.total_market_cap)),
+                                    ("liquid_mcap".to_string(), Value::from(s.liquid_market_cap)),
+                                    ("pe".to_string(), Value::from(s.pe)),
+                                    ("pb".to_string(), Value::from(s.pb)),
+                                ];
+                                let _ = dsa_core::db::execute(q_sql, q_params, &connector);
+                            }
+
+                            pool_done += 1;
+                            {
+                                let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                                st.done = pool_done;
+                            }
+                        }
+                        broadcast_task_status();
+                    }
+
+                    log::info!("快速初始化 [Phase 1]: 股票池写入完成 {} 只", pool_done);
+
+                    // ===== Phase 2: Init Daily Data =====
+                    log::info!("快速初始化 [Phase 2]: 开始同步日线数据");
+
+                    let codes: Vec<(String, String, i8)> = {
+                        let sql = "SELECT stock_code, stock_name, market_id FROM stock_pool WHERE status = 1 ORDER BY market_id DESC, stock_code ASC";
+                        match dsa_core::db::query_rows(sql, vec![], &connector) {
+                            Ok(rows) => rows.iter().filter_map(|r| {
+                                let code = dsa_core::db::row_get_string(r, "stockCode");
+                                let name = dsa_core::db::row_get_string(r, "stockName");
+                                let market_id = dsa_core::db::row_get_i64(r, "marketId") as i8;
+                                if code.is_empty() { return None; }
+                                Some((code, name, market_id))
+                            }).collect(),
+                            Err(_) => Vec::new(),
+                        }
+                    };
+
+                    if codes.is_empty() {
+                        log::error!("快速初始化 [Phase 2]: 股票池为空，无法同步日线");
+                        let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                        st.running = false;
+                        st.phase = "done".to_string();
+                        broadcast_task_status();
+                        return;
+                    }
+
+                    let daily_total = codes.len() as u32;
+                    {
+                        let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                        st.total = daily_total;
+                        st.done = 0;
+                        st.failed = 0;
+                        st.phase = "init_daily_data".to_string();
+                        st.current_code = String::new();
+                        st.current_name = String::new();
+                    }
+                    broadcast_task_status();
+
+                    let is_sqlite2 = dsa_core::get_global_config().database.is_sqlite();
+                    let retention_date = {
+                        let now = chrono::Local::now();
+                        let cutoff = now - chrono::Duration::days(retention_days);
+                        cutoff.format("%Y-%m-%d").to_string()
+                    };
+                    let kline_base_url = "https://push2his.eastmoney.com/api/qt/stock/kline/get";
+
+                    for (code, name, market_id) in &codes {
+                        if !wait_if_paused() { break; }
+
+                        {
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.current_code = code.clone();
+                            st.current_name = name.clone();
+                        }
+                        broadcast_task_status();
+
+                        let secid = format!("{}.{}", market_id, code);
+                        let params = format!(
+                            "fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=1&secid={}&beg=19700101&end=20500101",
+                            urlencoding::encode(&secid)
+                        );
+                        let full_url = format!("{}?{}", kline_base_url, params);
+
+                        let mut headers = std::collections::HashMap::new();
+                        headers.insert("User-Agent".to_string(), "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36".to_string());
+                        headers.insert("Referer".to_string(), "https://quote.eastmoney.com/".to_string());
+                        let resp = tube_net::AsyncClient::new("")
+                            .add_headers(headers)
+                            .timeout(15000)
+                            .get(&full_url)
+                            .await;
+
+                        match resp {
+                            Ok(response_text) => {
+                                match parse_kline_response(&response_text, is_sqlite2, &retention_date) {
+                                    Ok(bars) => {
+                                        if !bars.is_empty() {
+                                            dsa_core::utils::save_all_kline_to_db(code, &bars);
+                                        }
+                                    }
+                                    Err(_) => { DATA_SYNC_STATUS.lock().unwrap().failed += 1; }
+                                }
+                            }
+                            Err(_) => { DATA_SYNC_STATUS.lock().unwrap().failed += 1; }
+                        }
+
+                        {
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.done += 1;
+                        }
+                        broadcast_task_status();
+
+                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    }
+
+                    // ===== Phase 2b: Calculate Indicators =====
+                    {
+                        let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                        st.phase = "calculating_indicators".to_string();
+                    }
+                    broadcast_task_status();
+
+                    let indicator_connector = match dsa_core::db::get_db_connector() {
+                        Ok(c) => c,
+                        Err(_) => {
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.running = false;
+                            st.phase = "done".to_string();
+                            broadcast_task_status();
+                            return;
+                        }
+                    };
+
+                    let sql = "SELECT DISTINCT stock_code FROM stock_daily WHERE status = 1 ORDER BY stock_code";
+                    let rows = match dsa_core::db::query_rows(sql, vec![], &indicator_connector) {
+                        Ok(r) => r,
+                        Err(_) => {
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.running = false;
+                            st.phase = "done".to_string();
+                            broadcast_task_status();
+                            return;
+                        }
+                    };
+
+                    let analyzer = dsa_pipeline::technical::TechnicalAnalyzer::new();
+                    let mut indicator_done = 0u32;
+                    let indicator_total = rows.len() as u32;
+
+                    for row in &rows {
+                        if !wait_if_paused() { break; }
+                        let code = dsa_core::db::row_get_string(row, "stockCode");
+                        if code.is_empty() { continue; }
+
+                        let hist_sql = "SELECT close, trade_date FROM stock_daily \
+                             WHERE stock_code = :code AND status >= 1 ORDER BY trade_date ASC";
+                        let hist_rows = match dsa_core::db::query_rows(
+                            hist_sql,
+                            vec![("code".to_string(), Value::from(code.clone()))],
+                            &indicator_connector,
+                        ) {
+                            Ok(r) => r,
+                            Err(_) => continue,
+                        };
+
+                        let closes: Vec<f64> = hist_rows.iter()
+                            .map(|r| dsa_core::db::row_get_f64(r, "close"))
+                            .collect();
+
+                        if closes.len() < 60 { continue; }
+
+                        let ma5 = analyzer.sma(&closes, 5);
+                        let ma10 = analyzer.sma(&closes, 10);
+                        let ma20 = analyzer.sma(&closes, 20);
+                        let ma60 = analyzer.sma(&closes, 60);
+                        let (dif, dea, macd_hist) = analyzer.macd(&closes, 12, 26, 9);
+
+                        let last_date_row = hist_rows.last().unwrap();
+                        let last_date = dsa_core::db::row_get_string(last_date_row, "tradeDate");
+
+                        let _ = dsa_core::db::execute(
+                            "UPDATE stock_daily SET \
+                             ma5 = :ma5, ma10 = :ma10, ma20 = :ma20, ma60 = :ma60, \
+                             dif = :dif, dea = :dea, macd_hist = :macd_hist \
+                             WHERE stock_code = :code AND trade_date = :date AND status >= 1",
+                            vec![
+                                ("ma5".to_string(), Value::from(ma5)),
+                                ("ma10".to_string(), Value::from(ma10)),
+                                ("ma20".to_string(), Value::from(ma20)),
+                                ("ma60".to_string(), Value::from(ma60)),
+                                ("dif".to_string(), Value::from(dif)),
+                                ("dea".to_string(), Value::from(dea)),
+                                ("macd_hist".to_string(), Value::from(macd_hist)),
+                                ("code".to_string(), Value::from(code.clone())),
+                                ("date".to_string(), Value::from(last_date.clone())),
+                            ],
+                            &indicator_connector,
+                        );
+
+                        indicator_done += 1;
+                        if indicator_done % 50 == 0 {
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.phase = format!("calculating_indicators ({}/{})", indicator_done, indicator_total);
+                            broadcast_task_status();
+                        }
+                    }
+
+                    {
+                        let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                        st.running = false;
+                        st.paused = false;
+                        st.phase = "done".to_string();
+                        st.current_code = String::new();
+                        st.current_name = String::new();
+                    }
+                    broadcast_task_status();
+
+                    log::info!("快速初始化完成: 股票池{}只, 日线同步{}, 指标计算{}", pool_done, daily_total, indicator_done);
+                });
+            }));
+
+            if let Err(_) = result {
+                log::error!("快速初始化线程 panic");
+                let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                st.running = false;
+                st.paused = false;
+                st.phase = "error".to_string();
+                broadcast_task_status();
+            }
+        });
+
+        Ok(value!({"message": "快速初始化已启动"}))
     }
 
     async fn sync_status(&self) -> Result<Value> {

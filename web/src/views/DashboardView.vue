@@ -90,6 +90,14 @@
       </template>
     </div>
 
+    <QuickStartCard
+      v-if="showQuickStart"
+      :pool-count="stats.pool"
+      :daily-count="stats.dailyStocks"
+      @start="handleQuickInit"
+      @done="loadDashboardStats"
+    />
+
     <div class="watchlist-section" v-if="positions.length">
       <div class="section-header">
         <span class="section-title">持仓行情</span>
@@ -213,6 +221,7 @@ import StockAutocomplete from '@/components/common/StockAutocomplete.vue'
 import ScoreGauge from '@/components/common/ScoreGauge.vue'
 import MarkdownRenderer from '@/components/common/MarkdownRenderer.vue'
 import PositionCardList from '@/components/common/PositionCardList.vue'
+import QuickStartCard from '@/components/common/QuickStartCard.vue'
 import { marketApi } from '@/api/market'
 import { stockApi } from '@/api/stock'
 import { portfolioApi } from '@/api/portfolio'
@@ -220,8 +229,10 @@ import { analysisApi } from '@/api/analysis'
 import { systemApi } from '@/api/system'
 import { useAnalysisStore } from '@/stores/analysis'
 import { formatNum, formatMoney, formatTokens } from '@/utils/format'
+import { useTaskStore } from '@/stores/task'
 
 const analysisStore = useAnalysisStore()
+const taskStore = useTaskStore()
 const marketOverview = ref<any[]>([])
 const marketLoading = ref(true)
 const watchlist = ref<any[]>([])
@@ -255,6 +266,8 @@ const tradingTimer = useTradingInterval(() => {
 }, 10000)
 
 let clockTimer: ReturnType<typeof setInterval> | null = null
+
+const showQuickStart = computed(() => !statsLoading.value && stats.value.pool === 0)
 
 const actionLabel = computed(() => {
   const dt = analysisStore.currentReport?.decisionType || ''
@@ -370,7 +383,13 @@ async function loadDashboardStats() {
   statsLoading.value = false
 }
 
-
+async function handleQuickInit() {
+  try {
+    const res: any = await systemApi.quickInit()
+    ElMessage.success(res?.message || '快速初始化已启动')
+    taskStore.refreshAllStatus()
+  } catch { /* api interceptor handles */ }
+}
 
 function analyzeFromWatchlist(row: any) {
   selectedCode.value = row.stockCode || row.code || ''

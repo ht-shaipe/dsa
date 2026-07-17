@@ -41,6 +41,18 @@ pub struct PortfolioPosition {
     #[field(rename = "unrealized_pnl_pct", comment = "未实现盈亏%")]
     pub unrealized_pnl_pct: f64,
 
+    #[field(rename = "realized_pnl", default_value = "0", comment = "已实现盈亏")]
+    pub realized_pnl: f64,
+
+    #[field(rename = "total_commission", default_value = "0", comment = "累计佣金")]
+    pub total_commission: f64,
+
+    #[field(rename = "total_buy_amount", default_value = "0", comment = "累计买入金额(含佣金)")]
+    pub total_buy_amount: f64,
+
+    #[field(rename = "total_sell_amount", default_value = "0", comment = "累计卖出金额(扣佣金)")]
+    pub total_sell_amount: f64,
+
     #[field(rename = "snapshot_date", comment = "快照日期")]
     pub snapshot_date: Option<chrono::NaiveDateTime>,
 

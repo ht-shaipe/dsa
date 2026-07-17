@@ -650,6 +650,8 @@ pub struct LlmConfig {
     pub vision_model: String,
     #[serde(default)]
     pub vision_provider: String,
+    #[serde(default)]
+    pub vision_api_key: String,
     #[serde(default = "default_true")]
     pub prompt_cache_telemetry_enabled: bool,
     #[serde(default)]
@@ -787,6 +789,7 @@ impl Default for AppConfig {
                 fallback_models: vec![],
                 vision_model: String::new(),
                 vision_provider: String::new(),
+                vision_api_key: String::new(),
                 prompt_cache_telemetry_enabled: true,
                 prompt_cache_diagnostics_level: String::new(),
             },

@@ -41,6 +41,35 @@
           <el-form-item label="Max Tokens">
             <el-input-number v-model="llmForm.maxTokens" :min="100" :max="128000" :step="100" style="width:100%" />
           </el-form-item>
+          <el-divider content-position="left">视觉模型（截图识别）</el-divider>
+          <el-form-item label="视觉供应商">
+            <el-select v-model="llmForm.visionProvider" clearable placeholder="留空则使用主供应商" style="width:100%">
+              <el-option label="OpenAI" value="openai" />
+              <el-option label="Anthropic" value="anthropic" />
+              <el-option label="Google" value="google" />
+              <el-option label="DeepSeek" value="deepseek" />
+              <el-option label="通义千问" value="qwen" />
+              <el-option label="智谱AI" value="zhipu" />
+              <el-option label="Moonshot" value="moonshot" />
+              <el-option label="Ollama" value="ollama" />
+              <el-option label="自定义" value="custom" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="视觉API Key">
+            <el-input v-model="llmForm.visionApiKey" type="password" show-password placeholder="留空则使用主API Key" />
+          </el-form-item>
+          <el-form-item label="视觉模型">
+            <el-input v-model="llmForm.visionModel" placeholder="如 gpt-4o, qwen-vl-max，留空则使用主模型">
+              <template #append>
+                <el-button @click="discoverVisionModels" :loading="discoveringVision">发现模型</el-button>
+              </template>
+            </el-input>
+          </el-form-item>
+          <el-form-item v-if="discoveredVisionModels.length" label="可选视觉模型">
+            <el-select v-model="llmForm.visionModel" style="width:100%">
+              <el-option v-for="m in discoveredVisionModels" :key="m.id || m" :label="m.id || m.name || m" :value="m.id || m" />
+            </el-select>
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" @click="saveConfig" :loading="saving">保存</el-button>
             <el-button @click="testLlm" :loading="testing">测试连接</el-button>
@@ -282,11 +311,16 @@ const llmForm = ref({
   baseUrl: '',
   temperature: 0.7,
   maxTokens: 4096,
+  visionProvider: '',
+  visionModel: '',
+  visionApiKey: '',
 })
 const testing = ref(false)
 const testResult = ref<Record<string, any> | null>(null)
 const discovering = ref(false)
 const discoveredModels = ref<any[]>([])
+const discoveringVision = ref(false)
+const discoveredVisionModels = ref<any[]>([])
 
 // Notification channels
 const channelList = reactive([
@@ -376,6 +410,9 @@ async function loadConfig() {
       baseUrl: llm.base_url || llm.baseUrl || '',
       temperature: llm.temperature ?? 0.7,
       maxTokens: llm.max_tokens || llm.maxTokens || llm.timeout_seconds || 4096,
+      visionProvider: llm.vision_provider || '',
+      visionModel: llm.vision_model || '',
+      visionApiKey: llm.vision_api_key || '',
     }
     // Load notification URLs
     const notif = config.notification || config.notifications || {}
@@ -415,6 +452,9 @@ async function saveConfig() {
         model: llmForm.value.model,
         temperature: llmForm.value.temperature,
         max_tokens: llmForm.value.maxTokens,
+        vision_provider: llmForm.value.visionProvider,
+        vision_model: llmForm.value.visionModel,
+        vision_api_key: llmForm.value.visionApiKey,
       },
       notification: (() => {
         const n: Record<string, any> = {}
@@ -466,14 +506,53 @@ async function testLlm() {
 
 async function discoverModels() {
   discovering.value = true
+  discoveredModels.value = []
   try {
     const res: any = await systemApi.discoverModels()
-    discoveredModels.value = Array.isArray(res) ? res : []
-    ElMessage.success(`发现 ${discoveredModels.value.length} 个模型`)
-  } catch {
-    ElMessage.error('发现模型失败')
+    const list = Array.isArray(res?.models) ? res.models : []
+    discoveredModels.value = list
+    if (res?.error) {
+      ElMessage.warning(res.error)
+    } else if (list.length) {
+      ElMessage.success(`发现 ${list.length} 个模型`)
+    } else {
+      ElMessage.info('未发现可用模型')
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || '发现模型失败')
   } finally {
     discovering.value = false
+  }
+}
+
+async function discoverVisionModels() {
+  const provider = llmForm.value.visionProvider
+  const apiKey = llmForm.value.visionApiKey
+  if (!provider) {
+    ElMessage.warning('请先选择视觉供应商')
+    return
+  }
+  if (!apiKey && !llmForm.value.apiKey) {
+    ElMessage.warning('请先配置视觉API Key或主API Key')
+    return
+  }
+  discoveringVision.value = true
+  discoveredVisionModels.value = []
+  try {
+    const res: any = await systemApi.discoverModels({ provider, api_key: apiKey || undefined })
+    const list = Array.isArray(res?.models) ? res.models : []
+    discoveredVisionModels.value = list
+    if (res?.error) {
+      ElMessage.warning(res.error)
+    } else if (list.length) {
+      ElMessage.success(`发现 ${list.length} 个视觉模型`)
+    } else {
+      ElMessage.info('未发现可用模型')
+    }
+  } catch (e: any) {
+    ElMessage.error(e.message || '发现视觉模型失败')
+  } finally {
+    discoveringVision.value = false
   }
 }
 

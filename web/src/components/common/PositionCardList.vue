@@ -35,10 +35,16 @@
         </div>
 
         <div class="position-card-footer">
-          <span class="footer-label">盈亏</span>
-          <span :class="['footer-pnl', pnlDirClass(row)]">
-            {{ pnlText(row.unrealizedPnl) }}
-          </span>
+          <div class="pnl-row">
+            <span class="pnl-item">
+              <span class="footer-label">浮动</span>
+              <span :class="['footer-pnl', pnlDirClass(row)]">{{ pnlText(row.unrealizedPnl) }}</span>
+            </span>
+            <span v-if="row.realizedPnl" class="pnl-item">
+              <span class="footer-label">已实现</span>
+              <span :class="['footer-pnl', pnlDir(row.realizedPnl)]">{{ pnlText(row.realizedPnl) }}</span>
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -317,14 +323,31 @@ function pnlPercentText(row: PositionItem) {
 .detail-value {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+
+  &.up {
+    color: #f56c6c;
+  }
+
+  &.down {
+    color: #67c23a;
+  }
 }
 
 .position-card-footer {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
   padding-top: 10px;
   border-top: 1px solid var(--el-border-color-extra-light);
+}
+
+.pnl-row {
+  display: flex;
+  gap: 20px;
+  align-items: baseline;
+}
+
+.pnl-item {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
 }
 
 .footer-label {

@@ -219,9 +219,13 @@ impl Stock {
         let code = Self::param_code(&params);
         let period = utils::param_string(&params, "period");
         let period_str = if period.is_empty() { "daily" } else { &period };
-        let _start_date = utils::param_string(&params, "startDate");
-        let _end_date = utils::param_string(&params, "endDate");
-        let _adjust = utils::param_string(&params, "adjust");
+
+        let pure_code = code
+            .trim_start_matches("sh")
+            .trim_start_matches("sz")
+            .trim_start_matches("bj");
+        let prefix = utils::market_prefix(pure_code);
+        let prefixed_code = format!("{}{}", prefix, pure_code);
 
         let scale: u32 = match period_str {
             "weekly" => 1200,
@@ -230,23 +234,54 @@ impl Stock {
         };
         let datalen: u32 = 500;
 
-        match History::get_price(&code, scale, "5,10,20,30,60", datalen).await {
-            Ok(raw) => {
-                let arr = raw.as_array().ok_or_else(|| error!("K线数据格式异常"))?;
-                let results: Vec<Value> = arr.iter().map(|item| {
-                    value!({
-                        "date": item.get("day").and_then(|v| v.as_str()).unwrap_or_default(),
-                        "open": item.get("open").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                        "close": item.get("close").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                        "high": item.get("high").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                        "low": item.get("low").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                        "volume": item.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64,
-                    })
-                }).collect();
-                Ok(Value::Array(results))
+        if let Ok(raw) = History::get_price(&prefixed_code, scale, "5,10,20,30,60", datalen).await {
+            if let Some(arr) = raw.as_array() {
+                if !arr.is_empty() {
+                    let results: Vec<Value> = arr.iter().map(|item| {
+                        value!({
+                            "date": item.get("day").and_then(|v| v.as_str()).unwrap_or_default(),
+                            "open": item.get("open").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            "close": item.get("close").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            "high": item.get("high").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            "low": item.get("low").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            "volume": item.get("volume").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64,
+                            "amount": item.get("ma_price5").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        })
+                    }).collect();
+                    return Ok(Value::Array(results));
+                }
             }
-            Err(e) => Err(error!("获取K线失败: {}", e)),
         }
+
+        let em = EastMoney::new();
+        for i in 0..2 {
+            match em
+                .stock_zh_a_hist(pure_code, Some(period_str), None, None, Some("qfq"))
+                .await
+            {
+                Ok(raw) => {
+                    let results: Vec<Value> = raw.iter().map(|item| {
+                        value!({
+                            "date": item.get("日期").and_then(|v| v.as_str()).unwrap_or_default(),
+                            "open": item.get("开盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            "close": item.get("收盘").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            "high": item.get("最高").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            "low": item.get("最低").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                            "volume": item.get("成交量").and_then(|v| v.as_f64()).unwrap_or(0.0) as i64,
+                            "amount": item.get("成交额").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        })
+                    }).collect();
+                    if !results.is_empty() {
+                        return Ok(Value::Array(results));
+                    }
+                }
+                Err(_) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(500 * (i as u64 + 1))).await;
+                }
+            }
+        }
+
+        Err(error!("获取K线失败: 所有数据源均不可用"))
     }
 
     async fn get_history(&self) -> Result<Value> {

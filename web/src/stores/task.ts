@@ -19,6 +19,7 @@ const TASK_LABELS: Record<string, string> = {
   init_daily_data: '日线数据初始化',
   sync_daily: '日线数据同步',
   init_stock_pool: '股票池初始化',
+  quick_init: '快速初始化',
 }
 
 export function getTaskLabel(task: string): string {
@@ -27,8 +28,11 @@ export function getTaskLabel(task: string): string {
 
 export function getPhaseLabel(phase: string): string {
   if (phase === 'preparing') return '正在获取市场数据...'
-  if (phase === 'fetching') return '正在拉取日线数据...'
+  if (phase === 'init_pool') return '正在获取A股列表...'
+  if (phase === 'init_pool_writing') return '正在写入股票池...'
   if (phase === 'writing') return '正在写入股票池...'
+  if (phase === 'fetching') return '正在拉取日线数据...'
+  if (phase === 'init_daily_data') return '正在同步日线数据...'
   if (phase === 'calculating_indicators') return '正在计算技术指标...'
   if (phase.startsWith('calculating_indicators')) return '正在计算技术指标...'
   if (phase === 'done') return '已完成'
@@ -197,6 +201,7 @@ export const useTaskStore = defineStore('task', {
         } else {
           if (this.tasks['init_daily_data']) delete this.tasks['init_daily_data']
           if (this.tasks['init_stock_pool']) delete this.tasks['init_stock_pool']
+          if (this.tasks['quick_init']) delete this.tasks['quick_init']
         }
 
         const scrRes: any = await screeningApi.syncProgress().catch(() => null)
