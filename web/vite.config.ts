@@ -4,11 +4,14 @@ import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { resolve } from 'path'
+import { readFileSync } from 'fs'
+
+const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'))
 
 export default defineConfig({
   define: {
     __DSA_DEV__: JSON.stringify(!!process.env.DSA_DEV),
-    __APP_VERSION__: JSON.stringify('0.1.0'),
+    __APP_VERSION__: JSON.stringify(pkg.version),
   },
   plugins: [
     vue(),

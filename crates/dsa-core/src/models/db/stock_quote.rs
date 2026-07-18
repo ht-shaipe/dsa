@@ -78,4 +78,7 @@ pub struct StockQuote {
 
     #[field(rename = "create_time", default_value = "current_timestamp()")]
     pub create_time: Option<chrono::NaiveDateTime>,
+
+    #[field(rename = "modify_time", default_value = "current_timestamp()")]
+    pub modify_time: Option<chrono::NaiveDateTime>,
 }

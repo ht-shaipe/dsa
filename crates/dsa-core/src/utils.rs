@@ -20,6 +20,52 @@ pub fn current_time_context() -> String {
     )
 }
 
+const HOLIDAYS_2025: &[&str] = &[
+    "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-01-31",
+    "2025-02-03", "2025-02-04", "2025-04-04", "2025-05-01", "2025-05-02",
+    "2025-05-05", "2025-06-02", "2025-10-01", "2025-10-02", "2025-10-03",
+    "2025-10-06", "2025-10-07", "2025-10-08",
+];
+
+const HOLIDAYS_2026: &[&str] = &[
+    "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19",
+    "2026-02-20", "2026-04-06", "2026-05-01", "2026-05-04", "2026-05-05",
+    "2026-06-19", "2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06",
+    "2026-10-07", "2026-10-08",
+];
+
+const EXTRA_TRADE_DAYS: &[&str] = &[
+    "2025-01-26", "2025-02-08", "2025-04-27", "2025-09-28", "2025-10-11",
+    "2026-01-24", "2026-02-14", "2026-09-27", "2026-10-10",
+];
+
+fn is_holiday(date: chrono::NaiveDate) -> bool {
+    let ds = date.format("%Y-%m-%d").to_string();
+    HOLIDAYS_2025.contains(&ds.as_str())
+        || HOLIDAYS_2026.contains(&ds.as_str())
+}
+
+fn is_extra_trade_day(date: chrono::NaiveDate) -> bool {
+    let ds = date.format("%Y-%m-%d").to_string();
+    EXTRA_TRADE_DAYS.contains(&ds.as_str())
+}
+
+pub fn is_trading_day(date: chrono::NaiveDate) -> bool {
+    if is_extra_trade_day(date) { return true; }
+    if is_holiday(date) { return false; }
+    let weekday = date.weekday().num_days_from_sunday();
+    weekday != 0 && weekday != 6
+}
+
+pub fn last_trading_day() -> chrono::NaiveDate {
+    let today = chrono::Local::now().date_naive();
+    let mut d = today;
+    loop {
+        if is_trading_day(d) { return d; }
+        d -= chrono::Duration::days(1);
+    }
+}
+
 pub fn data_freshness_warning(last_date: &str, data_type: &str) -> String {
     if let Ok(last) = chrono::NaiveDate::parse_from_str(last_date, "%Y-%m-%d") {
         let today = chrono::Local::now().date_naive();
@@ -208,8 +254,9 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
              ON CONFLICT(stock_code, trade_date) DO UPDATE SET \
              stock_name=CASE WHEN excluded.stock_name != '' THEN excluded.stock_name ELSE stock_daily.stock_name END, \
              open=excluded.open, high=excluded.high, low=excluded.low, \
-             close=excluded.close, volume=excluded.volume, amount=excluded.amount",
-            now_expr
+             close=excluded.close, volume=excluded.volume, amount=excluded.amount, \
+             modify_time={}",
+            now_expr, now_expr
         )
     } else {
         format!(
@@ -219,7 +266,8 @@ fn save_kline_to_db_impl(code: &str, bars: &[KlineBar], max_count: usize) {
              ON DUPLICATE KEY UPDATE \
              stock_name=IF(VALUES(stock_name)!='', VALUES(stock_name), stock_name), \
              open=VALUES(open), high=VALUES(high), low=VALUES(low), \
-             close=VALUES(close), volume=VALUES(volume), amount=VALUES(amount)",
+             close=VALUES(close), volume=VALUES(volume), amount=VALUES(amount), \
+             modify_time=NOW()",
             now_expr
         )
     };
@@ -551,5 +599,31 @@ mod tests {
     #[test]
     fn test_market_prefix_default() {
         assert_eq!(market_prefix("123456"), "sh");
+    }
+
+    #[test]
+    fn test_is_trading_day_weekend() {
+        let sat = chrono::NaiveDate::from_ymd_opt(2025, 6, 7).unwrap();
+        let sun = chrono::NaiveDate::from_ymd_opt(2025, 6, 8).unwrap();
+        assert!(!is_trading_day(sat));
+        assert!(!is_trading_day(sun));
+    }
+
+    #[test]
+    fn test_is_trading_day_weekday() {
+        let mon = chrono::NaiveDate::from_ymd_opt(2025, 6, 9).unwrap();
+        assert!(is_trading_day(mon));
+    }
+
+    #[test]
+    fn test_is_trading_day_holiday() {
+        let ny = chrono::NaiveDate::from_ymd_opt(2025, 1, 1).unwrap();
+        assert!(!is_trading_day(ny));
+    }
+
+    #[test]
+    fn test_is_trading_day_extra() {
+        let extra = chrono::NaiveDate::from_ymd_opt(2025, 1, 26).unwrap();
+        assert!(is_trading_day(extra));
     }
 }

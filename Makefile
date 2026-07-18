@@ -4,7 +4,7 @@ ifneq ($(filter git,$(MAKECMDGOALS)),)
   $(foreach _g,$(GIT_MSG_ARGS),$(eval $(_g):;@:))
 endif
 
-.PHONY: dev dev-server dev-web build build-server build-web clean check install run stop env db-init git help tauri-dev tauri-build tauri-release
+.PHONY: dev dev-server dev-web build build-server build-web clean check install run stop env db-init git help tauri-dev tauri-build tauri-release bump-version show-version
 
 # 项目配置
 CONFIG     ?= conf/config.toml
@@ -207,17 +207,34 @@ git: ## 提交并推送代码 (make git <message> 或 make git MSG=<message>)
 	echo "$(GREEN)git commit and push success$(NC)"
 
 # ============================================================
-# Tauri 桌面应用
+# 版本管理
 # ============================================================
+
+VERSION_FILE := .version
+
+bump-version: ## 自动递增补丁版本号
+	@if [ ! -f $(VERSION_FILE) ]; then echo "0.1.0" > $(VERSION_FILE); fi
+	@cur=$$(cat $(VERSION_FILE)); \
+	major=$$(echo $$cur | cut -d. -f1); \
+	minor=$$(echo $$cur | cut -d. -f2); \
+	patch=$$(echo $$cur | cut -d. -f3); \
+	new_patch=$$((patch + 1)); \
+	new_ver="$$major.$$minor.$$new_patch"; \
+	echo "$$new_ver" > $(VERSION_FILE); \
+	sed -i '' 's/^version = ".*"/version = "'$$new_ver'"/' Cargo.toml; \
+	sed -i '' 's/"version": ".*"/"version": "'$$new_ver'"/' crates/dsa-app/tauri.conf.json; \
+	sed -i '' 's/"version": ".*"/"version": "'$$new_ver'"/' web/package.json; \
+	echo "$(GREEN)Version bumped: $$cur -> $$new_ver$(NC)"
+
+show-version: ## 显示当前版本号
+	@if [ -f $(VERSION_FILE) ]; then cat $(VERSION_FILE); else echo "0.1.0"; fi
 
 tauri-dev: install ## 启动 Tauri 桌面应用开发模式
 	@echo "$(CYAN)Starting DSA Tauri dev...$(NC)"
 	cd crates/dsa-app && DSA_API_PORT=18080 TAURI_DEV=1 npx --prefix ../../web tauri dev
 
-tauri-build: build-web ## 构建 Tauri 桌面应用 (Debug)
-	@echo "$(GREEN)[Tauri] Building desktop app...$(NC)"
+tauri-build: bump-version build-web ## 构建 Tauri 桌面应用 (自动递增版本号)
+	@echo "$(GREEN)[Tauri] Building desktop app v$$(cat $(VERSION_FILE))...$(NC)"
 	cd crates/dsa-app && cargo tauri build
 
-tauri-release: build-web ## 构建 Tauri 桌面应用 (Release)
-	@echo "$(GREEN)[Tauri] Building release desktop app...$(NC)"
-	cd crates/dsa-app && cargo tauri build --release
+tauri-release: tauri-build ## 构建 Tauri 桌面应用 (Release，等同 tauri-build)

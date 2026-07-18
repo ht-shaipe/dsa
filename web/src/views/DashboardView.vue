@@ -79,6 +79,10 @@
           <span class="stats-label">预警</span>
           <span class="stats-value">{{ stats.alerts.toLocaleString() }}</span>
         </div>
+        <div class="stats-item" title="MACD金叉筛选最新结果数" style="cursor:pointer" @click="$router.push('/screening')">
+          <span class="stats-label" style="color:var(--el-color-primary)">金叉</span>
+          <span class="stats-value" style="color:var(--el-color-primary)">{{ stats.screeningCount }}</span>
+        </div>
         <div class="stats-item" title="情报源/情报条目">
           <span class="stats-label">情报</span>
           <span class="stats-value">{{ stats.intelSources }}<span class="stats-sub"> /{{ stats.intelItems }}</span></span>
@@ -246,6 +250,7 @@ const stats = ref({
   intelSources: 0, intelItems: 0,
   llmToday: 0, llmTokens: 0,
   newsCount: 0, syncRunning: false,
+  screeningCount: 0, screeningLatestTime: '', screeningLatestBatchId: '',
 })
 const statsLoading = ref(true)
 const selectedCode = ref('')
@@ -378,6 +383,9 @@ async function loadDashboardStats() {
       llmTokens: d?.llm?.totalTokens || 0,
       newsCount: d?.news?.count || 0,
       syncRunning: d?.sync?.running || false,
+      screeningCount: d?.screening?.latestCount || 0,
+      screeningLatestTime: d?.screening?.latestTime || '',
+      screeningLatestBatchId: d?.screening?.latestBatchId || '',
     }
   } catch { /* ignore */ }
   statsLoading.value = false

@@ -39,9 +39,14 @@
             <el-tabs v-model="activeStrategy" @tab-change="onStrategyChange" style="margin-bottom:-10px">
               <el-tab-pane v-for="s in strategies" :key="s.id || s.name" :label="s.name || s.label" :name="s.id || s.name" />
             </el-tabs>
-            <el-button type="primary" :loading="screening" @click="runScreen">
-              <el-icon style="margin-right:4px"><CaretRight /></el-icon>执行筛选
-            </el-button>
+            <div style="display:flex;gap:8px;align-items:center">
+              <el-button v-if="activeStrategy === 'macd_golden_cross'" text type="info" @click="showHistoryDialog = true">
+                <el-icon style="margin-right:4px"><Clock /></el-icon>历史
+              </el-button>
+              <el-button type="primary" :loading="screening" @click="runScreen">
+                <el-icon style="margin-right:4px"><CaretRight /></el-icon>执行筛选
+              </el-button>
+            </div>
           </div>
         </template>
 
@@ -54,7 +59,22 @@
           MACD策略需要历史日线数据，请先在上方同步日线数据
         </el-alert>
 
-        <el-table :data="screenResults" stripe style="width:100%" v-loading="screening">
+        <div v-if="activeStrategy === 'macd_golden_cross' && currentStrategyParams" style="margin-bottom:16px">
+          <el-form :inline="true" size="small" @submit.prevent>
+            <el-form-item v-for="(pMeta, pKey) in currentStrategyParams" :key="pKey" :label="pMeta.label || pKey">
+              <el-select v-if="pMeta.type === 'select'" v-model="macdParams[pKey]" style="width:120px">
+                <el-option v-for="opt in pMeta.options" :key="opt" :label="opt" :value="opt" />
+              </el-select>
+              <el-input-number v-else-if="pMeta.type === 'integer'" v-model="macdParams[pKey]" :min="pMeta.min" :max="pMeta.max" :step="1" style="width:130px" />
+              <el-input-number v-else-if="pMeta.type === 'number'" v-model="macdParams[pKey]" :min="pMeta.min" :max="pMeta.max" :step="pMeta.step || 0.01" :precision="2" style="width:130px" />
+            </el-form-item>
+            <el-form-item>
+              <el-button size="small" @click="resetMacdParams">重置参数</el-button>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <el-table :data="screenResults" stripe style="width:100%" v-loading="screening" @row-click="onRowClick" class="clickable-table">
           <el-table-column :prop="colKey" :label="colLabel" v-for="{key: colKey, label: colLabel} in resultColumns" :key="colKey" :width="colKey === '代码' || colKey === 'code' ? 100 : colKey === '名称' || colKey === 'name' ? 120 : undefined">
             <template #default="{ row }" v-if="colKey === '涨跌幅' || colKey === 'change_pct' || colKey === 'pct_chg'">
               <span :style="{ color: (row[colKey] || 0) >= 0 ? '#f56c6c' : '#67c23a' }">
@@ -65,8 +85,10 @@
               {{ typeof row[colKey] === 'number' ? row[colKey].toFixed(3) : row[colKey] }}
             </template>
           </el-table-column>
-          <el-table-column label="策略" width="120" v-if="screenResults.length">
-            <template #default>{{ activeStrategyLabel }}</template>
+          <el-table-column label="操作" width="80" v-if="screenResults.length">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click.stop="goKline(row)">K线</el-button>
+            </template>
           </el-table-column>
         </el-table>
         <el-empty v-if="!screenResults.length && !screening" description="选择策略并点击「执行筛选」查看结果" />
@@ -158,11 +180,62 @@
         </div>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showHistoryDialog" title="筛选历史" width="700px">
+      <div v-loading="historyLoading">
+        <el-table :data="historyList" stripe size="small" @row-click="onHistoryRowClick" style="cursor:pointer">
+          <el-table-column prop="strategy" label="策略" width="140" />
+          <el-table-column prop="count" label="结果数" width="80" />
+          <el-table-column prop="run_time" label="执行时间" min-width="160" />
+          <el-table-column label="参数" min-width="120">
+            <template #default="{ row }">
+              <span style="font-size:12px;color:var(--el-text-color-secondary)">{{ formatParams(row.params_json) }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-if="!historyList.length && !historyLoading" description="暂无筛选历史" />
+      </div>
+      <template #footer>
+        <el-button @click="showHistoryDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showHistoryDetailDialog" :title="'筛选详情 - ' + historyDetailBatchId" width="800px">
+      <div v-loading="historyDetailLoading">
+        <el-table :data="historyDetailResults" stripe size="small">
+          <el-table-column prop="code" label="代码" width="100" />
+          <el-table-column prop="name" label="名称" width="120" />
+          <el-table-column prop="close" label="收盘价" width="80">
+            <template #default="{ row }">{{ typeof row.close === 'number' ? row.close.toFixed(2) : row.close }}</template>
+          </el-table-column>
+          <el-table-column prop="dif" label="DIF" width="80">
+            <template #default="{ row }">{{ typeof row.dif === 'number' ? row.dif.toFixed(3) : row.dif }}</template>
+          </el-table-column>
+          <el-table-column prop="dea" label="DEA" width="80">
+            <template #default="{ row }">{{ typeof row.dea === 'number' ? row.dea.toFixed(3) : row.dea }}</template>
+          </el-table-column>
+          <el-table-column prop="macd_hist" label="MACD柱" width="80">
+            <template #default="{ row }">{{ typeof row.macd_hist === 'number' ? row.macd_hist.toFixed(3) : row.macd_hist }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="60">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click.stop="goKline(row)">K线</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <template #footer>
+        <el-button @click="showHistoryDetailDialog = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, reactive } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 const COLUMN_MAP: Record<string, string> = {
   '代码': '代码', 'code': '代码',
@@ -180,6 +253,7 @@ const COLUMN_MAP: Record<string, string> = {
   'macd_hist': 'MACD柱',
   'above_ma60_pct': '高于MA60%',
   'strategy': '',
+  'batch_id': '',
 }
 
 const resultColumns = computed(() => {
@@ -198,8 +272,14 @@ const activeStrategyLabel = computed(() => {
   const s = strategies.value.find(s => (s.id || s.name) === activeStrategy.value)
   return s?.name || activeStrategy.value
 })
+
+const currentStrategyParams = computed(() => {
+  const s = strategies.value.find(s => (s.id || s.name) === activeStrategy.value)
+  return s?.parameters || null
+})
+
 import { ElMessage } from 'element-plus'
-import { CaretRight } from '@element-plus/icons-vue'
+import { CaretRight, Clock } from '@element-plus/icons-vue'
 import { screeningApi } from '@/api/screening'
 import { useTaskStore, getPhaseLabel } from '@/stores/task'
 
@@ -219,6 +299,45 @@ const hotspotDialogVisible = ref(false)
 const currentHotspot = ref<Record<string, any>>({})
 const hotspotDetail = ref<Record<string, any> | null>(null)
 const hotspotDetailLoading = ref(false)
+
+const macdParams = reactive<Record<string, any>>({
+  lookback: 5,
+  hist_lookback: 10,
+  dif_threshold: 0,
+  dea_threshold: 0,
+  ma_period: 'ma60',
+})
+
+const showHistoryDialog = ref(false)
+const historyLoading = ref(false)
+const historyList = ref<any[]>([])
+const showHistoryDetailDialog = ref(false)
+const historyDetailLoading = ref(false)
+const historyDetailResults = ref<any[]>([])
+const historyDetailBatchId = ref('')
+
+function resetMacdParams() {
+  if (!currentStrategyParams.value) return
+  for (const [k, v] of Object.entries(currentStrategyParams.value as Record<string, any>)) {
+    if (v.default !== undefined) macdParams[k] = v.default
+  }
+}
+
+function formatParams(paramsJson: string): string {
+  if (!paramsJson || paramsJson === '{}') return '默认'
+  try {
+    const obj = JSON.parse(paramsJson)
+    const parts: string[] = []
+    if (obj.lookback !== undefined && obj.lookback !== 5) parts.push(`回看${obj.lookback}天`)
+    if (obj.hist_lookback !== undefined && obj.hist_lookback !== 10) parts.push(`柱${obj.hist_lookback}条`)
+    if (obj.dif_threshold !== undefined && obj.dif_threshold !== 0) parts.push(`DIF>${obj.dif_threshold}`)
+    if (obj.dea_threshold !== undefined && obj.dea_threshold !== 0) parts.push(`DEA>${obj.dea_threshold}`)
+    if (obj.ma_period && obj.ma_period !== 'ma60') parts.push(obj.ma_period.toUpperCase())
+    return parts.length ? parts.join(', ') : '默认'
+  } catch {
+    return paramsJson
+  }
+}
 
 let _cache: {
   status?: { data: Record<string, any>; enabled: boolean; dailyReady: boolean; ts: number }
@@ -265,6 +384,9 @@ async function loadStrategies() {
     if (strategies.value.length && !activeStrategy.value) {
       activeStrategy.value = strategies.value[0].id || strategies.value[0].name || ''
     }
+    if (currentStrategyParams.value) {
+      resetMacdParams()
+    }
     _cache.strategies = { data: strategies.value, ts: Date.now() }
   } catch { /* ignore */ }
 }
@@ -286,7 +408,12 @@ async function loadHotspots() {
 async function runScreen() {
   screening.value = true
   try {
-    const res: any = await screeningApi.screen(activeStrategy.value || undefined)
+    const params: Record<string, any> = {}
+    if (activeStrategy.value) params.strategy = activeStrategy.value
+    if (activeStrategy.value === 'macd_golden_cross') {
+      params.macd_params = { ...macdParams }
+    }
+    const res: any = await screeningApi.screen(params.strategy, params.macd_params)
     screenResults.value = res?.results || (Array.isArray(res) ? res : [])
     const count = res?.count ?? screenResults.value.length
     ElMessage.success(`筛选完成，找到 ${count} 只股票`)
@@ -308,6 +435,42 @@ async function startSync() {
 
 function onStrategyChange() {
   screenResults.value = []
+  if (currentStrategyParams.value) {
+    resetMacdParams()
+  }
+}
+
+function onRowClick(row: any) {
+  // just highlight, action via button
+}
+
+function goKline(row: any) {
+  const code = row.code || row.代码 || ''
+  const name = row.name || row.名称 || ''
+  if (!code) return
+  router.push({ path: '/kline', query: { code, name, showMACD: 'true' } })
+}
+
+async function loadHistory() {
+  historyLoading.value = true
+  try {
+    const res: any = await screeningApi.history('macd_golden_cross', 20)
+    historyList.value = Array.isArray(res) ? res : []
+  } catch { historyList.value = [] }
+  finally { historyLoading.value = false }
+}
+
+async function onHistoryRowClick(row: any) {
+  if (!row.batch_id) return
+  historyDetailBatchId.value = row.batch_id
+  showHistoryDetailDialog.value = true
+  historyDetailLoading.value = true
+  historyDetailResults.value = []
+  try {
+    const res: any = await screeningApi.historyDetail(row.batch_id)
+    historyDetailResults.value = res?.results || []
+  } catch { historyDetailResults.value = [] }
+  finally { historyDetailLoading.value = false }
 }
 
 async function showHotspotDetail(h: Record<string, any>) {
@@ -332,6 +495,11 @@ onMounted(async () => {
     loadStrategies()
     loadHotspots()
   }
+})
+
+import { watch } from 'vue'
+watch(showHistoryDialog, (v) => {
+  if (v) loadHistory()
 })
 </script>
 
@@ -368,4 +536,7 @@ onMounted(async () => {
 }
 .pnl-up { color: #f56c6c; font-weight: 500; }
 .pnl-down { color: #67c23a; font-weight: 500; }
+.clickable-table {
+  :deep(tbody tr) { cursor: pointer; }
+}
 </style>

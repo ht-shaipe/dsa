@@ -62,6 +62,30 @@
               </template>
             </el-input>
           </el-form-item>
+          <el-form-item>
+            <div class="sms-row">
+              <el-input
+                v-model="smsCode"
+                placeholder="验证码"
+                size="large"
+                maxlength="6"
+                clearable
+              >
+                <template #prefix>
+                  <el-icon><Message /></el-icon>
+                </template>
+              </el-input>
+              <el-button
+                size="large"
+                :disabled="smsCooldown > 0 || !mobile"
+                :loading="sendingCode"
+                @click="sendSmsCode"
+                style="width: 130px; flex-shrink: 0"
+              >
+                {{ smsCooldown > 0 ? `${smsCooldown}s` : '获取验证码' }}
+              </el-button>
+            </div>
+          </el-form-item>
         </template>
 
         <el-form-item>
@@ -79,8 +103,6 @@
         <div class="mode-switch">
           <template v-if="mode === 'login'">
             还没有账号？<el-link type="primary" @click="mode = 'register'">立即注册</el-link>
-            <span style="margin: 0 8px; color: var(--el-border-color)">|</span>
-            <el-link type="info" @click="skipLogin">跳过登录</el-link>
           </template>
           <template v-else>
             已有账号？<el-link type="primary" @click="mode = 'login'">返回登录</el-link>
@@ -96,7 +118,8 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
-import { remoteRegister } from '@/api/index'
+import { getApiBase } from '@/api/index'
+import axios from 'axios'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -105,8 +128,12 @@ const mobile = ref('')
 const password = ref('')
 const regName = ref('')
 const regPassword2 = ref('')
+const smsCode = ref('')
 const mode = ref<'login' | 'register'>('login')
 const loading = ref(false)
+const sendingCode = ref(false)
+const smsCooldown = ref(0)
+let cooldownTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
   if (authStore.isAuthenticated) {
@@ -114,13 +141,42 @@ onMounted(() => {
   }
 })
 
-async function skipLogin() {
-  authStore.token = 'local-dev'
-  authStore.userInfo = { name: '本地用户', mobile: '', avatar: '' }
-  localStorage.setItem('dsa_token', 'local-dev')
-  localStorage.setItem('dsa_user', JSON.stringify(authStore.userInfo))
-  ElMessage.success('已跳过登录')
-  router.replace('/')
+async function sendSmsCode() {
+  if (!mobile.value || !/^1\d{10}$/.test(mobile.value)) {
+    ElMessage.warning('请输入正确的手机号')
+    return
+  }
+
+  sendingCode.value = true
+  try {
+    const { data } = await axios.post(`${getApiBase()}/auth/mobile-exists`, { mobile: mobile.value })
+    if (data?.code === 200 && data?.result === true) {
+      ElMessage.warning('该手机号已注册，请直接登录')
+      mode.value = 'login'
+      return
+    }
+  } catch { /* ignore, proceed to send code */ }
+
+  try {
+    const { data } = await axios.post(`${getApiBase()}/auth/sms-code`, { mobile: mobile.value })
+    if (data?.code === 200) {
+      ElMessage.success('验证码已发送')
+      smsCooldown.value = 60
+      cooldownTimer = setInterval(() => {
+        smsCooldown.value--
+        if (smsCooldown.value <= 0 && cooldownTimer) {
+          clearInterval(cooldownTimer)
+          cooldownTimer = null
+        }
+      }, 1000)
+    } else {
+      ElMessage.error(data?.message || '发送验证码失败')
+    }
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.message || '发送验证码失败')
+  } finally {
+    sendingCode.value = false
+  }
 }
 
 async function handleSubmit() {
@@ -148,13 +204,27 @@ async function handleSubmit() {
       ElMessage.warning('两次密码不一致')
       return
     }
+    if (!smsCode.value) {
+      ElMessage.warning('请输入验证码')
+      return
+    }
     loading.value = true
     try {
-      await remoteRegister(mobile.value, password.value, regName.value || undefined)
-      ElMessage.success('注册成功，请登录')
-      mode.value = 'login'
-    } catch (e: any) {
-      // error shown by interceptor or remoteRegister
+      const { data } = await axios.post(`${getApiBase()}/auth/register`, {
+        mobile: mobile.value,
+        password: password.value,
+        code: smsCode.value,
+        name: regName.value || undefined,
+      })
+      if (data?.code === 200) {
+        ElMessage.success('注册成功，请登录')
+        mode.value = 'login'
+        smsCode.value = ''
+      } else {
+        ElMessage.error(data?.message || '注册失败')
+      }
+    } catch (err: any) {
+      ElMessage.error(err?.response?.data?.message || '注册失败')
     } finally {
       loading.value = false
     }
@@ -215,6 +285,11 @@ async function handleSubmit() {
   color: var(--el-text-color-secondary);
   font-size: 14px;
   margin-bottom: 30px;
+}
+.sms-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
 }
 .mode-switch {
   text-align: center;

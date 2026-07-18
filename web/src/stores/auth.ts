@@ -3,7 +3,8 @@ import axios from 'axios'
 
 function getApiBase(): string {
   if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
-    return 'http://127.0.0.1:18080/api/v1'
+    const port = (window as any).__DSA_API_PORT__ || 18080
+    return `http://127.0.0.1:${port}/api/v1`
   }
   return '/api/v1'
 }

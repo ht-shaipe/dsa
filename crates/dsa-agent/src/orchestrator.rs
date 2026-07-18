@@ -78,16 +78,24 @@ impl Orchestrator {
         let llm = Self::create_llm()?;
         let conf = dsa_core::get_global_config();
 
-        let system_prompt = format!(
-            "你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。\n\n{}\n重要: 如果涉及具体股票或市场分析，必须基于当下时间判断，不得使用过时数据。",
-            dsa_core::utils::current_time_context()
+        let skill = params
+            .get("skill")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+
+        let intent = crate::intent::parse_intent(&message).await;
+        let (system_prompt, data_context, detected_code) =
+            crate::intent::build_chat_context(&intent, &skill).await;
+        let user_content = crate::intent::build_user_content(
+            &message,
+            data_context.as_deref(),
         );
 
         let body = value!({
             "model": &conf.llm.model,
             "messages": [
                 {"role": "system", "content": &system_prompt},
-                {"role": "user", "content": &message}
+                {"role": "user", "content": &user_content}
             ],
             "temperature": 0.7,
         });
@@ -126,11 +134,18 @@ impl Orchestrator {
         dsa_core::utils::record_llm_usage(
             &conf.llm.provider,
             &conf.llm.model,
-            "chat",
+            &format!(
+                "chat{}",
+                if skill.is_empty() {
+                    "".to_string()
+                } else {
+                    format!("/{}", skill)
+                }
+            ),
             prompt_tokens,
             completion_tokens,
             elapsed,
-            "",
+            &detected_code,
         );
 
         dsa_core::utils::record_conversation_message(

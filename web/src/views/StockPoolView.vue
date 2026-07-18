@@ -217,16 +217,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, ArrowDown, Download, Delete, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { stockPoolApi } from '@/api/stockPool'
+import { stockApi } from '@/api/stock'
 import { systemApi } from '@/api/system'
 import { useTaskStore } from '@/stores/task'
 import InitStockPoolDialog from '@/components/common/InitStockPoolDialog.vue'
 import { formatPrice as fmt, formatVolume as fmtVol, priceClass, peClass, isST } from '@/utils/stock'
 import { formatMoney as fmtAmount, formatDateTime } from '@/utils/format'
+import { useTradingInterval } from '@/composables/useTradingInterval'
 
 const taskStore = useTaskStore()
 const router = useRouter()
@@ -243,6 +245,45 @@ const showAddDialog = ref(false)
 const addLoading = ref(false)
 const addForm = ref({ code: '', name: '', industry: '' })
 const showInitPoolDialog = ref(false)
+
+const quoteTimer = useTradingInterval(refreshQuotesRealtime, 15000)
+
+async function refreshQuotesRealtime() {
+  if (!list.value.length) return
+  const codes = list.value.map(s => s.stockCode).filter(Boolean).join(',')
+  if (!codes) return
+  try {
+    const res: any = await stockApi.quotes(codes)
+    const qlist = Array.isArray(res) ? res : []
+    const map = new Map<string, any>()
+    for (const q of qlist) {
+      const qCode = (q.code || q.symbol || '').replace(/^(sh|sz|bj)/, '')
+      map.set(qCode, q)
+    }
+    list.value = list.value.map(s => {
+      const code = (s.stockCode || '').replace(/^(sh|sz|bj)/, '')
+      const q = map.get(code)
+      if (!q) return s
+      return {
+        ...s,
+        latestPrice: q.price ?? q.close ?? s.latestPrice,
+        previousClose: q.previousClose ?? s.previousClose,
+        changePercent: q.changePercent ?? s.changePercent,
+        changePrice: q.change ?? s.changePrice,
+        quoteOpen: q.open ?? s.quoteOpen,
+        quoteHigh: q.high ?? s.quoteHigh,
+        quoteLow: q.low ?? s.quoteLow,
+        volume: q.volume ?? s.volume,
+        amount: q.amount ?? s.amount,
+        turnoverRatio: q.turnoverRate ?? q.turnoverRatio ?? s.turnoverRatio,
+        totalMarketCap: q.totalMarketCap ?? q.totalMarketValue ?? s.totalMarketCap,
+        liquidMarketCap: q.liquidMarketCap ?? q.circulatingMarketValue ?? s.liquidMarketCap,
+        quotePe: q.pe ?? s.quotePe,
+        quotePb: q.pb ?? s.quotePb,
+      }
+    })
+  } catch { /* ignore */ }
+}
 
 function openKline(row: any) {
   const code = row.stockCode || ''
@@ -265,6 +306,7 @@ async function loadList() {
     const res = await stockPoolApi.list({ search: searchText.value || undefined, page: page.value, page_size: pageSize.value })
     list.value = res.list || []
     totalCount.value = res.total || 0
+    quoteTimer.start()
   } catch (e: any) {
     ElMessage.error(e.message || '加载失败')
   } finally {
@@ -399,6 +441,9 @@ onMounted(() => {
   loadList()
   stockPoolApi.count().then(res => { totalCount.value = res.total ?? -1 }).catch(() => {})
   loadSyncConfig()
+})
+onUnmounted(() => {
+  quoteTimer.stop()
 })
 </script>
 

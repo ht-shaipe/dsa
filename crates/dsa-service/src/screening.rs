@@ -53,6 +53,53 @@ fn wait_if_screening_paused() -> bool {
     }
 }
 
+#[derive(Debug, Clone)]
+struct MacdParams {
+    lookback: usize,
+    hist_lookback: usize,
+    dif_threshold: f64,
+    dea_threshold: f64,
+    ma_period: String,
+}
+
+impl Default for MacdParams {
+    fn default() -> Self {
+        Self {
+            lookback: 5,
+            hist_lookback: 10,
+            dif_threshold: 0.0,
+            dea_threshold: 0.0,
+            ma_period: "ma60".to_string(),
+        }
+    }
+}
+
+impl MacdParams {
+    fn from_value(v: &Value) -> Self {
+        Self {
+            lookback: v.get("lookback").and_then(|x| x.as_u64()).unwrap_or(5) as usize,
+            hist_lookback: v.get("hist_lookback").and_then(|x| x.as_u64()).unwrap_or(10) as usize,
+            dif_threshold: v.get("dif_threshold").and_then(|x| x.as_f64()).unwrap_or(0.0),
+            dea_threshold: v.get("dea_threshold").and_then(|x| x.as_f64()).unwrap_or(0.0),
+            ma_period: v.get("ma_period").and_then(|x| x.as_str()).map(|s| s.to_string()).unwrap_or_else(|| "ma60".to_string()),
+        }
+    }
+
+    fn to_value(&self) -> Value {
+        value!({
+            "lookback": self.lookback as i64,
+            "hist_lookback": self.hist_lookback as i64,
+            "dif_threshold": self.dif_threshold,
+            "dea_threshold": self.dea_threshold,
+            "ma_period": self.ma_period.clone(),
+        })
+    }
+
+    fn to_json_string(&self) -> String {
+        serde_json::to_string(&self.to_value()).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
 pub struct Screening {
     request: RequestParameter,
 }
@@ -76,6 +123,10 @@ impl Screening {
             "pause_sync" => self.pause_sync().await,
             "resume_sync" => self.resume_sync().await,
             "stop_sync" => self.stop_sync().await,
+            "history" => self.history().await,
+            "history_detail" => self.history_detail().await,
+            "compare" => self.compare().await,
+            "latest_summary" => self.latest_summary().await,
             _ => Err(error!("screening不支持方法: {}", method)),
         }
     }
@@ -387,7 +438,19 @@ impl Screening {
             {"id": "breakout", "name": "突破策略", "description": "价格突破均线压力位"},
             {"id": "value", "name": "价值策略", "description": "低PB+高ROE筛选"},
             {"id": "momentum", "name": "动量策略", "description": "近期涨幅领先股票"},
-            {"id": "macd_golden_cross", "name": "MACD零上金叉", "description": "股价60日线上+DIF/DEA零上+绿柱缩短金叉", "requiresDailyData": true},
+            {
+                "id": "macd_golden_cross",
+                "name": "MACD零上金叉",
+                "description": "股价60日线上+DIF/DEA零上+绿柱缩短金叉",
+                "requiresDailyData": true,
+                "parameters": {
+                    "lookback": {"type": "integer", "default": 5, "min": 1, "max": 20, "label": "回看天数", "description": "判断金叉的回看窗口"},
+                    "hist_lookback": {"type": "integer", "default": 10, "min": 2, "max": 30, "label": "柱状历史条数", "description": "取最近N条MACD柱判断趋势"},
+                    "dif_threshold": {"type": "number", "default": 0, "min": -1, "max": 10, "step": 0.01, "label": "DIF阈值", "description": "DIF需大于此值(0=零上)"},
+                    "dea_threshold": {"type": "number", "default": 0, "min": -1, "max": 10, "step": 0.01, "label": "DEA阈值", "description": "DEA需大于此值(0=零上)"},
+                    "ma_period": {"type": "select", "default": "ma60", "options": ["ma20", "ma60", "ma120"], "label": "均线周期", "description": "价格需高于此均线"},
+                },
+            },
         ]))
     }
 
@@ -470,7 +533,9 @@ impl Screening {
             if !self.check_daily_data().await {
                 return Err(error!("MACD策略需要历史日线数据，请先执行「同步日线数据」"));
             }
-            return self.filter_macd_golden_cross(limit).await;
+            let macd_params_val = params.get("macd_params").cloned().unwrap_or(Value::Null);
+            let macd_params = MacdParams::from_value(&macd_params_val);
+            return self.filter_macd_golden_cross(limit, &macd_params).await;
         }
 
         let em = EastMoney::new();
@@ -490,27 +555,43 @@ impl Screening {
         Ok(value!({"strategy": strategy, "count": count, "results": results}))
     }
 
-    async fn filter_macd_golden_cross(&self, limit: usize) -> Result<Value> {
+    async fn filter_macd_golden_cross(&self, limit: usize, macd_params: &MacdParams) -> Result<Value> {
         let connector =
             get_db_connector().map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
 
-        let sql = "SELECT sd.stock_code, sd.stock_name, sd.close, sd.ma60, sd.dif, sd.dea, sd.macd_hist, \
+        let ma_col = macd_params.ma_period.as_str();
+        let dif_th = macd_params.dif_threshold;
+        let dea_th = macd_params.dea_threshold;
+
+        let sql = format!(
+            "SELECT sd.stock_code, sd.stock_name, sd.close, {ma_col} AS ma_val, sd.dif, sd.dea, sd.macd_hist, \
              sd.trade_date, sd.pct_chg, sd.volume, sd.amount, sd.turnover_rate, sd.volume_ratio \
              FROM stock_daily sd \
              INNER JOIN ( \
                  SELECT stock_code, MAX(trade_date) AS max_date \
-                 FROM stock_daily WHERE status >= 1 AND ma60 > 0 \
+                 FROM stock_daily WHERE status >= 1 AND {ma_col} > 0 \
                  GROUP BY stock_code \
              ) latest ON sd.stock_code = latest.stock_code AND sd.trade_date = latest.max_date \
-             WHERE sd.status >= 1 AND sd.ma60 > 0 AND sd.close > sd.ma60 AND sd.dif > 0 AND sd.dea > 0 \
-             ORDER BY sd.macd_hist DESC";
+             WHERE sd.status >= 1 AND sd.{ma_col} > 0 AND sd.close > sd.{ma_col} AND sd.dif > :dif_th AND sd.dea > :dea_th \
+             ORDER BY sd.macd_hist DESC"
+        );
 
-        let rows = query_rows(sql, vec![], &connector)
-            .map_err(|e| tube::Error::from(format!("查询MACD零上金叉候选失败: {}", e)))?;
+        let rows = query_rows(
+            &sql,
+            vec![
+                ("dif_th".to_string(), Value::from(dif_th)),
+                ("dea_th".to_string(), Value::from(dea_th)),
+            ],
+            &connector,
+        )
+        .map_err(|e| tube::Error::from(format!("查询MACD零上金叉候选失败: {}", e)))?;
 
         let analyzer = TechnicalAnalyzer::new();
         let mut results: Vec<Value> = Vec::new();
         let mut checked = 0u32;
+        let batch_id = format!("macd_{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
+        let params_json = macd_params.to_json_string();
+        let hist_limit = macd_params.hist_lookback;
 
         for row in &rows {
             if results.len() >= limit {
@@ -519,11 +600,14 @@ impl Screening {
             let code = row_get_string(row, "stockCode");
             let code_val: &str = &code;
 
-            let hist_sql = "SELECT macd_hist FROM stock_daily \
+            let hist_sql = format!(
+                "SELECT macd_hist FROM stock_daily \
                  WHERE stock_code = :code AND status >= 1 AND macd_hist != 0 \
-                 ORDER BY trade_date DESC LIMIT 10";
+                 ORDER BY trade_date DESC LIMIT {}",
+                hist_limit
+            );
             let hist_rows = query_rows(
-                hist_sql,
+                &hist_sql,
                 vec![("code".to_string(), Value::from(code_val.to_string()))],
                 &connector,
             )
@@ -541,14 +625,14 @@ impl Screening {
             let mut hist_asc = hist_series;
             hist_asc.reverse();
 
-            if !analyzer.is_macd_golden_cross(&hist_asc, 5) {
+            if !analyzer.is_macd_golden_cross(&hist_asc, macd_params.lookback) {
                 checked += 1;
                 continue;
             }
 
             let name = row_get_string(row, "stockName");
             let close = row_get_f64(row, "close");
-            let ma60 = row_get_f64(row, "ma60");
+            let ma_val = row_get_f64(row, "maVal");
             let dif = row_get_f64(row, "dif");
             let dea = row_get_f64(row, "dea");
             let macd_hist = row_get_f64(row, "macdHist");
@@ -556,25 +640,45 @@ impl Screening {
             let turnover_rate = row_get_f64(row, "turnoverRate");
             let volume_ratio = row_get_f64(row, "volumeRatio");
 
-            let above_ma60_pct = if ma60 > 0.0 {
-                (close - ma60) / ma60 * 100.0
+            let above_ma_pct = if ma_val > 0.0 {
+                (close - ma_val) / ma_val * 100.0
             } else {
                 0.0
             };
+            let above_ma_rounded = (above_ma_pct * 100.0).round() / 100.0;
+
+            let _ = Self::save_screening_result(
+                &connector,
+                "macd_golden_cross",
+                code_val,
+                &name,
+                close,
+                ma_val,
+                dif,
+                dea,
+                macd_hist,
+                pct_chg,
+                turnover_rate,
+                volume_ratio,
+                above_ma_rounded,
+                &params_json,
+                &batch_id,
+            );
 
             results.push(value!({
                 "code": code_val,
                 "name": name,
                 "close": close,
-                "ma60": ma60,
+                "ma60": ma_val,
                 "dif": dif,
                 "dea": dea,
                 "macd_hist": macd_hist,
                 "pct_chg": pct_chg,
                 "turnover_rate": turnover_rate,
                 "volume_ratio": volume_ratio,
-                "above_ma60_pct": (above_ma60_pct * 100.0).round() / 100.0,
+                "above_ma60_pct": above_ma_rounded,
                 "strategy": "macd_golden_cross",
+                "batch_id": batch_id.clone(),
             }));
 
             checked += 1;
@@ -585,6 +689,277 @@ impl Screening {
             "count": results.len() as i64,
             "checked": checked as i64,
             "results": results,
+            "batch_id": batch_id,
+            "params": macd_params.to_value(),
+        }))
+    }
+
+    fn save_screening_result(
+        connector: &deck_connector::Connector,
+        strategy: &str,
+        stock_code: &str,
+        stock_name: &str,
+        close: f64,
+        ma_value: f64,
+        dif: f64,
+        dea: f64,
+        macd_hist: f64,
+        pct_chg: f64,
+        turnover_rate: f64,
+        volume_ratio: f64,
+        above_ma_pct: f64,
+        params_json: &str,
+        batch_id: &str,
+    ) -> std::result::Result<(), String> {        let conf = dsa_core::get_global_config();
+        let is_sqlite = conf.database.is_sqlite();
+        let now_expr = if is_sqlite {
+            "datetime('now')"
+        } else {
+            "NOW()"
+        };
+        let sql = format!(
+            "INSERT INTO screening_results \
+             (strategy, stock_code, stock_name, close, ma_value, dif, dea, macd_hist, \
+              pct_chg, turnover_rate, volume_ratio, above_ma_pct, params_json, batch_id, status, create_time, modify_time) \
+             VALUES (:strategy, :code, :name, :close, :ma_value, :dif, :dea, :macd_hist, \
+              :pct_chg, :turnover_rate, :volume_ratio, :above_ma_pct, :params_json, :batch_id, 1, {}, {})",
+            now_expr, now_expr
+        );
+        execute(
+            &sql,
+            vec![
+                ("strategy".to_string(), Value::from(strategy.to_string())),
+                ("code".to_string(), Value::from(stock_code.to_string())),
+                ("name".to_string(), Value::from(stock_name.to_string())),
+                ("close".to_string(), Value::from(close)),
+                ("ma_value".to_string(), Value::from(ma_value)),
+                ("dif".to_string(), Value::from(dif)),
+                ("dea".to_string(), Value::from(dea)),
+                ("macd_hist".to_string(), Value::from(macd_hist)),
+                ("pct_chg".to_string(), Value::from(pct_chg)),
+                ("turnover_rate".to_string(), Value::from(turnover_rate)),
+                ("volume_ratio".to_string(), Value::from(volume_ratio)),
+                ("above_ma_pct".to_string(), Value::from(above_ma_pct)),
+                ("params_json".to_string(), Value::from(params_json.to_string())),
+                ("batch_id".to_string(), Value::from(batch_id.to_string())),
+            ],
+            connector,
+        )
+        .map(|_| ())
+        .map_err(|e| format!("保存筛选结果失败: {}", e))
+    }
+
+    async fn history(&self) -> Result<Value> {
+        let params = self.value();
+        let strategy = utils::param_string(&params, "strategy");
+        let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
+
+        let connector =
+            get_db_connector().map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+
+        let sql = if strategy.is_empty() {
+            "SELECT batch_id, strategy, COUNT(*) AS count, MIN(create_time) AS run_time, params_json \
+             FROM screening_results WHERE status >= 1 \
+             GROUP BY batch_id, strategy, params_json \
+             ORDER BY MIN(create_time) DESC".to_string()
+        } else {
+            format!(
+                "SELECT batch_id, strategy, COUNT(*) AS count, MIN(create_time) AS run_time, params_json \
+                 FROM screening_results WHERE status >= 1 AND strategy = '{}'
+                 GROUP BY batch_id, strategy, params_json \
+                 ORDER BY MIN(create_time) DESC",
+                strategy.replace('\'', "''")
+            )
+        };
+
+        let rows = query_rows(&sql, vec![], &connector)
+            .map_err(|e| tube::Error::from(format!("查询筛选历史失败: {}", e)))?;
+
+        let items: Vec<Value> = rows
+            .iter()
+            .take(limit)
+            .map(|row| {
+                let batch_id = row_get_string(row, "batchId");
+                let strat = row_get_string(row, "strategy");
+                let count = row_get_value(row, "count").as_u64().unwrap_or(0) as i64;
+                let run_time = row_get_string(row, "runTime");
+                let params_json = row_get_string(row, "paramsJson");
+                value!({
+                    "batch_id": batch_id,
+                    "strategy": strat,
+                    "count": count,
+                    "run_time": run_time,
+                    "params_json": params_json,
+                })
+            })
+            .collect();
+
+        Ok(Value::Array(items))
+    }
+
+    async fn history_detail(&self) -> Result<Value> {
+        let params = self.value();
+        let batch_id = utils::param_string(&params, "batch_id");
+        if batch_id.is_empty() {
+            return Err(error!("请提供batch_id"));
+        }
+
+        let connector =
+            get_db_connector().map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+
+        let sql = "SELECT id, strategy, stock_code, stock_name, close, ma_value, dif, dea, macd_hist, \
+             pct_chg, turnover_rate, volume_ratio, above_ma_pct, params_json, batch_id, create_time \
+             FROM screening_results \
+             WHERE batch_id = :batch_id AND status >= 1 \
+             ORDER BY create_time ASC";
+
+        let rows = query_rows(
+            sql,
+            vec![("batch_id".to_string(), Value::from(batch_id.clone()))],
+            &connector,
+        )
+        .map_err(|e| tube::Error::from(format!("查询筛选历史详情失败: {}", e)))?;
+
+        let items: Vec<Value> = rows
+            .iter()
+            .map(|row| {
+                value!({
+                    "id": row_get_value(row, "id").as_i64().unwrap_or(0),
+                    "strategy": row_get_string(row, "strategy"),
+                    "code": row_get_string(row, "stockCode"),
+                    "name": row_get_string(row, "stockName"),
+                    "close": row_get_f64(row, "close"),
+                    "ma60": row_get_f64(row, "maValue"),
+                    "dif": row_get_f64(row, "dif"),
+                    "dea": row_get_f64(row, "dea"),
+                    "macd_hist": row_get_f64(row, "macdHist"),
+                    "pct_chg": row_get_f64(row, "pctChg"),
+                    "turnover_rate": row_get_f64(row, "turnoverRate"),
+                    "volume_ratio": row_get_f64(row, "volumeRatio"),
+                    "above_ma60_pct": row_get_f64(row, "aboveMaPct"),
+                    "batch_id": row_get_string(row, "batchId"),
+                    "create_time": row_get_string(row, "createTime"),
+                })
+            })
+            .collect();
+
+        let count = items.len() as i64;
+
+        Ok(value!({
+            "batch_id": batch_id,
+            "results": items,
+            "count": count,
+        }))
+    }
+
+    async fn compare(&self) -> Result<Value> {
+        let params = self.value();
+        let batch_id_1 = utils::param_string(&params, "batch_id_1");
+        let batch_id_2 = utils::param_string(&params, "batch_id_2");
+        if batch_id_1.is_empty() || batch_id_2.is_empty() {
+            return Err(error!("请提供两个batch_id进行对比"));
+        }
+
+        let connector =
+            get_db_connector().map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+
+        let sql = "SELECT stock_code, stock_name FROM screening_results \
+             WHERE batch_id = :batch_id AND status >= 1";
+
+        let rows1 = query_rows(
+            sql,
+            vec![("batch_id".to_string(), Value::from(batch_id_1.clone()))],
+            &connector,
+        )
+        .map_err(|e| tube::Error::from(format!("查询批次1失败: {}", e)))?;
+
+        let rows2 = query_rows(
+            sql,
+            vec![("batch_id".to_string(), Value::from(batch_id_2.clone()))],
+            &connector,
+        )
+        .map_err(|e| tube::Error::from(format!("查询批次2失败: {}", e)))?;
+
+        let codes1: std::collections::HashSet<String> = rows1
+            .iter()
+            .map(|r| row_get_string(r, "stockCode"))
+            .collect();
+        let codes2: std::collections::HashSet<String> = rows2
+            .iter()
+            .map(|r| row_get_string(r, "stockCode"))
+            .collect();
+
+        let only_in_1: Vec<String> = codes1.difference(&codes2).cloned().collect();
+        let only_in_2: Vec<String> = codes2.difference(&codes1).cloned().collect();
+        let common: Vec<String> = codes1.intersection(&codes2).cloned().collect();
+
+        Ok(value!({
+            "batch_id_1": batch_id_1,
+            "batch_id_2": batch_id_2,
+            "count_1": codes1.len() as i64,
+            "count_2": codes2.len() as i64,
+            "common": common,
+            "common_count": (codes1.intersection(&codes2).count()) as i64,
+            "only_in_1": only_in_1,
+            "only_in_2": only_in_2,
+        }))
+    }
+
+    async fn latest_summary(&self) -> Result<Value> {
+        let connector =
+            get_db_connector().map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+
+        let sql = "SELECT batch_id, strategy, COUNT(*) AS count, MIN(create_time) AS run_time \
+             FROM screening_results WHERE status >= 1 AND strategy = 'macd_golden_cross' \
+             GROUP BY batch_id ORDER BY MIN(create_time) DESC LIMIT 1";
+
+        let rows = query_rows(sql, vec![], &connector)
+            .map_err(|e| tube::Error::from(format!("查询最新MACD摘要失败: {}", e)))?;
+
+        if rows.is_empty() {
+            return Ok(value!({
+                "has_data": false,
+                "latest_count": 0,
+            }));
+        }
+
+        let row = &rows[0];
+        let batch_id = row_get_string(row, "batchId");
+        let count = row_get_value(row, "count").as_u64().unwrap_or(0) as i64;
+        let run_time = row_get_string(row, "runTime");
+
+        let detail_sql = "SELECT stock_code, stock_name, close, dif, dea, macd_hist, above_ma_pct \
+                          FROM screening_results \
+                          WHERE batch_id = :batch_id AND status >= 1 \
+                          ORDER BY above_ma_pct DESC LIMIT 5";
+        let detail_rows = query_rows(
+            detail_sql,
+            vec![("batch_id".to_string(), Value::from(batch_id.clone()))],
+            &connector,
+        )
+        .unwrap_or_default();
+
+        let top_stocks: Vec<Value> = detail_rows
+            .iter()
+            .map(|r| {
+                value!({
+                    "code": row_get_string(r, "stockCode"),
+                    "name": row_get_string(r, "stockName"),
+                    "close": row_get_f64(r, "close"),
+                    "dif": row_get_f64(r, "dif"),
+                    "dea": row_get_f64(r, "dea"),
+                    "macd_hist": row_get_f64(r, "macdHist"),
+                    "above_ma_pct": row_get_f64(r, "aboveMaPct"),
+                })
+            })
+            .collect();
+
+        Ok(value!({
+            "has_data": true,
+            "latest_batch_id": batch_id,
+            "latest_count": count,
+            "latest_run_time": run_time,
+            "top_stocks": top_stocks,
         }))
     }
 

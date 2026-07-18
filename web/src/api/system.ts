@@ -20,4 +20,6 @@ export const systemApi = {
   pauseSync: () => callApi('system', 'pause_sync'),
   resumeSync: () => callApi('system', 'resume_sync'),
   stopSync: () => callApi('system', 'stop_sync'),
+  checkFreshness: () => callApi('system', 'check_freshness'),
+  syncDailyIncremental: () => callApi('system', 'sync_daily_incremental'),
 }

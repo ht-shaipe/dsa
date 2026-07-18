@@ -92,6 +92,14 @@ pub async fn start_server(
                             .route(web::post().to(handler::auth::register)),
                     )
                     .service(
+                        web::resource("/auth/sms-code")
+                            .route(web::post().to(handler::auth::sms_code)),
+                    )
+                    .service(
+                        web::resource("/auth/mobile-exists")
+                            .route(web::post().to(handler::auth::mobile_exists)),
+                    )
+                    .service(
                         web::resource("/auth/profile")
                             .route(web::post().to(handler::auth::get_profile)),
                     )

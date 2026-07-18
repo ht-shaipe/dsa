@@ -26,15 +26,18 @@ import BottomStatusBar from '@/components/common/BottomStatusBar.vue'
 import { useAppStore } from '@/stores/app'
 import { useTaskStore } from '@/stores/task'
 import { useUpdater } from '@/composables/useUpdater'
+import { useAutoSync } from '@/composables/useAutoSync'
 import { ElNotification } from 'element-plus'
 
 const appStore = useAppStore()
 const taskStore = useTaskStore()
+const { startAutoCheck, stopAutoCheck } = useAutoSync()
 
 onMounted(() => {
   appStore.initTheme()
   taskStore.connect()
   taskStore.refreshAllStatus()
+  startAutoCheck(60)
 
   const autoCheck = localStorage.getItem('dsa_auto_update_check')
   if (autoCheck !== 'false' && typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
@@ -59,6 +62,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   taskStore.disconnect()
+  stopAutoCheck()
 })
 </script>
 

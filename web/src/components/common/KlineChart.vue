@@ -369,13 +369,26 @@ function renderChart() {
 
 let resizeHandler: (() => void) | null = null
 let resizeObserver: ResizeObserver | null = null
+let renderAttempts = 0
+const maxRenderAttempts = 10
+
+function tryRenderChart() {
+  if (!chartRef.value) return
+  const width = chartRef.value.offsetWidth
+  const height = chartRef.value.offsetHeight
+  if (width === 0 || height === 0) {
+    if (renderAttempts < maxRenderAttempts) {
+      renderAttempts++
+      setTimeout(() => tryRenderChart(), 100)
+    }
+    return
+  }
+  renderChart()
+}
 
 onMounted(() => {
-  renderChart()
-  if (!chart) {
-    setTimeout(() => renderChart(), 100)
-    setTimeout(() => renderChart(), 500)
-  }
+  renderAttempts = 0
+  tryRenderChart()
   resizeHandler = () => chart?.resize()
   window.addEventListener('resize', resizeHandler)
   if (chartRef.value && typeof ResizeObserver !== 'undefined') {
@@ -383,7 +396,7 @@ onMounted(() => {
       if (chart) {
         chart.resize()
       } else {
-        renderChart()
+        tryRenderChart()
       }
     })
     resizeObserver.observe(chartRef.value)

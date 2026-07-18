@@ -4,25 +4,38 @@
       <el-button :icon="ArrowLeft" @click="goBack" text>返回</el-button>
       <span class="kline-title">{{ stockName || code }}（{{ code }}）</span>
       <span v-if="quote" class="kline-quote" :class="pnlClass">
-        {{ Number(quote.close || quote.price).toFixed(2) }}
-        <template v-if="quote.changePercent != null">
+        {{ formatPrice(quote.close || quote.price) }}
+        <template v-if="isValidNumber(quote.changePercent)">
           &nbsp;{{ Number(quote.changePercent) >= 0 ? '+' : '' }}{{ Number(quote.changePercent).toFixed(2) }}%
         </template>
       </span>
     </div>
+
     <div v-if="klineLoading" class="kline-loading">
       <el-icon class="is-loading" :size="28"><Loading /></el-icon>
       <span style="margin-left:8px;color:var(--el-text-color-secondary)">加载K线数据...</span>
     </div>
-    <KlineChart
-      v-else-if="klineData.length"
-      :data="klineData"
-      :height="chartHeight"
-      :show-m-a="true"
-      :show-boll="true"
-      :show-volume="true"
-      :show-m-a-c-d="true"
-    />
+
+    <div v-else-if="klineError" class="kline-loading">
+      <el-result icon="warning" :title="klineError" sub-title="请检查股票代码或稍后重试">
+        <template #extra>
+          <el-button type="primary" @click="loadKline">重新加载</el-button>
+          <el-button @click="goBack">返回</el-button>
+        </template>
+      </el-result>
+    </div>
+
+    <div v-else-if="klineData.length" class="kline-chart-container">
+      <KlineChart
+        :data="klineData"
+        :height="chartHeight"
+        :show-m-a="true"
+        :show-boll="true"
+        :show-volume="true"
+        :show-m-a-c-d="true"
+      />
+    </div>
+
     <el-empty v-else description="暂无K线数据" />
   </div>
 </template>
@@ -37,20 +50,33 @@ import { stockApi } from '@/api/stock'
 const route = useRoute()
 const router = useRouter()
 
-const code = ref((route.query.code as string) || '')
+const code = ref((route.params.code as string) || (route.query.code as string) || '')
 const stockName = ref((route.query.name as string) || '')
 const klineData = ref<any[]>([])
-const klineLoading = ref(true)
+const klineLoading = ref(false)
+const klineError = ref('')
 const quote = ref<Record<string, any> | null>(null)
 
 const chartHeight = computed(() => {
-  return Math.max(400, window.innerHeight - 160)
+  const height = window.innerHeight - 160
+  return height > 0 ? Math.max(400, height) : 500
 })
 
 const pnlClass = computed(() => {
-  if (!quote.value) return ''
+  if (!quote.value || !isValidNumber(quote.value.changePercent)) return ''
   return Number(quote.value.changePercent) >= 0 ? 'pnl-up' : 'pnl-down'
 })
+
+function formatPrice(value: any): string {
+  const num = Number(value)
+  return isNaN(num) ? '-' : num.toFixed(2)
+}
+
+function isValidNumber(value: any): boolean {
+  if (value === null || value === undefined) return false
+  const num = Number(value)
+  return !isNaN(num)
+}
 
 function goBack() {
   if (window.history.length > 1) {
@@ -61,13 +87,23 @@ function goBack() {
 }
 
 async function loadKline() {
-  if (!code.value) return
+  if (!code.value) {
+    klineError.value = '股票代码为空'
+    klineData.value = []
+    return
+  }
   klineLoading.value = true
+  klineError.value = ''
   try {
     const res: any = await stockApi.kline({ code: code.value, period: 'daily' })
-    klineData.value = Array.isArray(res) ? res : []
-  } catch {
+    const data = Array.isArray(res) ? res : (res?.data && Array.isArray(res.data) ? res.data : [])
+    if (!data.length) {
+      klineError.value = '暂无K线数据'
+    }
+    klineData.value = data
+  } catch (e: any) {
     klineData.value = []
+    klineError.value = e?.message || 'K线数据加载失败'
   } finally {
     klineLoading.value = false
   }
@@ -78,7 +114,9 @@ async function loadQuote() {
   try {
     const res: any = await stockApi.quote(code.value)
     quote.value = res || null
-  } catch { /* ignore */ }
+  } catch {
+    quote.value = null
+  }
 }
 
 let quoteTimer: ReturnType<typeof setInterval> | null = null
@@ -119,6 +157,10 @@ onBeforeUnmount(() => {
   justify-content: center;
   align-items: center;
   height: 400px;
+}
+.kline-chart-container {
+  min-height: 400px;
+  position: relative;
 }
 .pnl-up { color: var(--el-color-danger); }
 .pnl-down { color: var(--el-color-success); }

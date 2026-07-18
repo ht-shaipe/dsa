@@ -22,3 +22,9 @@ body {
   width: 100%;
   height: 100vh;
 }
+
+/* el-card 全局紧凑化 */
+.el-card {
+  --el-card-padding: 14px;
+  --el-card-header-padding: 12px 14px;
+}

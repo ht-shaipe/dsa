@@ -5,6 +5,7 @@ extern crate tube;
 
 pub mod agents;
 pub mod conversation;
+pub mod intent;
 pub mod memory;
 pub mod orchestrator;
 pub mod skills;

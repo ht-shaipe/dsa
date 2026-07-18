@@ -206,7 +206,10 @@ impl Stock {
                 .trim_start_matches("bj");
             if pure_code.len() >= 6 {
                 let prefix = utils::market_prefix(pure_code);
-                if let Ok(v) = real.get_price(&format!("{}{}", prefix, pure_code)).await {
+                if let Ok(mut v) = real.get_price(&format!("{}{}", prefix, pure_code)).await {
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("code".to_string(), Value::from(pure_code.to_string()));
+                    }
                     results.push(v);
                 }
             }

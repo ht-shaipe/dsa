@@ -692,6 +692,26 @@ pub struct SchedulerConfig {
     pub times: Vec<String>,
     #[serde(default = "default_true")]
     pub run_immediately: bool,
+    #[serde(default)]
+    pub screening_enabled: bool,
+    #[serde(default = "default_screening_times")]
+    pub screening_times: Vec<String>,
+    #[serde(default = "default_screening_strategy")]
+    pub screening_strategy: String,
+    #[serde(default = "default_screening_limit")]
+    pub screening_limit: u32,
+}
+
+fn default_screening_times() -> Vec<String> {
+    vec!["15:05".to_string()]
+}
+
+fn default_screening_strategy() -> String {
+    "macd_golden_cross".to_string()
+}
+
+fn default_screening_limit() -> u32 {
+    50
 }
 
 /// 市场复盘配置
@@ -806,6 +826,10 @@ impl Default for AppConfig {
                 enabled: false,
                 times: default_schedule_times(),
                 run_immediately: true,
+                screening_enabled: false,
+                screening_times: default_screening_times(),
+                screening_strategy: default_screening_strategy(),
+                screening_limit: default_screening_limit(),
             },
             market_review: MarketReviewConfig {
                 enabled: true,

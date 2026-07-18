@@ -5,7 +5,7 @@ use tube_jwt::{Authorizer, Provider, Visitor};
 
 use super::proxy::send_proxy_request;
 
-const REMOTE_AUTH_BASE: &str = "https://auth.htui.cc/api/pas";
+const REMOTE_AUTH_BASE: &str = "https://hub.htui.cc/api/pas";
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -17,8 +17,19 @@ pub struct LoginRequest {
 pub struct RegisterRequest {
     pub mobile: String,
     pub password: String,
+    pub code: String,
     #[serde(default)]
     pub name: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SmsCodeRequest {
+    pub mobile: String,
+}
+
+#[derive(Deserialize)]
+pub struct MobileExistsRequest {
+    pub mobile: String,
 }
 
 #[derive(Deserialize)]
@@ -143,13 +154,8 @@ pub async fn login(req: web::Json<LoginRequest>) -> HttpResponse {
 
     match proxy_post(&url, &body.to_string()).await {
         Ok(data) => {
-            let result = data
-                .get("result")
-                .or_else(|| data.get("data"))
-                .unwrap_or(&data);
-            let remote_token = result.get("token").and_then(|v| v.as_str()).unwrap_or("");
-
-            if remote_token.is_empty() {
+            let remote_code = data.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+            if remote_code != 200 {
                 let msg = data
                     .get("message")
                     .and_then(|v| v.as_str())
@@ -158,6 +164,20 @@ pub async fn login(req: web::Json<LoginRequest>) -> HttpResponse {
                     "code": 4001,
                     "result": null,
                     "message": msg
+                }));
+            }
+
+            let result = data
+                .get("result")
+                .or_else(|| data.get("data"))
+                .unwrap_or(&data);
+            let remote_token = result.get("token").and_then(|v| v.as_str()).unwrap_or("");
+
+            if remote_token.is_empty() {
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "code": 4001,
+                    "result": null,
+                    "message": "登录失败，未获取到令牌"
                 }));
             }
 
@@ -186,7 +206,7 @@ pub async fn login(req: web::Json<LoginRequest>) -> HttpResponse {
         Err(err) => HttpResponse::Ok().json(serde_json::json!({
             "code": 500,
             "result": null,
-            "message": err
+            "message": format!("网络错误: {}", err)
         })),
     }
 }
@@ -195,15 +215,28 @@ pub async fn register(req: web::Json<RegisterRequest>) -> HttpResponse {
     let mut body = serde_json::json!({
         "mobile": req.mobile,
         "password": req.password,
+        "code": req.code,
     });
     if let Some(name) = &req.name {
         body["name"] = serde_json::Value::String(name.clone());
     }
 
-    let url = format!("{}/user/register", REMOTE_AUTH_BASE);
+    let url = format!("{}/user/sms/register", REMOTE_AUTH_BASE);
 
     match proxy_post(&url, &body.to_string()).await {
         Ok(data) => {
+            let remote_code = data.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+            if remote_code != 200 {
+                let msg = data
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("注册失败");
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "code": remote_code,
+                    "result": null,
+                    "message": msg
+                }));
+            }
             let result = data
                 .get("result")
                 .or_else(|| data.get("data"))
@@ -211,13 +244,83 @@ pub async fn register(req: web::Json<RegisterRequest>) -> HttpResponse {
             HttpResponse::Ok().json(serde_json::json!({
                 "code": 200,
                 "result": result,
-                "message": ""
+                "message": "注册成功"
             }))
         }
         Err(err) => HttpResponse::Ok().json(serde_json::json!({
             "code": 500,
             "result": null,
-            "message": err
+            "message": format!("网络错误: {}", err)
+        })),
+    }
+}
+
+pub async fn sms_code(req: web::Json<SmsCodeRequest>) -> HttpResponse {
+    let body = serde_json::json!({
+        "mobile": req.mobile,
+    });
+
+    let url = format!("{}/user/sms/code", REMOTE_AUTH_BASE);
+
+    match proxy_post(&url, &body.to_string()).await {
+        Ok(data) => {
+            let remote_code = data.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+            if remote_code != 200 {
+                let msg = data
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("发送验证码失败");
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "code": remote_code,
+                    "result": null,
+                    "message": msg
+                }));
+            }
+            HttpResponse::Ok().json(serde_json::json!({
+                "code": 200,
+                "result": true,
+                "message": "验证码已发送"
+            }))
+        }
+        Err(err) => HttpResponse::Ok().json(serde_json::json!({
+            "code": 500,
+            "result": null,
+            "message": format!("网络错误: {}", err)
+        })),
+    }
+}
+
+pub async fn mobile_exists(req: web::Json<MobileExistsRequest>) -> HttpResponse {
+    let body = serde_json::json!({
+        "mobile": req.mobile,
+    });
+
+    let url = format!("{}/user/mobile/exists", REMOTE_AUTH_BASE);
+
+    match proxy_post(&url, &body.to_string()).await {
+        Ok(data) => {
+            let remote_code = data.get("code").and_then(|v| v.as_i64()).unwrap_or(0);
+            if remote_code == 200 {
+                let exists = data
+                    .get("result")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                return HttpResponse::Ok().json(serde_json::json!({
+                    "code": 200,
+                    "result": exists,
+                    "message": ""
+                }));
+            }
+            HttpResponse::Ok().json(serde_json::json!({
+                "code": 200,
+                "result": false,
+                "message": ""
+            }))
+        }
+        Err(_) => HttpResponse::Ok().json(serde_json::json!({
+            "code": 200,
+            "result": false,
+            "message": ""
         })),
     }
 }

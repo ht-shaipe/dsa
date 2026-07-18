@@ -7,6 +7,7 @@ use tube_web::RequestParameter;
 lazy_static::lazy_static! {
     static ref SCHEDULER_RUNNING: AtomicBool = AtomicBool::new(false);
     static ref LAST_TRIGGER_TIME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    static ref LAST_SCREENING_TIME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 }
 
 pub struct Scheduler {
@@ -61,11 +62,41 @@ impl Scheduler {
                 let now = chrono::Local::now();
                 let time_str = now.format("%H:%M").to_string();
 
-                if conf.scheduler.times.contains(&time_str) {
+                if conf.scheduler.enabled && conf.scheduler.times.contains(&time_str) {
                     if let Ok(mut last) = LAST_TRIGGER_TIME.lock() {
                         if *last != Some(time_str.clone()) {
                             *last = Some(time_str.clone());
-                            tracing::info!("调度时间到达: {}, 需要触发分析", time_str);
+                            tracing::info!("调度时间到达: {}, 触发分析", time_str);
+                            let codes = conf.stock.watchlist.clone();
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Builder::new_current_thread()
+                                    .enable_all()
+                                    .build()
+                                    .expect("Failed to build tokio runtime for scheduled analysis");
+                                rt.block_on(async {
+                                    let _ = Scheduler::run_scheduled_analysis(&codes).await;
+                                });
+                            });
+                        }
+                    }
+                }
+
+                if conf.scheduler.screening_enabled && conf.scheduler.screening_times.contains(&time_str) {
+                    if let Ok(mut last) = LAST_SCREENING_TIME.lock() {
+                        if *last != Some(time_str.clone()) {
+                            *last = Some(time_str.clone());
+                            tracing::info!("筛选调度时间到达: {}, 触发MACD筛选", time_str);
+                            let strategy = conf.scheduler.screening_strategy.clone();
+                            let limit = conf.scheduler.screening_limit as usize;
+                            std::thread::spawn(move || {
+                                let rt = tokio::runtime::Builder::new_current_thread()
+                                    .enable_all()
+                                    .build()
+                                    .expect("Failed to build tokio runtime for scheduled screening");
+                                rt.block_on(async {
+                                    let _ = Scheduler::run_scheduled_screening(&strategy, limit).await;
+                                });
+                            });
                         }
                     }
                 }
@@ -113,13 +144,24 @@ impl Scheduler {
 
     async fn jobs(&self) -> Result<Value> {
         let conf = dsa_core::get_global_config();
-        let jobs = vec![value!({
+        let mut jobs = vec![value!({
             "name": "daily_analysis",
             "type": "daily",
             "schedule": conf.scheduler.times,
             "enabled": conf.scheduler.enabled,
             "stocks": conf.stock.watchlist,
         })];
+
+        if conf.scheduler.screening_enabled {
+            jobs.push(value!({
+                "name": "screening_macd",
+                "type": "screening",
+                "schedule": conf.scheduler.screening_times,
+                "enabled": conf.scheduler.screening_enabled,
+                "strategy": conf.scheduler.screening_strategy,
+                "limit": conf.scheduler.screening_limit as i64,
+            }));
+        }
 
         Ok(Value::Array(jobs))
     }
@@ -278,6 +320,86 @@ impl Scheduler {
             &connector,
         ) {
             tracing::error!("save_scheduled_report 失败: {}", e);
+        }
+    }
+
+    async fn run_scheduled_analysis(codes: &[String]) -> Result<Value> {
+        let conf = dsa_core::get_global_config();
+        let api_key = conf.resolve_api_key();
+        if api_key.is_empty() {
+            tracing::error!("定时分析: API Key 未配置");
+            return Ok(value!({"message": "API Key 未配置", "results": []}));
+        }
+
+        let pipeline = dsa_pipeline::pipeline::AnalysisPipeline::new(
+            &conf.llm.provider,
+            &api_key,
+            &conf.llm.model,
+            conf.llm.temperature,
+            conf.llm.timeout_seconds,
+        )
+        .map_err(|e| tube::Error::msg(e.to_string()))?;
+
+        let renderer = dsa_pipeline::report_renderer::ReportRenderer::new();
+        let mut results = Vec::new();
+
+        for code in codes {
+            match Self::analyze_single_code(&pipeline, &renderer, code).await {
+                Ok((report_text, report)) => {
+                    Self::save_scheduled_report(code, &report, &report_text);
+                    results.push(value!({"code": code.as_str(), "status": "ok"}));
+                }
+                Err(e) => {
+                    results.push(value!({"code": code.as_str(), "status": "error", "error": e.to_string()}));
+                }
+            }
+        }
+
+        Ok(value!({"message": "scheduled analysis completed", "results": results}))
+    }
+
+    async fn run_scheduled_screening(strategy: &str, limit: usize) -> Result<Value> {
+        let mut screen_param = RequestParameter::default();
+        screen_param.value = value!({
+            "strategy": strategy,
+            "limit": limit as i64,
+        });
+        let screening_with_param = crate::screening::Screening::new(&screen_param);
+
+        let result = screening_with_param.dispatch("screen").await;
+
+        match result {
+            Ok(val) => {
+                let count = val.get("count").and_then(|v| v.as_i64()).unwrap_or(0);
+                tracing::info!("定时筛选完成: strategy={}, count={}", strategy, count);
+
+                if count > 0 {
+                    let conf = dsa_core::get_global_config();
+                    let channels = &conf.notification.alert_channels;
+                    if !channels.is_empty() {
+                        let batch_id = val.get("batch_id").and_then(|v| v.as_str()).unwrap_or_default();
+                        let title = "MACD零上金叉筛选";
+                        let content = format!("发现{}只符合条件的股票 (批次: {})", count, batch_id);
+                        for ch in channels {
+                            let mut send_param = RequestParameter::default();
+                            send_param.value = value!({
+                                "channel": ch.as_str(),
+                                "title": title,
+                                "content": content.clone(),
+                                "severity": "info",
+                            });
+                            let notif = crate::notification::Notification::new(&send_param);
+                            let _ = notif.dispatch("send").await;
+                        }
+                    }
+                }
+
+                Ok(val)
+            }
+            Err(e) => {
+                tracing::error!("定时筛选失败: {}", e);
+                Err(e)
+            }
         }
     }
 }

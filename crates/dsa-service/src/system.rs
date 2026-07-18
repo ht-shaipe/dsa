@@ -1,4 +1,5 @@
 use ai_llm_kit::{LlmFactory, LlmProvider, LlmService};
+use chrono::Timelike;
 use log::{debug as log_debug, warn as log_warn, error as log_error, info as log_info};
 use tube::{Result, Value};
 use tube_web::RequestParameter;
@@ -136,6 +137,8 @@ impl System {
             "pause_sync" => self.pause_sync().await,
             "resume_sync" => self.resume_sync().await,
             "stop_sync" => self.stop_sync().await,
+            "check_freshness" => self.check_freshness().await,
+            "sync_daily_incremental" => self.sync_daily_incremental().await,
             _ => Err(tube::Error::from(format!("system不支持方法: {}", method))),
         }
     }
@@ -969,9 +972,9 @@ impl System {
                                 }
                                 let q_sql = "INSERT OR REPLACE INTO stock_quote \
                                     (stock_code, trade_date, open, high, low, close, previous_close, change_price, change_percent, \
-                                    volume, amount, turnover_ratio, total_market_cap, liquid_market_cap, pe, pb) \
+                                    volume, amount, turnover_ratio, total_market_cap, liquid_market_cap, pe, pb, modify_time) \
                                     VALUES (:code, :today, :open, :high, :low, :close, :prev_close, :change_price, :change_percent, \
-                                    :volume, :amount, :turnover_ratio, :total_mcap, :liquid_mcap, :pe, :pb)";
+                                    :volume, :amount, :turnover_ratio, :total_mcap, :liquid_mcap, :pe, :pb, datetime('now'))";
                                 let q_params = vec![
                                     ("code".to_string(), Value::from(s.code.clone())),
                                     ("today".to_string(), Value::from(today.clone())),
@@ -1019,7 +1022,8 @@ impl System {
                                     open=VALUES(open), previous_close=VALUES(previous_close), change_price=VALUES(change_price), \
                                     change_percent=VALUES(change_percent), volume=VALUES(volume), amount=VALUES(amount), \
                                     turnover_ratio=VALUES(turnover_ratio), total_market_cap=VALUES(total_market_cap), \
-                                    liquid_market_cap=VALUES(liquid_market_cap), pe=VALUES(pe), pb=VALUES(pb)";
+                                    liquid_market_cap=VALUES(liquid_market_cap), pe=VALUES(pe), pb=VALUES(pb), \
+                                    modify_time=NOW()";
                                 let q_params = vec![
                                     ("code".to_string(), Value::from(s.code.clone())),
                                     ("today".to_string(), Value::from(today.clone())),
@@ -1451,6 +1455,18 @@ impl System {
             "SELECT COUNT(*) AS cnt FROM news_intel WHERE status >= 1", vec![], &connector,
         ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
 
+        let screening_latest_count = dsa_core::db::query_rows(
+            "SELECT COUNT(*) AS cnt FROM screening_results WHERE status >= 1 AND strategy = 'macd_golden_cross' AND batch_id = (SELECT batch_id FROM screening_results WHERE strategy = 'macd_golden_cross' AND status >= 1 ORDER BY create_time DESC LIMIT 1)", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_i64(row, "cnt"))).unwrap_or(0);
+
+        let screening_latest_time = dsa_core::db::query_rows(
+            "SELECT MAX(create_time) AS val FROM screening_results WHERE status >= 1 AND strategy = 'macd_golden_cross'", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_string(row, "val"))).unwrap_or_default();
+
+        let screening_latest_batch = dsa_core::db::query_rows(
+            "SELECT batch_id AS val FROM screening_results WHERE status >= 1 AND strategy = 'macd_golden_cross' ORDER BY create_time DESC LIMIT 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_string(row, "val"))).unwrap_or_default();
+
         let portfolio_total_value = dsa_core::db::query_rows(
             "SELECT COALESCE(SUM(quantity * current_price), 0) AS val FROM portfolio_positions WHERE status >= 1 AND quantity > 0", vec![], &connector,
         ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_f64(row, "val"))).unwrap_or(0.0);
@@ -1511,6 +1527,11 @@ impl System {
             },
             "sync": {
                 "running": sync_running,
+            },
+            "screening": {
+                "latestCount": screening_latest_count,
+                "latestTime": screening_latest_time,
+                "latestBatchId": screening_latest_batch,
             },
         }))
     }
@@ -1737,6 +1758,385 @@ impl System {
             "skipped": skipped as i64,
         }))
     }
+    async fn check_freshness(&self) -> Result<Value> {
+        let connector = dsa_core::db::get_db_connector()
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+
+        let quote_latest = dsa_core::db::query_rows(
+            "SELECT MAX(trade_date) AS val FROM stock_quote", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_string(row, "val"))).unwrap_or_default();
+
+        let daily_latest = dsa_core::db::query_rows(
+            "SELECT MAX(trade_date) AS val FROM stock_daily WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_string(row, "val"))).unwrap_or_default();
+
+        let quote_modify_latest = dsa_core::db::query_rows(
+            "SELECT MAX(modify_time) AS val FROM stock_quote", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_string(row, "val"))).unwrap_or_default();
+
+        let daily_modify_latest = dsa_core::db::query_rows(
+            "SELECT MAX(modify_time) AS val FROM stock_daily WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_string(row, "val"))).unwrap_or_default();
+
+        let today = chrono::Local::now().date_naive();
+        let is_trading = dsa_core::utils::is_trading_day(today);
+
+        let now = chrono::Local::now();
+        let (h, m) = (now.hour() as u32, now.minute() as u32);
+        let is_trading_time = is_trading && (
+            (h >= 9 && h < 12 && !(h == 11 && m > 30)) ||
+            (h >= 13 && h < 15)
+        );
+
+        let last_td = dsa_core::utils::last_trading_day();
+        let last_td_str = last_td.format("%Y-%m-%d").to_string();
+
+        let quote_gap = if !quote_latest.is_empty() {
+            if let Ok(qd) = chrono::NaiveDate::parse_from_str(&quote_latest, "%Y-%m-%d") {
+                (today - qd).num_days() as i64
+            } else { 999 }
+        } else { 999 };
+
+        let daily_gap = if !daily_latest.is_empty() {
+            if let Ok(dd) = chrono::NaiveDate::parse_from_str(&daily_latest, "%Y-%m-%d") {
+                (today - dd).num_days() as i64
+            } else { 999 }
+        } else { 999 };
+
+        fn parse_modify_minutes(modify_str: &str) -> i64 {
+            if modify_str.is_empty() { return 99999; }
+            let fmts = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S%.3f"];
+            for fmt in &fmts {
+                if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(modify_str, fmt) {
+                    return (chrono::Local::now().naive_local() - dt).num_minutes().max(0);
+                }
+            }
+            99999
+        }
+
+        let quote_modify_minutes = parse_modify_minutes(&quote_modify_latest);
+        let daily_modify_minutes = parse_modify_minutes(&daily_modify_latest);
+
+        let quote_stale = if is_trading_time {
+            quote_latest.is_empty() || quote_modify_minutes > 30
+        } else if is_trading {
+            quote_latest.is_empty() || quote_latest.as_str() < last_td_str.as_str() || quote_modify_minutes > 120
+        } else {
+            quote_latest.is_empty() || quote_latest.as_str() < last_td_str.as_str()
+        };
+
+        let daily_stale = if is_trading {
+            daily_latest.is_empty() || daily_latest.as_str() < last_td_str.as_str() || daily_modify_minutes > 120
+        } else {
+            daily_latest.is_empty() || daily_latest.as_str() < last_td_str.as_str()
+        };
+
+        let sync_running = {
+            let st = DATA_SYNC_STATUS.lock().unwrap();
+            st.running
+        };
+
+        let need_quote_sync = quote_stale && !sync_running;
+        let need_daily_sync = daily_stale && !sync_running;
+
+        Ok(value!({
+            "quote": {
+                "latestDate": quote_latest,
+                "isStale": quote_stale,
+                "daysGap": quote_gap,
+                "modifyMinutes": quote_modify_minutes,
+            },
+            "daily": {
+                "latestDate": daily_latest,
+                "isStale": daily_stale,
+                "daysGap": daily_gap,
+                "modifyMinutes": daily_modify_minutes,
+            },
+            "isTradingDay": is_trading,
+            "isTradingTime": is_trading_time,
+            "lastTradingDay": last_td_str,
+            "needQuoteSync": need_quote_sync,
+            "needDailySync": need_daily_sync,
+            "syncRunning": sync_running,
+        }))
+    }
+
+    async fn sync_daily_incremental(&self) -> Result<Value> {
+        {
+            let st = DATA_SYNC_STATUS.lock().unwrap();
+            if st.running {
+                return Ok(value!({"message": "已有任务在运行中，请等待完成后再试"}));
+            }
+        }
+
+        let connector = dsa_core::db::get_db_connector()
+            .map_err(|e| tube::Error::from(format!("DB连接失败: {}", e)))?;
+
+        let last_date = dsa_core::db::query_rows(
+            "SELECT MAX(trade_date) AS val FROM stock_daily WHERE status >= 1", vec![], &connector,
+        ).ok().and_then(|r| r.first().map(|row| dsa_core::db::row_get_string(row, "val"))).unwrap_or_default();
+
+        if last_date.is_empty() {
+            return self.init_daily_data().await;
+        }
+
+        let last_td = dsa_core::utils::last_trading_day();
+        let last_td_str = last_td.format("%Y-%m-%d").to_string();
+
+        if last_date.as_str() >= last_td_str.as_str() {
+            return Ok(value!({
+                "message": "日线数据已是最新",
+                "latestDate": last_date,
+                "lastTradingDay": last_td_str,
+            }));
+        }
+
+        let beg_date = if let Ok(ld) = chrono::NaiveDate::parse_from_str(&last_date, "%Y-%m-%d") {
+            let prev = ld - chrono::Duration::days(90);
+            prev.format("%Y%m%d").to_string()
+        } else {
+            "20250101".to_string()
+        };
+        let end_date = chrono::Local::now().format("%Y%m%d").to_string();
+
+        let codes: Vec<(String, String, i8)> = {
+            let sql = "SELECT stock_code, stock_name, market_id FROM stock_pool WHERE status = 1 ORDER BY market_id DESC, stock_code ASC";
+            let rows = dsa_core::db::query_rows(sql, vec![], &connector)
+                .map_err(|e| tube::Error::from(format!("查询股票池失败: {}", e)))?;
+            rows.iter().filter_map(|r| {
+                let code = dsa_core::db::row_get_string(r, "stockCode");
+                let name = dsa_core::db::row_get_string(r, "stockName");
+                let market_id = dsa_core::db::row_get_i64(r, "marketId") as i8;
+                if code.is_empty() { return None; }
+                Some((code, name, market_id))
+            }).collect()
+        };
+
+        let total = codes.len() as u32;
+        {
+            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+            st.running = true;
+            st.paused = false;
+            st.total = total;
+            st.done = 0;
+            st.failed = 0;
+            st.phase = "fetching".to_string();
+            st.task_name = "sync_daily_incremental".to_string();
+            st.current_code = String::new();
+            st.current_name = String::new();
+        }
+        broadcast_task_status();
+
+        let conf = dsa_core::get_global_config();
+        let is_sqlite = conf.database.is_sqlite();
+        let retention_days = conf.data_sync.retention_days as i64;
+
+        let codes_clone = codes.clone();
+        let beg_date_clone = beg_date.clone();
+        let end_date_clone = end_date.clone();
+        let last_date_clone = last_date.clone();
+
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to build tokio runtime for sync_daily_incremental");
+
+                rt.block_on(async {
+                    let retention_date = {
+                        let now = chrono::Local::now();
+                        let cutoff = now - chrono::Duration::days(retention_days);
+                        cutoff.format("%Y-%m-%d").to_string()
+                    };
+
+                    let kline_base_url = "https://push2his.eastmoney.com/api/qt/stock/kline/get";
+
+                    for (code, name, market_id) in &codes_clone {
+                        if !wait_if_paused() { break; }
+
+                        {
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.current_code = code.clone();
+                            st.current_name = name.clone();
+                        }
+                        broadcast_task_status();
+
+                        let secid = format!("{}.{}", market_id, code);
+                        let params = format!(
+                            "fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f116&ut=7eea3edcaed734bea9cbfc24409ed989&klt=101&fqt=1&secid={}&beg={}&end={}",
+                            urlencoding::encode(&secid), &beg_date_clone, &end_date_clone
+                        );
+                        let full_url = format!("{}?{}", kline_base_url, params);
+
+                        let mut headers = std::collections::HashMap::new();
+                        headers.insert("User-Agent".to_string(), "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36".to_string());
+                        headers.insert("Referer".to_string(), "https://quote.eastmoney.com/".to_string());
+                        let resp = tube_net::AsyncClient::new("")
+                            .add_headers(headers)
+                            .timeout(15000)
+                            .get(&full_url)
+                            .await;
+
+                        match resp {
+                            Ok(response_text) => {
+                                match parse_kline_response(&response_text, is_sqlite, &retention_date) {
+                                    Ok(bars) => {
+                                        if !bars.is_empty() {
+                                            dsa_core::utils::save_all_kline_to_db(code, &bars);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log_warn!("增量日线解析失败 {} {}: {}", code, name, e);
+                                        DATA_SYNC_STATUS.lock().unwrap().failed += 1;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log_warn!("增量日线获取失败 {} {}: {}", code, name, e);
+                                DATA_SYNC_STATUS.lock().unwrap().failed += 1;
+                            }
+                        }
+
+                        {
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.done += 1;
+                        }
+                        broadcast_task_status();
+
+                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    }
+
+                    {
+                        let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                        st.phase = "calculating_indicators".to_string();
+                    }
+                    broadcast_task_status();
+
+                    let connector = match dsa_core::db::get_db_connector() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            log_error!("增量指标计算DB连接失败: {}", e);
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.running = false;
+                            st.phase = "done".to_string();
+                            return;
+                        }
+                    };
+
+                    let indicator_beg = if let Ok(ld) = chrono::NaiveDate::parse_from_str(&last_date_clone, "%Y-%m-%d") {
+                        let prev = ld - chrono::Duration::days(120);
+                        prev.format("%Y-%m-%d").to_string()
+                    } else {
+                        last_date_clone.clone()
+                    };
+
+                    let sql = "SELECT DISTINCT stock_code FROM stock_daily WHERE status = 1 AND trade_date >= :beg_date ORDER BY stock_code";
+                    let rows = match dsa_core::db::query_rows(sql, vec![("beg_date".to_string(), Value::from(indicator_beg))], &connector) {
+                        Ok(r) => r,
+                        Err(e) => {
+                            log_error!("增量查询股票列表失败: {}", e);
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.running = false;
+                            st.phase = "done".to_string();
+                            return;
+                        }
+                    };
+
+                    let analyzer = dsa_pipeline::technical::TechnicalAnalyzer::new();
+                    let mut indicator_done = 0u32;
+                    let indicator_total = rows.len() as u32;
+
+                    for row in &rows {
+                        if !wait_if_paused() { break; }
+
+                        let code = dsa_core::db::row_get_string(row, "stockCode");
+                        if code.is_empty() { continue; }
+
+                        let hist_sql = "SELECT close, trade_date FROM stock_daily \
+                             WHERE stock_code = :code AND status >= 1 ORDER BY trade_date ASC";
+                        let hist_rows = match dsa_core::db::query_rows(
+                            hist_sql,
+                            vec![("code".to_string(), Value::from(code.clone()))],
+                            &connector,
+                        ) {
+                            Ok(r) => r,
+                            Err(_) => continue,
+                        };
+
+                        let closes: Vec<f64> = hist_rows.iter()
+                            .map(|r| dsa_core::db::row_get_f64(r, "close"))
+                            .collect();
+
+                        if closes.len() < 60 { continue; }
+
+                        let ma5 = analyzer.sma(&closes, 5);
+                        let ma10 = analyzer.sma(&closes, 10);
+                        let ma20 = analyzer.sma(&closes, 20);
+                        let ma60 = analyzer.sma(&closes, 60);
+                        let (dif, dea, macd_hist) = analyzer.macd(&closes, 12, 26, 9);
+
+                        let last_date_row = hist_rows.last().unwrap();
+                        let last_date = dsa_core::db::row_get_string(last_date_row, "tradeDate");
+
+                        let _ = dsa_core::db::execute(
+                            "UPDATE stock_daily SET \
+                             ma5 = :ma5, ma10 = :ma10, ma20 = :ma20, ma60 = :ma60, \
+                             dif = :dif, dea = :dea, macd_hist = :macd_hist \
+                             WHERE stock_code = :code AND trade_date = :date AND status >= 1",
+                            vec![
+                                ("ma5".to_string(), Value::from(ma5)),
+                                ("ma10".to_string(), Value::from(ma10)),
+                                ("ma20".to_string(), Value::from(ma20)),
+                                ("ma60".to_string(), Value::from(ma60)),
+                                ("dif".to_string(), Value::from(dif)),
+                                ("dea".to_string(), Value::from(dea)),
+                                ("macd_hist".to_string(), Value::from(macd_hist)),
+                                ("code".to_string(), Value::from(code.clone())),
+                                ("date".to_string(), Value::from(last_date.clone())),
+                            ],
+                            &connector,
+                        );
+
+                        indicator_done += 1;
+                        if indicator_done % 50 == 0 {
+                            let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                            st.phase = format!("calculating_indicators ({}/{})", indicator_done, indicator_total);
+                            broadcast_task_status();
+                        }
+                    }
+
+                    log_info!("增量日线同步完成: 失败{}, 指标计算{}",
+                        DATA_SYNC_STATUS.lock().unwrap().failed, indicator_done);
+
+                    {
+                        let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                        st.running = false;
+                        st.paused = false;
+                        st.phase = "done".to_string();
+                    }
+                    broadcast_task_status();
+                });
+            }));
+
+            if let Err(_) = result {
+                log_error!("增量日线同步线程 panic");
+                let mut st = DATA_SYNC_STATUS.lock().unwrap();
+                st.running = false;
+                st.paused = false;
+                st.phase = "error".to_string();
+                broadcast_task_status();
+            }
+        });
+
+        Ok(value!({
+            "message": "增量日线数据同步已启动",
+            "total": total,
+            "fromDate": last_date,
+            "toDate": end_date,
+        }))
+    }
+
     async fn pause_sync(&self) -> Result<Value> {
         {
             let mut st = DATA_SYNC_STATUS.lock().unwrap();

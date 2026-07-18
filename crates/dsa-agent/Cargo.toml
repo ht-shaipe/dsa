@@ -19,6 +19,7 @@ tracing = { workspace = true }
 tube = { workspace = true }
 ai-llm-kit = { workspace = true }
 qta_crawler = { workspace = true }
+regex = { workspace = true }
 reqwest = { workspace = true }
 urlencoding = "2"
 deck = { workspace = true }

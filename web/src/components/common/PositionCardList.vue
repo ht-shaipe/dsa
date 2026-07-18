@@ -11,38 +11,43 @@
             <span class="position-card-name">{{ row.stockName || row.name || '-' }}</span>
             <span class="position-card-code">{{ row.stockCode || row.code }}</span>
           </div>
-          <span v-if="showPnlBadge" :class="['position-pnl-badge', pnlDirClass(row)]">
-            {{ pnlPercentText(row) }}
-          </span>
+          <span class="position-card-mv">{{ formatMoney(row.marketValue) }}</span>
         </div>
 
         <div class="position-card-price-row">
           <span :class="['position-card-current', priceDir(row)]">
             {{ formatNum(row.currentPrice, 2) }}
           </span>
-          <span class="position-card-mv">{{ formatMoney(row.marketValue) }}</span>
+          <span v-if="row.todayChangePercent !== undefined" :class="['position-card-today-pnl', todayPnlDirClass(row)]">
+            {{ row.todayChangePercent >= 0 ? '+' : '' }}{{ formatNum(row.todayChangePercent, 2) }}%
+          </span>
+          <span v-if="row.todayPnl !== undefined" :class="['position-card-today-pnl', todayPnlDirClass(row)]">
+            {{ row.todayPnl >= 0 ? '+' : '' }}{{ formatNum(row.todayPnl, 2) }}
+          </span>
         </div>
 
         <div class="position-card-details">
           <div class="detail-item">
-            <span class="detail-label">持仓</span>
-            <span class="detail-value">{{ row.quantity }}股</span>
-          </div>
-          <div class="detail-item">
             <span class="detail-label">成本</span>
             <span class="detail-value">{{ formatNum(row.avgCost, 3) }}</span>
           </div>
+
+          <div class="detail-item">
+            <span class="detail-label">持仓</span>
+            <span class="detail-value">{{ row.quantity }}股</span>
+          </div>
+
         </div>
 
         <div class="position-card-footer">
           <div class="pnl-row">
             <span class="pnl-item">
-              <span class="footer-label">浮动</span>
+              <span class="footer-label">盈亏</span>
               <span :class="['footer-pnl', pnlDirClass(row)]">{{ pnlText(row.unrealizedPnl) }}</span>
             </span>
-            <span v-if="row.realizedPnl" class="pnl-item">
-              <span class="footer-label">已实现</span>
-              <span :class="['footer-pnl', pnlDir(row.realizedPnl)]">{{ pnlText(row.realizedPnl) }}</span>
+            <span class="pnl-item">
+              <span class="footer-label">比例</span>
+              <span :class="['footer-pnl', pnlDirClass(row)]">{{ pnlPercentText(row) }}</span>
             </span>
           </div>
         </div>
@@ -116,18 +121,48 @@ async function refreshQuotes() {
     localPositions.value = localPositions.value.map(s => {
       const code = (s.stockCode || s.code || '').replace(/^(sh|sz|bj)/, '')
       const q = map.get(code)
-      if (!q) return s
+      if (!q) {
+        // 如果没有找到行情数据，保留原有数据（包括今日盈亏信息）
+        return s
+      }
       changed = true
       const price = q.price ?? q.close
       const qty = Number(s.quantity || 0)
       const cost = Number(s.avgCost || 0)
       const mv = price != null ? price * qty : s.marketValue
       const pnl = price != null ? (price - cost) * qty : s.unrealizedPnl
+
+      // 尝试多个可能的字段名来获取涨跌幅和涨跌额
+      let changePercent = q.changePercent ?? q.percent ?? q.chg ?? q.change_percent ?? 0
+      let change = q.change ?? q.diff ?? q.priceChange ?? 0
+
+      // 如果没有涨跌额，用当前价和昨收价计算
+      if ((!change || change === 0) && price != null) {
+        const preClose = q.preClose ?? q.prevClose ?? q.previousClose ?? 0
+        if (preClose > 0) {
+          change = price - preClose
+          if (!changePercent) {
+            changePercent = (change / preClose) * 100
+          }
+        } else if (changePercent !== 0) {
+          change = price - price / (1 + changePercent / 100)
+        }
+      }
+
+      // 计算今天盈亏：涨跌额 × 持仓数量
+      const todayPnl = change * qty
+
+      // 确保值不为 null，如果是 0 也要保留
+      const finalChangePercent = (changePercent !== undefined && changePercent !== null) ? changePercent : 0
+      const finalTodayPnl = (todayPnl !== undefined && todayPnl !== null) ? todayPnl : 0
+
       return {
         ...s,
         currentPrice: price ?? s.currentPrice,
         marketValue: mv,
         unrealizedPnl: pnl,
+        todayChangePercent: finalChangePercent,
+        todayPnl: finalTodayPnl,
       }
     })
     if (changed) {
@@ -139,6 +174,8 @@ async function refreshQuotes() {
 const quoteTimer = useTradingInterval(refreshQuotes, props.refreshInterval)
 
 onMounted(() => {
+  // 立即刷新一次行情，获取当日涨跌幅数据
+  refreshQuotes()
   if (props.autoRefresh) {
     quoteTimer.start()
   }
@@ -170,6 +207,11 @@ function priceDir(row: PositionItem) {
   return price >= cost ? 'up' : 'down'
 }
 
+function todayPnlDirClass(row: PositionItem) {
+  if (row.todayChangePercent == null) return ''
+  return Number(row.todayChangePercent) >= 0 ? 'up' : 'down'
+}
+
 function pnlPercentText(row: PositionItem) {
   const cost = Number(row.avgCost || 0)
   const price = Number(row.currentPrice || 0)
@@ -190,7 +232,7 @@ function pnlPercentText(row: PositionItem) {
 
 .position-grid {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 
 .position-card {
@@ -284,7 +326,7 @@ function pnlPercentText(row: PositionItem) {
 }
 
 .position-card-current {
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 
@@ -298,15 +340,31 @@ function pnlPercentText(row: PositionItem) {
 }
 
 .position-card-mv {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
+  font-size: 16px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
+  color: var(--el-text-color-primary);
+}
+
+.position-card-today-pnl {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+
+  &.up {
+    color: #f56c6c;
+  }
+
+  &.down {
+    color: #67c23a;
+  }
 }
 
 .position-card-details {
   display: flex;
   gap: 16px;
   margin-bottom: 10px;
+  justify-content: space-between;
 }
 
 .detail-item {

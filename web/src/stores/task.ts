@@ -20,6 +20,8 @@ const TASK_LABELS: Record<string, string> = {
   sync_daily: '日线数据同步',
   init_stock_pool: '股票池初始化',
   quick_init: '快速初始化',
+  refresh_quotes: '行情刷新',
+  sync_daily_incremental: '增量日线同步',
 }
 
 export function getTaskLabel(task: string): string {
@@ -202,6 +204,8 @@ export const useTaskStore = defineStore('task', {
           if (this.tasks['init_daily_data']) delete this.tasks['init_daily_data']
           if (this.tasks['init_stock_pool']) delete this.tasks['init_stock_pool']
           if (this.tasks['quick_init']) delete this.tasks['quick_init']
+          if (this.tasks['refresh_quotes']) delete this.tasks['refresh_quotes']
+          if (this.tasks['sync_daily_incremental']) delete this.tasks['sync_daily_incremental']
         }
 
         const scrRes: any = await screeningApi.syncProgress().catch(() => null)

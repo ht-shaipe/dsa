@@ -37,4 +37,4 @@ Thumbs.db
 .env.local
 
 .deveco
-.claude
+.claude.version

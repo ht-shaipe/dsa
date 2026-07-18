@@ -18,8 +18,8 @@
         </div>
         <el-divider direction="vertical" />
         <div class="summary-item">
-          <span class="summary-label">已实现盈亏</span>
-          <span :class="['summary-value', pnlClass(summary.realizedPnl)]">{{ pnlText(summary.realizedPnl) }}</span>
+          <span class="summary-label">持仓数</span>
+          <span class="summary-value">{{ summary.positionCount || 0 }}</span>
         </div>
         <el-divider direction="vertical" />
         <div class="summary-item">
@@ -31,11 +31,6 @@
           <span :class="['summary-value', pnlClass(summary.totalPnl)]">
             {{ (Number(summary.totalPnl || 0) >= 0 ? '+' : '') }}{{ formatNum(summary.totalPnlPct || pnlPercent, 2) }}%
           </span>
-        </div>
-        <el-divider direction="vertical" />
-        <div class="summary-item">
-          <span class="summary-label">持仓数</span>
-          <span class="summary-value">{{ summary.positionCount || 0 }}</span>
         </div>
       </div>
     </el-card>
@@ -51,7 +46,7 @@
                 <el-button type="danger" @click="openTradeDialog('sell')">卖出</el-button>
                 <el-button type="primary" @click="openBatchDialog">批量录入</el-button>
                 <el-button type="warning" @click="ocrDialogVisible = true">截图导入</el-button>
-                <el-button @click="rebuildPositions" :loading="rebuilding">重建持仓</el-button>
+                <el-button @click="rebuildPositions" :loading="rebuilding"> 刷新持仓</el-button>
               </div>
             </div>
           </template>
@@ -60,6 +55,7 @@
             :columns="4"
             empty-text="暂无持仓，点击「买入」添加"
             @click="onPositionClick"
+            @quotesUpdated="onQuotesUpdated"
           />
         </el-card>
       </el-col>
@@ -330,6 +326,26 @@ const pnlPercent = computed(() => {
   return (tp / (tv - tp)) * 100
 })
 
+function onQuotesUpdated(updatedPositions: any[]) {
+  // 当实时行情更新时，同步更新持仓数据和统计数据
+  positions.value = updatedPositions
+
+  // 重新计算统计数据
+  const totalValue = updatedPositions.reduce((sum, p) => sum + (p.marketValue || 0), 0)
+  const totalCost = updatedPositions.reduce((sum, p) => sum + ((p.avgCost || 0) * (p.quantity || 0)), 0)
+  const totalPnl = updatedPositions.reduce((sum, p) => sum + (p.unrealizedPnl || 0), 0)
+  const cashBalance = summary.value.cashBalance || 0
+
+  summary.value = {
+    ...summary.value,
+    totalValue,
+    totalCost,
+    totalPnl,
+    totalEquity: totalValue + cashBalance,
+    positionCount: updatedPositions.length,
+  }
+}
+
 function onPositionClick(row: any) {
   tradeForm.value.code = row.stockCode || row.code || ''
   tradeForm.value.name = row.stockName || row.name || ''
@@ -404,10 +420,10 @@ async function rebuildPositions() {
   try {
     const res: any = await portfolioApi.rebuild(accountId)
     const count = res?.rebuiltPositions ?? 0
-    ElMessage.success(`持仓重建完成: ${count} 个持仓已从交易记录重新计算`)
+    ElMessage.success(`持仓 刷新完成: ${count} 个持仓已从交易记录重新计算`)
     loadData()
   } catch {
-    ElMessage.error('重建持仓失败')
+    ElMessage.error(' 刷新持仓失败')
   } finally {
     rebuilding.value = false
   }
@@ -554,7 +570,7 @@ async function submitEditTrade() {
   try {
     const { id, code, name, direction, tradeDate, price, quantity, commission, remark } = editTradeForm.value
     await portfolioApi.editTrade({ id, code, name, direction, price, quantity, commission, remark, tradeDate: tradeDate || undefined })
-    ElMessage.success('交易修改成功，持仓已重建')
+    ElMessage.success('交易修改成功，持仓已 刷新')
     editTradeDialogVisible.value = false
     loadData()
   } catch {
@@ -569,7 +585,7 @@ async function handleDeleteTrade(row: any) {
   const code = row.stockCode || row.code || ''
   try {
     await ElMessageBox.confirm(
-      `确认删除 ${code} ${dir} ${row.quantity}股 @${Number(row.price || 0).toFixed(2)} 的交易记录？持仓将自动重建。`,
+      `确认删除 ${code} ${dir} ${row.quantity}股 @${Number(row.price || 0).toFixed(2)} 的交易记录？持仓将自动 刷新。`,
       '删除交易',
       { confirmButtonText: '确认删除', cancelButtonText: '取消', type: 'warning' },
     )
@@ -578,7 +594,7 @@ async function handleDeleteTrade(row: any) {
   }
   try {
     await portfolioApi.deleteTrade(row.id)
-    ElMessage.success('交易已删除，持仓已重建')
+    ElMessage.success('交易已删除，持仓已 刷新')
     loadData()
   } catch {
     ElMessage.error('删除交易失败')

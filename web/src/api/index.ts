@@ -5,7 +5,8 @@ import { ElMessage } from 'element-plus'
 
 export function getApiBase(): string {
   if (typeof window !== 'undefined' && ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__)) {
-    return 'http://127.0.0.1:18080/api/v1'
+    const port = (window as any).__DSA_API_PORT__ || 18080
+    return `http://127.0.0.1:${port}/api/v1`
   }
   return '/api/v1'
 }
@@ -18,7 +19,7 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
   const auth = useAuthStore()
-  if (auth.token && auth.token !== 'local-dev') {
+  if (auth.token) {
     config.headers.Authorization = auth.token
   }
   return config
@@ -57,16 +58,6 @@ export function callApi(module: string, method: string, params: Record<string, a
 
 export function callApiWithTimeout(module: string, method: string, params: Record<string, any> = {}, timeout: number = 120000): Promise<any> {
   return api.post(`/${module}/${method}`, params, { timeout })
-}
-
-export async function remoteRegister(mobile: string, password: string, name?: string): Promise<any> {
-  const params: Record<string, any> = { mobile, password }
-  if (name) params.name = name
-  const { data } = await axios.post(`${getApiBase()}/auth/register`, params)
-  if (data?.code !== 200) {
-    throw new Error(data?.message || '注册失败')
-  }
-  return data.result
 }
 
 export default api

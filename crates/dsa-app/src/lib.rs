@@ -141,8 +141,10 @@ pub fn run(server_port: u16) {
 
             if !is_dev {
                 let window = app.get_webview_window("main").unwrap();
-                let url = format!("http://127.0.0.1:{}", server_port);
-                let _ = window.eval(&format!("window.location.replace('{}')", url));
+                let _ = window.eval(&format!(
+                    "window.__DSA_API_PORT__ = {}",
+                    server_port
+                ));
             }
 
             Ok(())

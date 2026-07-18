@@ -285,6 +285,7 @@ fn collect_models() -> Vec<(&'static str, Class)> {
         ("alert_notifications", AlertNotification::class()),
         ("alert_cooldowns", AlertCooldown::class()),
         ("watchlist_stocks", WatchlistStock::class()),
+        ("screening_results", ScreeningResult::class()),
         ("stock_pool", StockPool::class()),
         ("stock_quote", StockQuote::class()),
         ("conversation_messages", ConversationMessage::class()),
@@ -622,6 +623,7 @@ fn collect_alter_migrations_mysql() -> Vec<(&'static str, &'static str)> {
         ("v3_stock_daily_date_index", "ALTER TABLE stock_daily ADD INDEX `idx_stock_daily_date` (`trade_date`)"),
         ("v3_stock_daily_status_index", "ALTER TABLE stock_daily ADD INDEX `idx_stock_daily_code_status` (`stock_code`, `status`)"),
         ("v6_analysis_history_data_as_of", "ALTER TABLE analysis_history ADD COLUMN IF NOT EXISTS `data_as_of` VARCHAR(255) DEFAULT '' COMMENT '数据基准时间'"),
+        ("v7_stock_quote_modify_time", "ALTER TABLE stock_quote ADD COLUMN IF NOT EXISTS `modify_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间'"),
     ]
 }
 
@@ -751,6 +753,7 @@ fn collect_alter_migrations_sqlite() -> Vec<(&'static str, &'static str)> {
         // v5: stock_quote 唯一索引
         ("v5_stock_quote_unique", "CREATE UNIQUE INDEX IF NOT EXISTS \"idx_stock_quote_code_date\" ON \"stock_quote\" (\"stock_code\", \"trade_date\")"),
         ("v6_analysis_history_data_as_of", "ALTER TABLE \"analysis_history\" ADD COLUMN \"data_as_of\" TEXT DEFAULT ''"),
+        ("v7_stock_quote_modify_time", "ALTER TABLE \"stock_quote\" ADD COLUMN \"modify_time\" TEXT"),
     ]
 }
 

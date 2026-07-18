@@ -3,182 +3,11 @@
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use tube_web::sse_channel;
 
-// ===== 意图识别 =====
-
-#[derive(Debug, Clone)]
-enum ChatIntent {
-    StockQuery { code: String, name: String },
-    MarketOverview,
-    SectorQuery { keyword: String },
-    General,
-}
-
-/// 从消息中提取6位股票代码
-fn extract_stock_code(message: &str) -> Option<String> {
-    let re = regex::Regex::new(r"(?i)(?:sh|sz)?(\d{6})").ok()?;
-    let caps = re.captures(message)?;
-    let code = caps.get(1)?.as_str().to_string();
-    if code.starts_with('6')
-        || code.starts_with('9')
-        || code.starts_with('0')
-        || code.starts_with('3')
-        || code.starts_with('8')
-        || code.starts_with('4')
-    {
-        Some(code)
-    } else {
-        None
-    }
-}
-
-/// 在线解析股票名称为代码（东方财富搜索API）
-async fn resolve_name_online(keyword: &str) -> Option<(String, String)> {
-    let url = format!(
-        "https://searchapi.eastmoney.com/api/suggest/get?input={}&type=14&token=D84BF7C9-6EC6-4CB1-A820-8738966D5C9B&count=3",
-        urlencoding::encode(keyword)
-    );
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .build().ok()?;
-    let resp = client
-        .get(&url)
-        .header("Referer", "https://so.eastmoney.com/")
-        .send()
-        .await
-        .ok()?;
-    if !resp.status().is_success() {
-        return None;
-    }
-    let json: serde_json::Value = resp.json().await.ok()?;
-    let items = json
-        .get("QuotationCodeTable")
-        .and_then(|v| v.get("Data"))
-        .and_then(|v| v.as_array())?;
-    for item in items {
-        let code = item
-            .get("Code")
-            .and_then(|c| c.as_str())
-            .unwrap_or_default();
-        let name = item
-            .get("Name")
-            .and_then(|n| n.as_str())
-            .unwrap_or_default();
-        let mkt = item
-            .get("MktNum")
-            .and_then(|m| m.as_str())
-            .unwrap_or_default();
-        let pure_code = if code.len() >= 6 {
-            &code[code.len() - 6..]
-        } else {
-            code
-        };
-        if pure_code.starts_with('6') || pure_code.starts_with('0') || pure_code.starts_with('3') {
-            let _full_code = if mkt == "1" {
-                format!("sh{}", pure_code)
-            } else {
-                format!("sz{}", pure_code)
-            };
-            return Some((pure_code.to_string(), name.to_string()));
-        }
-    }
-    None
-}
-
-/// 意图解析：判断用户想问什么
-async fn parse_intent(message: &str) -> ChatIntent {
-    if let Some(code) = extract_stock_code(message) {
-        return ChatIntent::StockQuery {
-            code,
-            name: String::new(),
-        };
-    }
-
-    let market_keywords = [
-        "大盘",
-        "指数",
-        "上证",
-        "深证",
-        "创业板",
-        "沪深",
-        "A股",
-        "市场",
-    ];
-    if market_keywords.iter().any(|k| message.contains(k)) {
-        return ChatIntent::MarketOverview;
-    }
-
-    let sector_keywords = ["板块", "概念", "行业", "题材"];
-    if sector_keywords.iter().any(|k| message.contains(k)) {
-        let kw = message
-            .replace(
-                |c: char| "板块概念行业题材的分析一下看看怎么最近请给推荐有哪些".contains(c),
-                "",
-            )
-            .trim()
-            .to_string();
-        return ChatIntent::SectorQuery {
-            keyword: if kw.is_empty() {
-                message.to_string()
-            } else {
-                kw
-            },
-        };
-    }
-
-    let stock_patterns = [
-        "分析",
-        "看看",
-        "怎么样",
-        "走势",
-        "买入",
-        "卖出",
-        "持仓",
-        "关注",
-        "推荐",
-        "估值",
-        "财报",
-        "业绩",
-        "分红",
-        "市盈",
-        "市净",
-    ];
-    if stock_patterns.iter().any(|k| message.contains(k)) {
-        let cleaned = message
-            .replace(
-                |c: char| {
-                    "的分析一下看看怎么样走势买入卖出持仓关注推荐估值财报业绩分红市盈市净请给"
-                        .contains(c)
-                },
-                "",
-            )
-            .trim()
-            .to_string();
-        if !cleaned.is_empty() && cleaned.len() >= 2 {
-            if let Some((code, name)) = resolve_name_online(&cleaned).await {
-                return ChatIntent::StockQuery { code, name };
-            }
-        }
-    }
-
-    if message.len() >= 2 && message.len() <= 6 && !message.contains(' ') {
-        if let Some((code, name)) = resolve_name_online(message).await {
-            return ChatIntent::StockQuery { code, name };
-        }
-    }
-
-    ChatIntent::General
-}
-
-// ===== 工具调用 =====
-
 fn symbol_from_code(code: &str) -> String {
-    if code.starts_with('6') || code.starts_with('9') {
-        format!("sh{}", code)
-    } else {
-        format!("sz{}", code)
-    }
+    dsa_agent::intent::symbol_from_code(code)
 }
+
+// ===== SSE-aware context fetchers (with progress callbacks) =====
 
 async fn fetch_stock_context(
     code: &str,
@@ -456,11 +285,11 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
             .send_data(&serde_json::to_string(&msg).unwrap_or_default())
             .await;
 
-        // ===== 意图识别 + 工具调用 =====
-        let intent = parse_intent(&message).await;
+        // ===== 意图识别 (shared) + SSE-aware context fetch =====
+        let intent = dsa_agent::intent::parse_intent(&message).await;
         let time_ctx = dsa_core::utils::current_time_context();
         let (system_prompt, data_context, detected_code) = match &intent {
-            ChatIntent::StockQuery { code, name } => {
+            dsa_agent::intent::ChatIntent::StockQuery { code, name } => {
                 let sp = if skill_name.is_empty() {
                     format!("你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。如果提供了实时数据，请基于数据进行分析。\n\n{}\n重要: 所有分析和建议必须针对当下时间，不得基于过时数据做出判断。", time_ctx)
                 } else {
@@ -476,39 +305,27 @@ pub async fn chat_stream(req: HttpRequest, payload: web::Payload) -> HttpRespons
                 let ctx = fetch_stock_context(code, name, &mut sender).await;
                 (sp, ctx, code.clone())
             }
-            ChatIntent::MarketOverview => {
+            dsa_agent::intent::ChatIntent::MarketOverview => {
                 let sp = format!("你是一位资深证券分析师助手，擅长分析大盘走势和市场情绪。请用中文回答，基于提供的指数数据给出市场研判。\n\n{}\n重要: 所有分析必须针对当下市场环境，不得套用历史结论。", time_ctx);
                 let ctx = fetch_market_context(&mut sender).await;
                 (sp, ctx, String::new())
             }
-            ChatIntent::SectorQuery { keyword } => {
+            dsa_agent::intent::ChatIntent::SectorQuery { keyword } => {
                 let sp = format!("你是一位资深证券分析师助手，用户关注\"{}\"相关板块。请用中文回答，分析该板块当下的投资机会和风险。\n\n{}\n重要: 分析必须基于当前市场环境，不得套用过时结论。", keyword, time_ctx);
                 let s = serde_json::json!({"type": "data_loading", "content": format!("正在获取{}板块数据...", keyword)});
                 let _ = sender.send_data(&serde_json::to_string(&s).unwrap_or_default()).await;
-                let search = dsa_agent::tools::search_tools::SearchTools::new();
-                let ctx = search.search_stock_news(keyword).await.ok().and_then(|r| {
-                    let items = r.get("results").and_then(|v| tube::Value::as_array(&v.clone()))?;
-                    let headlines: Vec<String> = items.iter().take(5).filter_map(|n| {
-                        let t = n.get("title").and_then(|t| t.as_str()).unwrap_or_default();
-                        if !t.is_empty() { Some(format!("- {}", t)) } else { None }
-                    }).collect();
-                    if headlines.is_empty() { None } else { Some(format!("【{}相关新闻】\n{}", keyword, headlines.join("\n"))) }
-                });
+                let ctx = dsa_agent::intent::fetch_sector_context_text(keyword).await;
                 (sp, ctx, String::new())
             }
-            ChatIntent::General => {
+            dsa_agent::intent::ChatIntent::General => {
                 (format!("你是一位资深证券分析师助手，擅长回答股票分析、技术指标、市场趋势等问题。请用中文回答。\n\n{}\n如果涉及具体股票或市场分析，请基于当下时间判断，不得使用过时数据。", time_ctx), None, String::new())
             }
         };
 
-        let user_content = if let Some(ctx) = data_context {
-            format!(
-                "{}\n\n---\n以下是实时市场数据，请基于这些数据回答：\n{}",
-                message, ctx
-            )
-        } else {
-            message.clone()
-        };
+        let user_content = dsa_agent::intent::build_user_content(
+            &message,
+            data_context.as_deref(),
+        );
 
         let body = value!({
             "model": &conf.llm.model,

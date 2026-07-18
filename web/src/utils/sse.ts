@@ -16,7 +16,7 @@ export function connectSSE(options: SSEOptions): { close: () => void } {
     'Accept': 'text/event-stream',
     ...(options.headers || {}),
   }
-  if (auth.token && auth.token !== 'local-dev') {
+  if (auth.token) {
     headers['Authorization'] = auth.token
   }
 

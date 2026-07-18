@@ -1,7 +1,13 @@
 <template>
   <div class="bottom-status-bar">
     <div class="status-left">
-      <template v-if="taskStore.hasRunningTasks">
+      <div v-if="syncPhase !== 'idle'" class="sync-status-section" :class="syncStatusClass">
+        <el-icon v-if="syncStatusIcon === 'loading'" class="is-loading" :size="13"><Loading /></el-icon>
+        <el-icon v-else-if="syncStatusIcon === 'success'" :size="13"><CircleCheckFilled /></el-icon>
+        <el-icon v-else-if="syncStatusIcon === 'error'" :size="13"><CircleCloseFilled /></el-icon>
+        <span class="sync-status-text">{{ syncStatusLabel }}</span>
+      </div>
+      <template v-if="otherRunningTasks.length > 0">
         <el-divider direction="vertical" />
         <el-popover
           placement="top-end"
@@ -14,7 +20,7 @@
             <div class="task-inline">
               <el-icon v-if="anyPaused" :size="13" color="var(--el-color-warning)"><VideoPause /></el-icon>
               <el-icon v-else class="is-loading" :size="13" color="var(--el-color-primary)"><Loading /></el-icon>
-              <span class="task-name" v-for="task in taskStore.runningTasks" :key="task.task">
+              <span class="task-name" v-for="task in otherRunningTasks" :key="task.task">
                 {{ getTaskLabel(task.task) }}
                 <template v-if="task.total > 0">
                   {{ task.done.toLocaleString() }}/{{ task.total.toLocaleString() }}
@@ -29,7 +35,7 @@
             </div>
           </template>
           <div class="popover-content">
-            <div v-for="task in taskStore.runningTasks" :key="task.task" class="popover-task">
+            <div v-for="task in otherRunningTasks" :key="task.task" class="popover-task">
               <div class="popover-task-header">
                 <span class="popover-task-name">{{ getTaskLabel(task.task) }}</span>
                 <el-tag v-if="task.paused" type="warning" size="small">已暂停</el-tag>
@@ -80,8 +86,10 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Loading, VideoPause, VideoPlay, Close } from '@element-plus/icons-vue'
+import { Loading, VideoPause, VideoPlay, Close, CircleCheckFilled, CircleCloseFilled } from '@element-plus/icons-vue'
 import { useTaskStore, getTaskLabel, getPhaseLabel } from '@/stores/task'
+import { syncPhase } from '@/composables/useAutoSync'
+import type { SyncPhase } from '@/composables/useAutoSync'
 
 declare const __APP_VERSION__: string
 
@@ -93,7 +101,64 @@ const isTauri = typeof window !== 'undefined' &&
 
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.1.0'
 
+const SYNC_TASKS = new Set(['refresh_quotes', 'sync_daily_incremental'])
+
+const otherRunningTasks = computed(() =>
+  taskStore.runningTasks.filter(t => !SYNC_TASKS.has(t.task))
+)
+
 const anyPaused = computed(() => taskStore.runningTasks.some(t => t.paused))
+
+const PHASE_LABELS: Record<SyncPhase, string> = {
+  idle: '',
+  checking_quotes: '检查行情数据...',
+  syncing_quotes: '同步行情数据...',
+  quotes_up_to_date: '行情数据已是最新',
+  checking_daily: '检查日线数据...',
+  syncing_daily: '同步日线数据...',
+  daily_up_to_date: '日线数据已是最新',
+  check_complete: '数据已是最新',
+  error: '数据检查失败',
+}
+
+function formatTaskProgress(taskName: string): string {
+  const task = taskStore.tasks[taskName]
+  if (!task || !task.running) return ''
+  if (task.total > 0) {
+    const pct = (task.done / task.total * 100).toFixed(0)
+    return `${task.done}/${task.total} ${pct}%`
+  }
+  return task.done > 0 ? `${task.done}` : ''
+}
+
+const syncStatusLabel = computed(() => {
+  const p = syncPhase.value
+  if (p === 'syncing_quotes') {
+    const progress = formatTaskProgress('refresh_quotes')
+    return progress ? `同步行情数据 ${progress}` : '同步行情数据...'
+  }
+  if (p === 'syncing_daily') {
+    const progress = formatTaskProgress('sync_daily_incremental')
+    return progress ? `同步日线数据 ${progress}` : '同步日线数据...'
+  }
+  return PHASE_LABELS[p] || ''
+})
+
+const syncStatusIcon = computed(() => {
+  const p = syncPhase.value
+  if (p === 'checking_quotes' || p === 'syncing_quotes' || p === 'checking_daily' || p === 'syncing_daily') return 'loading'
+  if (p === 'quotes_up_to_date' || p === 'daily_up_to_date' || p === 'check_complete') return 'success'
+  if (p === 'error') return 'error'
+  return ''
+})
+
+const syncStatusClass = computed(() => {
+  const p = syncPhase.value
+  if (p === 'checking_quotes' || p === 'syncing_quotes' || p === 'checking_daily' || p === 'syncing_daily') return 'sync-active'
+  if (p === 'quotes_up_to_date' || p === 'daily_up_to_date' || p === 'check_complete') return 'sync-success'
+  if (p === 'error') return 'sync-error'
+  return ''
+})
 
 async function pauseTask(task: string) { await taskStore.pauseTask(task) }
 async function resumeTask(task: string) { await taskStore.resumeTask(task) }
@@ -125,6 +190,32 @@ async function stopTask(task: string) { popoverVisible.value = false; await task
   gap: 10px;
   min-width: 0;
   overflow: hidden;
+}
+
+.sync-status-section {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  transition: opacity 0.3s;
+  font-size: 12px;
+
+  &.sync-active {
+    color: var(--el-color-primary);
+  }
+  &.sync-success {
+    color: var(--el-color-success);
+  }
+  &.sync-error {
+    color: var(--el-color-danger);
+  }
+}
+
+.sync-status-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
 .status-item {

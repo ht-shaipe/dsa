@@ -156,7 +156,7 @@ async function loadHistory() {
     const sessionMap = new Map<string, ChatMessage[]>()
     const sessionOrder: string[] = []
     for (const m of messages) {
-      const sid = m.session_id || ''
+      const sid = m.sessionId || m.session_id || ''
       if (!sessionMap.has(sid)) {
         sessionMap.set(sid, [])
         sessionOrder.push(sid)
@@ -211,11 +211,11 @@ async function sendMessage() {
 
   try {
     const token = authStore.token
-    const apiBase = ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) ? 'http://127.0.0.1:18080' : ''
+    const apiBase = ((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__) ? `http://127.0.0.1:${(window as any).__DSA_API_PORT__ || 18080}` : ''
     const response = await fetch(`${apiBase}/api/v1/agent/chat/stream?token=${token}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, skill: chatStore.currentSkill, session_id: chatStore.sessions[chatStore.currentSessionIdx]?.session_id }),
+      body: JSON.stringify({ message: msg, skill: chatStore.currentSkill, sessionId: chatStore.sessions[chatStore.currentSessionIdx]?.session_id }),
     })
 
     if (!response.ok || !response.body) {
@@ -302,7 +302,7 @@ onMounted(async () => {
 <style scoped lang="scss">
 .chat-page {
   display: flex;
-  height: calc(100vh - 100px);
+  height: calc(100vh - 130px);
   background: var(--el-bg-color);
   border-radius: 8px;
   overflow: hidden;

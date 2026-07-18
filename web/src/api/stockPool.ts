@@ -13,4 +13,6 @@ export const stockPoolApi = {
     callApi('stock_pool', 'init_pool', params || {}),
   count: () =>
     callApi('stock_pool', 'count'),
+  refreshQuotes: () =>
+    callApi('stock_pool', 'refresh_quotes'),
 }

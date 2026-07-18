@@ -1,10 +1,10 @@
-import { callApi } from './index'
+import { callApi, callApiWithTimeout } from './index'
 
 export const stockApi = {
   search: (query: string) => callApi('stock', 'search', { query }),
   quote: (code: string) => callApi('stock', 'quote', { code }),
   quotes: (codes: string) => callApi('stock', 'quotes', { codes }),
-  kline: (params: { code: string; period?: string; startDate?: string; endDate?: string; adjust?: string }) => callApi('stock', 'kline', params),
+  kline: (params: { code: string; period?: string; startDate?: string; endDate?: string; adjust?: string }) => callApiWithTimeout('stock', 'kline', params, 30000),
   history: (params: { code: string; days?: number }) => callApi('stock', 'history', params),
   info: (code: string) => callApi('stock', 'info', { code }),
   watchlist: () => callApi('stock', 'watchlist'),
